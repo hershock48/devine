@@ -2,38 +2,44 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /*
-    THE HOST SPLIT, per glaze/proposal.md. The pitch host serves the proposal at its
-    root and the demo under /demo; DeVine's own domain, if this becomes their site,
-    serves the site at its root with no proposal anywhere.
+    ROUTING, and why it is deliberately not clever.
 
-    These MUST be beforeFiles. A plain rewrites() array is afterFiles, which only runs
-    once Next has failed to find a page, and src/app/page.tsx already answers /, so the
-    root rewrite would silently never fire.
+      /      the proposal
+      /demo  the concept build, once it exists (says so plainly until then)
 
-    Host scoping rather than basePath, because basePath is global to a build and would
-    bury the real site under /demo the day devinesflowersandbotanicals.com goes live.
+    This used to be scoped with `has: [{ type: "host", value: "..." }]`, so that only
+    the pitch domain served the proposal. That cost us: the rule said
+    "devines.glazedweb.com", the domain attached in Vercel was "devine.glazedweb.com",
+    the condition quietly did not match, and / fell through to the placeholder. The app
+    was behaving exactly as written, and the URL looked broken to the person we sent it
+    to. A rule that fails by silently serving the wrong page is a bad rule.
 
-    NOTE: the concept build does not exist yet. Until it does, /demo on the pitch host
-    resolves to the placeholder in src/app/page.tsx, which says so plainly rather than
-    pretending. Do not send anyone a /demo link before that page is a real site.
+    So the host condition is gone. There is one destination for /, it does not depend on
+    which name the request arrived under, and the .vercel.app URL serves what the custom
+    domain serves. Nothing to keep in sync, nothing to typo, no way to land on the
+    placeholder by accident.
 
-    DELETE this whole block, and public/pitch/, once DeVine's signs or passes.
+    /demo is a real route (src/app/demo/page.tsx) rather than a rewrite back into the
+    app, because a route that exists is easier to reason about than a rewrite that
+    points at another rewrite.
+
+    Still beforeFiles: afterFiles only runs once Next has failed to find a route, and a
+    rewrite for / has to win before the router looks.
+
+    Duplicate-content risk on the extra hostname is handled where it belongs, in the
+    X-Robots-Tag below and in src/app/robots.ts, both of which apply on every host.
+
+    DELETE this rewrite, and public/pitch/, once DeVine's signs or passes.
   */
   async rewrites() {
-    const onPitchHost = [{ type: "host" as const, value: "devine.glazedweb.com" }];
     return {
-      beforeFiles: [
-        { source: "/", destination: "/pitch/devine/index.html", has: onPitchHost },
-        { source: "/demo", destination: "/", has: onPitchHost },
-        { source: "/demo/:path*", destination: "/:path*", has: onPitchHost },
-      ],
+      beforeFiles: [{ source: "/", destination: "/pitch/devine/index.html" }],
     };
   },
 
   // NOINDEX WHILE THIS IS A PITCH. See the note in src/app/robots.ts.
-  // This covers the pitch host and the .vercel.app host, which proposal.md requires:
-  // the .vercel.app host is the same duplicate-content risk and is indexable by default.
-  // Remove this and the robots rule together on the day the site becomes theirs.
+  // Applies to every host, so the .vercel.app name is covered as well as the custom
+  // domain. Remove this and the robots rule together on the day this becomes their site.
   async headers() {
     return [
       { source: "/:path*", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] },

@@ -12,8 +12,8 @@ yet. Read `glaze.md` in the `glazedweb` repo before touching any of this.
 | `public/pitch/devine/index.html` | The proposal. One self-contained file, no build step, hand-editable on a phone if a call goes sideways. |
 | `public/pitch/devine/og.jpg` | The proposal's link card, 1200x630, 44KB. Rendered from a real page, not assembled by hand. |
 | `public/pitch/devine/icon.png` | Favicon, 256px. |
-| `src/app/page.tsx` | Placeholder. On the pitch host this answers `/demo`. **Do not send anyone a `/demo` link until this is a real site.** |
-| `next.config.ts` | The host split and the noindex headers. |
+| `src/app/demo/page.tsx` | Placeholder, at `/demo`. **Do not send anyone a `/demo` link until this is a real site.** |
+| `next.config.ts` | The root rewrite and the noindex headers. |
 | `src/app/robots.ts` | Search engines out, social card scrapers in. |
 
 ## Zero to live
@@ -28,6 +28,10 @@ yet. Read `glaze.md` in the `glazedweb` repo before touching any of this.
    - The response carries `X-Robots-Tag: noindex, nofollow`.
    - `https://devine.glazedweb.com/pitch/devine/og.jpg` returns 200 and an image
      content type.
+
+   If a URL looks stale in your browser, check `x-vercel-cache` in the response before
+   touching any code. `MISS` means the origin is fresh and the stale copy is local to
+   you, so hard refresh. This already cost one round trip.
 4. Paste the link into Messages **and** into one non-Apple surface, and look at the
    card. Apple's preview is fetched by the sending device, so a card can look right in
    Messages and be empty everywhere else.

@@ -1,13 +1,17 @@
 /*
-  THE PLACEHOLDER.
+  THE PLACEHOLDER, at /demo.
 
-  On devine.glazedweb.com this page answers /demo, because of the host split in
-  next.config.ts. The concept build does not exist yet, and the honest behaviour for a
-  route that has nothing behind it is to say so rather than to render an empty shell
-  that reads as a broken site.
+  A real route now, not a rewrite target. The concept build does not exist yet, and the
+  honest behaviour for a route with nothing behind it is to say so rather than render an
+  empty shell that reads as a broken site.
 
-  The moment the real build lands, this file is replaced by the homepage and the words
-  below go away. Until then: do not send this URL to anybody.
+  This page can only ever be reached by asking for /demo. It is no longer possible for
+  it to answer / by accident, which is exactly what went wrong before: the root rewrite
+  was scoped to a hostname, the hostname was spelled wrong, and the client got this page
+  when they should have got the proposal.
+
+  When the real build lands, this becomes the homepage of the concept site. Until then:
+  do not send anyone a /demo link.
 */
 export default function Placeholder() {
   return (
@@ -50,7 +54,7 @@ export default function Placeholder() {
           Nothing here yet.
         </h1>
         <p style={{ color: "#6B5747", fontSize: "17px", lineHeight: 1.6, margin: 0 }}>
-          This address is reserved for a concept build that has not been made. The
+          This address is reserved for a concept build that has not been made yet. The
           proposal is at the root of this domain.
         </p>
       </div>
