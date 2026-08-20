@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Glazed Web &times; DeVine's Flowers &amp; Botanicals &middot; Proposal</title>
+<meta name="description" content="A website proposal for DeVine's Flowers &amp; Botanicals in Marshall, Michigan. Every claim links to the evidence.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Glazed Web">
+<meta property="og:url" content="https://devines.glazedweb.com/">
+<meta property="og:title" content="Does your website look like your flowers?">
+<meta property="og:description" content="A website proposal for DeVine's Flowers &amp; Botanicals, where every claim links to the proof.">
+<meta property="og:image" content="https://devines.glazedweb.com/pitch/devines/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Does your website look like your flowers? A proposal from Glazed Web.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Does your website look like your flowers?">
+<meta name="twitter:description" content="A website proposal for DeVine's Flowers &amp; Botanicals, where every claim links to the proof.">
+<meta name="twitter:image" content="https://devines.glazedweb.com/pitch/devines/og.jpg">
+<meta name="theme-color" content="#FDF6EC">
+<link rel="icon" type="image/png" sizes="256x256" href="/pitch/devines/icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/pitch/devines/apple-touch-icon.png">
+<style>
+:root{
+ --paper:#FDF6EC; --paper2:#FFF7EA; --card:#FFFDF8;
+ --ink:#2B1E16; --ink2:#201712; --body:#6B5747; --mute:#7A6753; --line:#E8DCC8;
+ --pink:#E84D8A; --pink-d:#CE3672; --pink-t:#FCE7F0;
+ /* Pink that has to survive on the paper background rather than on a card: --pink-d
+    measures 4.45 there, which is a fail, and 4.7 on --card, which is why the same
+    colour passes inside a claim and fails outside one. Token, not element. */
+ --pink-ink:#C9356F;
+ --green:#BFE07A; --green-b:#A9D65C; --green-d:#467C3D; --green-t:#F1F8DC;
+ --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+ --serif:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--paper);color:var(--body);font-family:var(--sans);font-size:16.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:760px;margin:0 auto;padding:0 24px}
+h1,h2,h3,h4,.k,.btn,nav,th,.num,.chip{font-family:var(--sans)}
+.k{font-size:12px;font-weight:700;letter-spacing:.3em;text-transform:uppercase;color:var(--green-d)}
+h2{font-size:clamp(30px,4.4vw,48px);font-weight:800;color:var(--ink);letter-spacing:-1.6px;line-height:1.08;margin:10px 0 14px}
+h3{font-size:19px;font-weight:800;color:var(--ink);margin:34px 0 10px;letter-spacing:-.4px}
+p{margin:0 0 14px}
+strong{color:var(--ink);font-weight:600}
+a{color:var(--pink-ink)}
+.rule{height:3px;width:52px;background:var(--pink);border-radius:2px;margin:0 0 18px}
+section{padding:60px 0;border-top:1px solid var(--line)}
+section:first-of-type{border-top:0}
+
+/* header */
+header{position:sticky;top:0;z-index:60;background:rgba(253,246,236,.93);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+header .wrap{display:flex;align-items:center;justify-content:space-between;height:62px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none}
+.brand .gl{height:34px;width:auto;display:block}
+.brand .bw{font-family:var(--sans);font-weight:800;font-size:19px;color:var(--ink);letter-spacing:-.6px;line-height:1.1}
+.brand .bw span{font-weight:350;color:var(--mute)}
+.brand span{font-size:.72rem;color:var(--mute);font-style:italic}
+nav{display:flex;gap:20px;font-size:.72rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
+nav a{color:var(--mute);text-decoration:none}
+nav a:hover{color:var(--pink-d)}
+@media(max-width:720px){nav{display:none}.brand>span:not(.bw){display:none}}
+
+/* hero */
+.hero{padding:66px 0 54px;text-align:left}
+.hero .mark{height:92px;width:auto;margin-bottom:24px;display:block}
+.hero h1{font-family:var(--sans);font-size:clamp(38px,5.5vw,60px);font-weight:800;color:var(--ink);letter-spacing:-2px;line-height:1.04}
+.hero h1 em{font-style:normal;color:var(--pink)}
+.hero .sub{font-size:1.12rem;color:var(--body);margin-top:20px;max-width:31em}
+.forwho{margin-top:26px;font-family:var(--sans);font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;color:var(--mute);line-height:1.9}
+.forwho b{color:var(--ink)}
+
+/* tldr */
+.tldr{background:var(--ink);color:#F6EFE4;border-radius:16px;padding:26px 26px 22px;margin-top:38px}
+/* The thesis box. One per letter, for the sentence the whole pitch hangs on. */
+.gap{background:var(--pink-t);border-left:5px solid var(--pink);border-radius:0 13px 13px 0;padding:24px 26px;margin:30px 0 14px}
+.gap .big{font-family:var(--sans);font-weight:800;font-size:1.35rem;line-height:1.3;color:var(--ink);letter-spacing:-.3px;margin:0 0 12px}
+.gap p{margin:0;font-size:1rem;line-height:1.65}
+.tldr .k{color:var(--green)}
+.demo .k{color:var(--green)}
+.tldr ul{list-style:none;margin:14px 0 0}
+.tldr li{display:flex;gap:12px;padding:9px 0;border-top:1px solid rgba(255,255,255,.1);font-size:.97rem;line-height:1.5}
+.tldr li:first-child{border-top:0}
+.tldr .n{font-family:var(--sans);font-weight:800;color:var(--green);flex:0 0 auto;font-size:.8rem;padding-top:3px}
+.tldr b{color:#fff}
+
+/* claim cards */
+.claim{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:18px 20px;margin:12px 0;transition:border-color .16s,transform .16s}
+.claim:hover{border-color:var(--pink);transform:translateY(-1px)}
+.claim h4{font-family:var(--sans);font-size:1rem;font-weight:800;color:var(--ink);margin-bottom:5px;letter-spacing:-.01em}
+.claim p{font-size:.95rem;margin:0}
+.claim .verify{display:inline-flex;align-items:center;gap:7px;margin-top:12px;font-family:var(--sans);font-size:.71rem;font-weight:700;
+ letter-spacing:.1em;text-transform:uppercase;color:var(--pink-d);text-decoration:none;border:1.5px solid var(--pink);
+ padding:7px 13px;border-radius:999px;transition:all .16s}
+.claim .verify:hover{background:var(--pink);color:#fff}
+.claim .verify.plain{border-color:var(--line);color:var(--mute);cursor:default}
+.claim .verify.plain:hover{background:transparent;color:var(--mute)}
+/* Same pill, usable outside a claim card (the Mopro pricing citation). */
+.verify.loose{display:inline-flex;align-items:center;gap:7px;margin-top:12px;font-family:var(--sans);font-size:.71rem;font-weight:700;
+ letter-spacing:.08em;text-transform:uppercase;color:var(--pink-ink);text-decoration:none;border:1.5px solid var(--pink);
+ border-radius:999px;padding:7px 14px;transition:all .16s}
+.verify.loose:hover{background:var(--pink);color:#fff}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:.83em;color:var(--mute)}
+
+/* price */
+.pricebox{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}
+.pricebox>div{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:20px}
+.pricebox .n{font-family:var(--sans);font-size:2rem;font-weight:800;color:var(--ink);letter-spacing:-.03em;line-height:1}
+.pricebox .l{font-size:.85rem;color:var(--mute);margin-top:7px;line-height:1.4}
+@media(max-width:600px){.pricebox{grid-template-columns:1fr}}
+
+/* demo cta */
+.demo{background:linear-gradient(135deg,#201712,#3A2416);color:#F6EFE4;border-radius:18px;padding:32px;margin:22px 0;text-align:center}
+/*
+  text-indent pays back the trailing letter-space. Centred type with .3em of tracking
+  carries an empty .3em after its last character, and the browser centres the box
+  including that space, so the words sit half a space left of centre. Everything else
+  in this block is centred on the same axis, which is what made it read as crooked.
+*/
+.demo .k{color:var(--green)}
+.demo-cta .k{text-indent:.3em}
+.demo h3{color:#fff;margin:10px 0 8px;font-size:1.4rem}
+/*
+  margin:0 auto, and NOT overridden inline. This paragraph is a 34em block inside a
+  centred parent: with margin:0 the block pins to the left edge and only its text
+  centres, which put this line visibly off-axis from the eyebrow and the button above
+  it. The auto margins centre the block itself.
+*/
+.demo p{color:#D8CBBA;font-size:.98rem;max-width:34em;margin:0 auto}
+.demo a{display:inline-block;background:var(--pink-d);color:#fff;font-family:var(--sans);font-weight:700;font-size:.82rem;box-shadow:0 6px 16px -6px rgba(206,54,114,.55);
+ letter-spacing:.09em;text-transform:uppercase;padding:15px 30px;border-radius:999px;text-decoration:none;transition:all .18s;
+ max-width:100%;text-indent:.09em;box-sizing:border-box}
+.demo a:hover{background:var(--green);color:var(--ink);transform:translateY(-2px)}
+/*
+  On a phone the address is nearly as wide as the card, and an inline-block that
+  outgrows its line does not centre, it overflows to the right: the button was sitting
+  13px off the axis with its shadow running under the card's edge. Smaller type and
+  tighter padding put it back inside, which matters because this is the one button in
+  the whole letter we are asking anyone to press, and this is the screen we are asking
+  them to press it on.
+*/
+@media(max-width:430px){
+ .demo{padding:26px 18px}
+ .demo a{font-size:.72rem;padding:14px 20px;letter-spacing:.06em;text-indent:.06em}
+}
+
+/* the proof list: measured claims, so they get ticks rather than bullets */
+.proof{list-style:none;margin:10px 0 4px}
+.proof li{position:relative;padding:7px 0 7px 26px;font-size:.97rem;border-top:1px solid var(--line)}
+.proof li:first-child{border-top:0}
+.proof li::before{content:"";position:absolute;left:2px;top:15px;width:9px;height:9px;border-radius:50%;background:var(--green-b)}
+.proof b{color:var(--ink)}
+
+/* steps */
+.step{display:flex;gap:18px;padding:18px 0;border-bottom:1px solid var(--line)}
+.step:last-child{border-bottom:0}
+.step .no{font-family:var(--sans);font-weight:800;font-size:.78rem;color:#fff;background:var(--pink);width:28px;height:28px;
+ border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.step h4{font-family:var(--sans);font-size:1rem;font-weight:800;color:var(--ink);margin-bottom:4px}
+.step p{font-size:.95rem;margin:0}
+
+footer{background:var(--ink);color:#B9A894;padding:44px 0;font-size:.86rem;margin-top:20px}
+footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+footer .gl-foot{height:62px;width:auto;opacity:.95}
+footer b{color:#F6EFE4;display:block;font-family:var(--sans);font-size:.95rem;margin-bottom:4px}
+footer .bw{display:block;font-weight:800;color:#F6EFE4;letter-spacing:-.6px;margin-bottom:5px}
+footer .bw span{font-weight:350;color:#A6907F}
+footer a{color:var(--green)}
+.conf{font-size:.72rem;color:#7A6A58;margin-top:14px;letter-spacing:.04em}
+.note{font-size:.85rem;color:var(--mute);font-style:italic;line-height:1.5}
+
+/* --- the mark, and its drip, lifted from glazedweb.com --- */
+.gmark{display:block;overflow:visible}
+.gmark .goo{transform-box:fill-box;transform-origin:50% 0;animation:breathe 6s ease-in-out infinite}
+.gmark .wob1,.gmark .wob2,.gmark .wob3,.gmark .wobB{transform-box:fill-box;transform-origin:50% 0}
+.gmark .wob1{animation:sagg 3.8s ease-in-out -.6s infinite}
+.gmark .wob2{animation:sagg 4.9s ease-in-out -2.1s infinite}
+.gmark .wob3{animation:sagg 4.3s ease-in-out -1.3s infinite}
+.gmark .wobB{animation:sagg 5.6s ease-in-out -3s infinite}
+.gmark .string{transform-box:fill-box;transform-origin:50% 0;animation:stringy 3.4s cubic-bezier(.55,.1,.8,.5) infinite}
+.gmark .droplet{transform-box:fill-box;transform-origin:center;animation:fall 3.4s cubic-bezier(.5,.08,.85,.6) infinite}
+.gmark .droplet2{transform-box:fill-box;transform-origin:center;animation:fall2 5.1s cubic-bezier(.5,.08,.85,.6) -2.4s infinite}
+@keyframes breathe{0%,to{transform:scaleY(1)}50%{transform:scaleY(1.02)}}
+@keyframes sagg{0%,to{transform:scaleY(1) scaleX(1)}50%{transform:scaleY(1.07) scaleX(.98)}}
+@keyframes stringy{0%{transform:scaleY(.1);opacity:0}25%{transform:scaleY(.8);opacity:1}60%{transform:scaleY(1.7);opacity:.85}80%{transform:scaleY(2.4);opacity:0}to{transform:scaleY(.1);opacity:0}}
+@keyframes fall{0%{transform:translateY(-16px) scaleY(1.5) scaleX(.7);opacity:0}22%{transform:translateY(-8px) scaleY(1.2) scaleX(.85);opacity:1}60%{transform:translateY(10px) scale(1);opacity:1}to{transform:translateY(38px) scaleY(1.15) scaleX(.9);opacity:0}}
+@keyframes fall2{0%{transform:translateY(-10px) scaleY(1.4) scaleX(.75);opacity:0}25%{transform:translateY(-4px) scale(1);opacity:1}65%{transform:translateY(8px) scale(1);opacity:1}to{transform:translateY(26px) scale(1);opacity:0}}
+@media (prefers-reduced-motion:reduce){
+ .gmark .goo,.gmark .wob1,.gmark .wob2,.gmark .wob3,.gmark .wobB,
+ .gmark .string,.gmark .droplet,.gmark .droplet2{animation:none}
+}
+.brand .gmark{height:38px;width:auto;margin-bottom:-6px}
+.hero .gmark{height:112px;width:auto;margin-bottom:26px}
+footer .gmark{height:78px;width:auto}
+.conf{color:#D8CBBA}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+ <a class="brand" href="#top" aria-label="Glazed Web">
+  <svg class="gmark gl" viewBox="0 0 200 250" overflow="visible" aria-hidden="true"><defs><linearGradient id="dgGrad" x1="0" y1="92" x2="0" y2="165" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#5FA850"></stop><stop offset="100%" stop-color="#43813A"></stop></linearGradient><linearGradient id="lgGrad" x1="0" y1="92" x2="0" y2="215" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#D9EDA0"></stop><stop offset="55%" stop-color="#BFE07A"></stop><stop offset="100%" stop-color="#A3CE55"></stop></linearGradient><radialGradient id="pinkGrad" cx="40%" cy="34%" r="75%"><stop offset="0%" stop-color="#F887B2"></stop><stop offset="55%" stop-color="#E84D8A"></stop><stop offset="100%" stop-color="#CE3672"></stop></radialGradient><linearGradient id="creepGrad" x1="0" y1="90" x2="0" y2="124" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#E3F2B0"></stop><stop offset="100%" stop-color="#C3E181"></stop></linearGradient></defs><g class="goo"><g fill="url(#dgGrad)"><ellipse cx="100" cy="110" rx="38" ry="15"></ellipse><path class="wobB" d="M 86 100 C 86 116, 87 130, 88 142 C 88 148, 91 149, 92 142 C 93 130, 92 114, 92 100 Z"></path><path d="M 114 100 C 114 112, 115 124, 116 134 C 116 140, 119 141, 120 134 C 121 124, 120 110, 120 100 Z"></path></g><g fill="url(#lgGrad)"><path class="wob1" d="M 64 100 C 63 120, 65 138, 66 152 C 66 164, 68 172, 74 173 C 80 172, 83 165, 82 154 C 84 136, 85 116, 86 100 Z"></path><path class="wob2" d="M 92 100 C 91 128, 93 152, 94 172 C 94 188, 97 199, 104 200 C 111 199, 114 190, 112 174 C 113 150, 114 124, 114 100 Z"></path><path class="wob3" d="M 120 100 C 119 116, 120 130, 121 142 C 121 152, 123 159, 129 160 C 134 159, 137 153, 135 144 C 136 130, 137 114, 137 100 Z"></path></g></g><path class="string" d="M 104 199 L 104 209" stroke="#BFE07A" stroke-width="2.5" stroke-linecap="round" fill="none"></path><g class="droplet"><circle cx="104" cy="213" r="7" fill="#BFE07A"></circle><circle cx="102" cy="211" r="2" fill="#F1F8DC" opacity="0.9"></circle></g><circle class="droplet2" cx="74" cy="186" r="4.5" fill="#BFE07A"></circle><circle cx="100" cy="70" r="52" fill="url(#pinkGrad)"></circle><path d="M 56 98 A 52 52 0 0 0 144 98 C 142 94, 138 92, 134 94 C 130 97, 129 102, 125 104 C 119 106, 116 98, 110 96 C 104 94, 103 102, 98 105 C 93 107, 90 100, 84 97 C 78 95, 76 100, 71 102 C 66 103, 62 100, 56 98 Z" fill="url(#creepGrad)"></path><path d="M 68 106 A 42 42 0 0 0 84 116" fill="none" stroke="#F1F8DC" stroke-width="4" stroke-linecap="round" opacity="0.85"></path><path d="M 97 144 Q 103 151 109 144" fill="none" stroke="#55974A" stroke-width="4" stroke-linecap="round"></path><g stroke="#F1F8DC" fill="none" stroke-linecap="round"><path d="M 97 128 C 96 148, 97 166, 100 182" stroke-width="4.5" opacity="0.85"></path><path d="M 69 118 C 68 132, 70 146, 71 156" stroke-width="3.5" opacity="0.8"></path><path d="M 124 114 C 123 124, 125 138, 126 148" stroke-width="3.5" opacity="0.8"></path></g><circle cx="100" cy="192" r="2.5" fill="#F1F8DC" opacity="0.9"></circle><circle cx="100" cy="72" r="13" fill="#FDF6EC"></circle><circle cx="100" cy="72" r="13" fill="none" stroke="#C22F6B" stroke-width="3" opacity="0.3"></circle><path class="sheen" d="M 62 46 A 44 44 0 0 1 82 28" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"></path><circle class="sheen" cx="92" cy="26" r="3.5" fill="#FFFFFF"></circle></svg>
+  <span class="bw">glazed<span>web</span></span>
+ </a>
+ <nav>
+  <a href="#found">Findings</a><a href="#own">Ownership</a><a href="#build">The site</a><a href="#green">Greening</a>
+ <a href="#cost">Cost</a><a href="#next">Next</a>
+ </nav>
+</div></header>
+<div class="hero" id="top"><div class="wrap">
+ <svg class="gmark mark" viewBox="0 0 200 250" overflow="visible" aria-hidden="true"><defs><linearGradient id="dgGrad" x1="0" y1="92" x2="0" y2="165" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#5FA850"></stop><stop offset="100%" stop-color="#43813A"></stop></linearGradient><linearGradient id="lgGrad" x1="0" y1="92" x2="0" y2="215" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#D9EDA0"></stop><stop offset="55%" stop-color="#BFE07A"></stop><stop offset="100%" stop-color="#A3CE55"></stop></linearGradient><radialGradient id="pinkGrad" cx="40%" cy="34%" r="75%"><stop offset="0%" stop-color="#F887B2"></stop><stop offset="55%" stop-color="#E84D8A"></stop><stop offset="100%" stop-color="#CE3672"></stop></radialGradient><linearGradient id="creepGrad" x1="0" y1="90" x2="0" y2="124" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#E3F2B0"></stop><stop offset="100%" stop-color="#C3E181"></stop></linearGradient></defs><g class="goo"><g fill="url(#dgGrad)"><ellipse cx="100" cy="110" rx="38" ry="15"></ellipse><path class="wobB" d="M 86 100 C 86 116, 87 130, 88 142 C 88 148, 91 149, 92 142 C 93 130, 92 114, 92 100 Z"></path><path d="M 114 100 C 114 112, 115 124, 116 134 C 116 140, 119 141, 120 134 C 121 124, 120 110, 120 100 Z"></path></g><g fill="url(#lgGrad)"><path class="wob1" d="M 64 100 C 63 120, 65 138, 66 152 C 66 164, 68 172, 74 173 C 80 172, 83 165, 82 154 C 84 136, 85 116, 86 100 Z"></path><path class="wob2" d="M 92 100 C 91 128, 93 152, 94 172 C 94 188, 97 199, 104 200 C 111 199, 114 190, 112 174 C 113 150, 114 124, 114 100 Z"></path><path class="wob3" d="M 120 100 C 119 116, 120 130, 121 142 C 121 152, 123 159, 129 160 C 134 159, 137 153, 135 144 C 136 130, 137 114, 137 100 Z"></path></g></g><path class="string" d="M 104 199 L 104 209" stroke="#BFE07A" stroke-width="2.5" stroke-linecap="round" fill="none"></path><g class="droplet"><circle cx="104" cy="213" r="7" fill="#BFE07A"></circle><circle cx="102" cy="211" r="2" fill="#F1F8DC" opacity="0.9"></circle></g><circle class="droplet2" cx="74" cy="186" r="4.5" fill="#BFE07A"></circle><circle cx="100" cy="70" r="52" fill="url(#pinkGrad)"></circle><path d="M 56 98 A 52 52 0 0 0 144 98 C 142 94, 138 92, 134 94 C 130 97, 129 102, 125 104 C 119 106, 116 98, 110 96 C 104 94, 103 102, 98 105 C 93 107, 90 100, 84 97 C 78 95, 76 100, 71 102 C 66 103, 62 100, 56 98 Z" fill="url(#creepGrad)"></path><path d="M 68 106 A 42 42 0 0 0 84 116" fill="none" stroke="#F1F8DC" stroke-width="4" stroke-linecap="round" opacity="0.85"></path><path d="M 97 144 Q 103 151 109 144" fill="none" stroke="#55974A" stroke-width="4" stroke-linecap="round"></path><g stroke="#F1F8DC" fill="none" stroke-linecap="round"><path d="M 97 128 C 96 148, 97 166, 100 182" stroke-width="4.5" opacity="0.85"></path><path d="M 69 118 C 68 132, 70 146, 71 156" stroke-width="3.5" opacity="0.8"></path><path d="M 124 114 C 123 124, 125 138, 126 148" stroke-width="3.5" opacity="0.8"></path></g><circle cx="100" cy="192" r="2.5" fill="#F1F8DC" opacity="0.9"></circle><circle cx="100" cy="72" r="13" fill="#FDF6EC"></circle><circle cx="100" cy="72" r="13" fill="none" stroke="#C22F6B" stroke-width="3" opacity="0.3"></circle><path class="sheen" d="M 62 46 A 44 44 0 0 1 82 28" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"></path><circle class="sheen" cx="92" cy="26" r="3.5" fill="#FFFFFF"></circle></svg>
+ <div class="k">Website proposal &middot; DeVine's Flowers &amp; Botanicals</div>
+ <h1>Does your website<br>look like your flowers?<br><em>Not yet.</em></h1>
+ <p class="sub">We went through devinesflowersandbotanicals.com page by page on August 20, 2026, and wrote down only what we could prove. Everything in this letter links back to the page it came from, so you can check us.</p>
+ <div class="forwho">
+  Prepared by <b>Kevin Hershock &middot; Glazed Web</b><br>
+  Marshall, Michigan &middot; August 2026<br>
+  <b>Every claim below links to the evidence.</b>
+ </div>
+</div></div>
+<section id="found"><div class="wrap">
+ <div class="k">Section one</div>
+ <div class="rule"></div>
+ <h2>What we found.</h2>
+
+ <div class="tldr">
+  <div class="k">The short version</div>
+  <ul>
+   <li><span class="n">01</span><span>Your name is spelled <b>four different ways</b> across your eight pages. The capital V in DeVine survives on two of them.</span></li>
+   <li><span class="n">02</span><span>Share your wedding page and the photo is <b>thrown away</b>. It is 150 pixels and Facebook's floor is 200.</span></li>
+   <li><span class="n">03</span><span>You moved into 800 Industrial Rd. <b>Seven listings still send people to 810</b>, the building next door.</span></li>
+   <li><span class="n">04</span><span>Four of those listings, your own chamber of commerce among them, <b>do not link your website at all</b>.</span></li>
+   <li><span class="n">05</span><span>Your old web address is still in Google and it now <b>forwards to your web designer's homepage</b>.</span></li>
+  </ul>
+ </div>
+
+ <div class="claim">
+  <h4>Four spellings of your own name, across eight pages</h4>
+  <p>The line that shows in a browser tab and at the top of a Google result carries your name on every page. We read all eight. Five of them say <span class="mono">"Devine's Flowers &amp; Botanicals"</span>. The shop page says <span class="mono">"DeVine's Flowers &amp; Botanicals"</span>. The shop and team page says <span class="mono">"DeVine's Flowers and Botanicals"</span>. And the sympathy page says <span class="mono">"Devine's Flower And Botanicals"</span>, singular, which is not your name at all. The capital V that makes DeVine yours survives on two pages out of eight.</p>
+  <p>While we were counting: your shop page, the one that takes money, carries no description tag, so Google writes its own summary of it out of whatever text it finds first.</p>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/" target="_blank" rel="noopener">Homepage &#8599;</a>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/shop/" target="_blank" rel="noopener">Shop &#8599;</a>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/funeral-arrangements/" target="_blank" rel="noopener">Sympathy page &#8599;</a>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/devines-flowers-and-botanicals/" target="_blank" rel="noopener">Shop and team &#8599;</a>
+ </div>
+
+ <div class="claim">
+  <h4>Share your wedding page and the picture disappears</h4>
+  <p>Every page carries a photo that travels with it when the link is texted, posted or pasted into a group chat. On your weddings page that photo is <span class="mono">IMG_7751-150x150.jpg</span>, and on your shop and team page it is another 150 by 150 file. Facebook's published minimum is 200 pixels on the shorter side; under that it drops the image and posts the bare link. So a bride who shares your work with her mother sends a gray box with a headline on it. You are a florist. The photograph is the pitch, and right now it is the one thing that does not make the trip.</p>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/wedding-florists/" target="_blank" rel="noopener">Weddings page &#8599;</a>
+ </div>
+
+ <div class="claim">
+  <h4>You moved buildings and seven listings never heard about it</h4>
+  <p>Your own site has the current address, <span class="mono">800 Industrial Rd.</span> Everywhere else still says <span class="mono">810 Industrial Rd</span>, the building next door: The Knot, WeddingWire, Yelp, Yahoo, the Birdeye review page, the gift-card listing, and the Choose Marshall chamber directory. We opened five of those ourselves; the other two print it in their own listing titles. Somebody who finds you through any of them and follows the map arrives at the wrong door, and the day that hurts most is the day of a funeral or a wedding.</p>
+  <p>Google reads the disagreement too. Whether a business gives the same name, address and phone everywhere is one of the things it weighs when it decides which florist to put first, and right now yours does not.</p>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/devines-flowers-and-botanicals/" target="_blank" rel="noopener">Your address on your site &#8599;</a>
+  <a class="verify" href="https://www.theknot.com/marketplace/devines-flowers-and-botanicals-marshall-mi-2080453" target="_blank" rel="noopener">The Knot &#8599;</a>
+  <a class="verify" href="https://www.weddingwire.com/biz/devines-flowers-botanicals/96f579ec0bf49c36.html" target="_blank" rel="noopener">WeddingWire &#8599;</a>
+  <a class="verify" href="https://choosemarshall.com/directory/harvester/" target="_blank" rel="noopener">Choose Marshall &#8599;</a>
+  <a class="verify" href="https://local.yahoo.com/info-233182229-devine-s-flowers-botanicals-boutique-marshall/" target="_blank" rel="noopener">Yahoo &#8599;</a>
+ </div>
+
+ <div class="claim">
+  <h4>And four of them do not link your website at all</h4>
+  <p>The Knot, WeddingWire, Yahoo and the Choose Marshall chamber directory carry your name and an address and no way to reach your site. The Knot and WeddingWire are where couples shop for a florist, and on both of them the only route to you is a quote request handled inside their platform. WeddingWire also prints a wedding starting price of <span class="mono">$2,000</span>, which is a number a couple is reading about you without ever seeing a photograph you chose.</p>
+  <a class="verify" href="https://www.theknot.com/marketplace/devines-flowers-and-botanicals-marshall-mi-2080453" target="_blank" rel="noopener">The Knot &#8599;</a>
+  <a class="verify" href="https://www.weddingwire.com/biz/devines-flowers-botanicals/96f579ec0bf49c36.html" target="_blank" rel="noopener">WeddingWire &#8599;</a>
+ </div>
+
+ <div class="claim">
+  <h4>Your old web address now forwards to your web designer</h4>
+  <p>Google still carries a page called <span class="mono">"A view into Our Shop &ndash; DeVine's Flowers &amp; Botanicals"</span> at <span class="mono">devineflowersandbotanicals.com</span>, your name without the middle s. That page is gone now, and the address itself sends visitors to <span class="mono">cwdesigning.com</span>. The footer of your current site reads <span class="mono">"Designed by: Creative Web Designing, Inc."</span>, so a web address carrying your name now points at the homepage of the firm that built your website.</p>
+  <p>Type it into your phone and watch where you end up. Then ask who controls that domain, and who controls the one you use now.</p>
+  <a class="verify" href="https://devineflowersandbotanicals.com/" target="_blank" rel="noopener">Try the old address &#8599;</a>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/" target="_blank" rel="noopener">The footer credit &#8599;</a>
+ </div>
+
+ <div class="claim">
+  <h4>"Upcoming Events" lists no events</h4>
+  <p>The events page has a heading that says Upcoming Events and then describes the kinds of things you do: flower workshops, seasonal plant events, DIY arrangements, market tours. Not one of them has a date. A workshop with a date on it is a thing somebody can put in their calendar and pay for. A workshop described in general is a paragraph.</p>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/events-in-marshall/" target="_blank" rel="noopener">See it live &#8599;</a>
+ </div>
+
+ <div class="claim">
+  <h4>The sympathy page opens with a quotation instead of a heading</h4>
+  <p>The main heading on your funeral page is the Helen Keller line about what we love deeply becoming part of us. It is a beautiful sentence and it is doing the wrong job: a heading is what Google reads to decide what the page is for, and yours does not contain the words a person types at the worst hour of their week. The summary Google prints underneath is worse. It reads <span class="mono">"Funeral Arrangements are thoughtfully designed compassion"</span>, which is not a sentence.</p>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/funeral-arrangements/" target="_blank" rel="noopener">See it live &#8599;</a>
+ </div>
+
+ <div class="claim">
+  <h4>The delivery page answers neither question a buyer has</h4>
+  <p>It lists eighteen towns and a column of zip codes, which is good. It does not say what delivery costs, and it does not say by what time you have to order to get flowers there today. Those are the only two things standing between a person on your delivery page and a purchase, and both of them currently require a phone call during business hours, which is the one thing the person shopping at 9pm cannot do.</p>
+  <a class="verify" href="https://devinesflowersandbotanicals.com/flower-and-plant-delivery/" target="_blank" rel="noopener">See it live &#8599;</a>
+ </div>
+
+ <div class="claim">
+  <h4>Your contact address is a Gmail account</h4>
+  <p>Every page invites people to write to <span class="mono">devinesflowersandbotanicals@gmail.com</span>. You own a perfectly good domain name and you are not sending mail from it. A bride comparing three florists reads that address, and of everything on the page it is the detail that says small in the way you do not want. Fixing it costs nothing and takes about twenty minutes, and we do it for clients as a matter of course.</p>
+  <a class="verify plain">Visible on every page</a>
+ </div>
+
+ <div class="gap">
+  <p class="big">4.8 stars from seventy Google reviews, and a website that reads like a directory listing.</p>
+  <p>None of the findings above is the real one. The real one is the distance
+  between what happens inside 800 Industrial Road and what a stranger sees when
+  they type your name. Inside there is a working design studio with four named
+  people in it, locally grown and seasonally sourced stems, sixty-six things for
+  sale, weddings booked six months out, funerals handled with care on the worst
+  day of somebody's life, and a plant program that keeps other businesses in town
+  green. Seventy people went out of their way to say so in public, and they
+  averaged 4.8. On the screen there is a set of keyword pages, a photo too small
+  to share, and four different spellings of DeVine. The flowers are the best
+  advertising you will ever own, and your website is where they go to get
+  smaller. Closing that gap is the entire reason for this letter.</p>
+ </div>
+
+ <p class="note">A note on how we did this. Everything above was read out of your
+ own pages on August 20, 2026 and every claim carries the link that proves it. We
+ could not open your site in a real browser from where this was written, so we
+ have deliberately left out anything about speed, layout on a phone, or how the
+ pages behave once they load. Those come next, in front of you, on your phone.</p>
+</div></section>
+<section id="own"><div class="wrap">
+ <div class="k">Section two</div>
+ <div class="rule"></div>
+ <h2>The part that matters most.</h2>
+
+ <h3>You are a portfolio item</h3>
+ <p>Your footer reads <span class="mono">"Designed by: Creative Web Designing, Inc."</span> They are a website company in Coldwater whose portfolio is sorted into industry categories: florists, electricians, tree removal, heating and cooling, restaurants, real estate, construction. You are filed under Florist. There is one other business in there with you, Neitzert's Greenhouse.</p>
+ <p><strong>Open both sites and you are looking at the same website twice.</strong> Same WordPress, same WooCommerce store, same grid of category tiles, same footer, same credit line, right down to the copyright reading <span class="mono">"&copy; [name] 2026"</span> in the same position. Yours is a florist-shaped form that somebody filled in with your words.</p>
+ <a class="verify loose" href="https://www.cwdesigning.com/index.php/portfolio-category/florist/" target="_blank" rel="noopener">Their florist portfolio, with you in it &#8599;</a>
+ <a class="verify loose" href="https://neitzertsgreenhouse.com/" target="_blank" rel="noopener">The other florist &#8599;</a>
+
+ <h3>Which is the whole explanation for section one</h3>
+ <p>Nobody spelled your name four different ways because they were careless. It happens because there is no single place in that system where your name is stored. Eight pages, each one typed by hand, by somebody who has never stood in your cooler and never will. The same reason your sympathy heading is a quotation, your events page has no events, and your delivery page has no price on it. None of that is a mistake anybody made. It is what a filled-in form looks like a year later.</p>
+ <p>The other thing worth saying plainly: your website is currently working as advertising for the company that built it. It is on their site, under their name, being shown to the next florist who calls them.</p>
+
+ <div class="demo" style="text-align:left;background:var(--card);color:var(--body);border:2px solid var(--green)">
+  <div class="k" style="color:var(--green-d)">What we would do instead</div>
+  <h3 style="color:var(--ink);margin-top:8px">You own it. All of it.</h3>
+  <p style="color:var(--body);margin:0">When the build fee is paid, the site is yours in writing: design, source code, content, accounts. The domain is registered in your name and transferred to you free whenever you ask. Month to month after launch, thirty days' notice, no penalty. If you ever leave, you take everything with you, working.</p>
+ </div>
+
+ <h3>Three questions worth asking any web vendor, including us</h3>
+ <p><strong>1.</strong> If we stop paying you, what do we keep? <strong>2.</strong> Whose name is every domain we have ever used registered in, the old one included, and where does each of them point today? <strong>3.</strong> Can we see the price of a new feature before it is added? Our answers are: everything, yours, and yes. Ask us the same three in person and hold us to them.</p>
+
+ <p class="note">The second question is not rhetorical, and section one is why we
+ put it there. A web address with your name on it is an asset, the same as the
+ sign on the building. It is worth knowing where all of yours point, and who can
+ change that.</p>
+</div></section>
+<section id="build"><div class="wrap">
+ <div class="k">Section three</div>
+ <div class="rule"></div>
+ <h2>What we would build.</h2>
+ <p>One site, written by hand, on your own domain, replacing everything you have now. No templates and no page builder, which is why the things in section one cannot happen on it.</p>
+
+ <h3>What is in it</h3>
+ <p><strong>A shop that behaves like a florist, not like a catalog.</strong> All sixty-six arrangements across your eight categories, carried over with your photography, and then the two things the current store does not do: a delivery box that takes a zip code and answers <em>yes we come to you, here is what it costs</em>, and a date picker that knows what time it is. Order by the cutoff and it offers today. Order after it and it offers tomorrow, so nobody buys a same-day delivery at midnight and nobody has to call to find out.</p>
+ <p><strong>Checkout that does not rent anything.</strong> Card payment runs on Stripe's own page, so card numbers never touch your website and there is nothing on it for anyone to steal. There is no store plugin, no store subscription and no per-feature upsell underneath it. What you pay is at the end of this letter and that is all of it.</p>
+ <p><strong>Weddings, sold the way you actually sell them.</strong> Your five-step process is already good copy and it stays. What goes on top of it is a real inquiry form: date, venue, rough size, colors, a photo upload for the pictures every couple has saved on their phone anyway. It arrives in your inbox as a filled-in brief instead of an email that says "hi, do you do weddings," and it books the consultation you already ask people to schedule six months out.</p>
+ <p><strong>Sympathy handled with care.</strong> The Keller line stays, because it belongs on that page. It stops being the heading. Underneath it goes the thing a family actually needs at 11pm: the arrangements, what each one is, delivery to the funeral home by a stated time, and a card message field that does not make them phone a stranger to say it out loud.</p>
+ <p><strong>Events with dates on them.</strong> A workshop is a date, a price, a number of seats and a button. The same page runs the seasonal events and the market tours, and when a date passes it takes itself off the page. Nobody has to remember to do that.</p>
+ <p><strong>Your four designers, on the page, by name.</strong> Gayle, Becky, Lacey and Shawna are the reason people come back, and a small photo and two real sentences each does more for a wedding inquiry than any paragraph about quality ever written.</p>
+ <p><strong>The name spelled DeVine, everywhere, once.</strong> Your business facts live in exactly one file on the new site: the name, the address, the hours, the phone. Change it there and it changes on every page at the same moment. Section one cannot repeat itself, because there is nowhere for a second spelling to hide.</p>
+ <p><strong>Mail from your own address.</strong> hello@devinesflowersandbotanicals.com, or whatever you prefer, set up with your existing inbox so nothing about your day changes. This one is free and we do it whether or not you buy anything else.</p>
+
+ <h3>Built to a standard, and here is how we know</h3>
+ <ul class="proof">
+  <li><b>It is measured, not eyeballed.</b> Contrast, text size and tap targets are checked against the accessibility standard at four screen widths before launch, because your customers are not all twenty-five.</li>
+  <li><b>It opens fast on a phone with one bar.</b> That is the phone standing in a parking lot deciding whether to order sympathy flowers from you or from the florist listed above you.</li>
+  <li><b>Every page shares properly.</b> A real photograph, sized right, on every page a customer might text to somebody. Section one, finding two, made permanent.</li>
+  <li><b>Nothing rented on top.</b> No plugin subscriptions, no page builder license, no per-feature upsell.</li>
+ </ul>
+
+ <p class="note">We build the concept site first, before you owe anything, so
+ that this section stops being a description and becomes something you can open
+ on your phone. Say the word at the bottom of this letter and that is the next
+ thing that happens.</p>
+</div></section>
+<section id="green"><div class="wrap">
+ <div class="k">Section four</div>
+ <div class="rule"></div>
+ <h2>The part that bills every month.</h2>
+
+ <div class="gap">
+  <p class="big">Greening is the best business on your website and it is the only one you cannot buy from it.</p>
+  <p>On-site evaluation, design and installation, then weekly maintenance for commercial clients. Your own page describes all of it and then offers a phone number.</p>
+ </div>
+
+ <p><strong>Why this one is worth its own section.</strong> Everything else on your site is a transaction. Greening is a subscription: an office, a bank lobby, a dental practice or a restaurant that pays you every month, forever, to keep its plants alive. One of those is worth more over three years than a lot of weddings, and of everything you sell it is the only thing on your website with no front door on it.</p>
+ <p><strong>What we would put there.</strong> A short request form built for a business rather than a shopper: what kind of space, roughly how big, how many locations, natural light or none, and a photo or two. It arrives as a brief you can price without a site visit, from the office manager who was going to think about calling you and then did not.</p>
+ <p><strong>And the proof that sells it.</strong> Two or three of the rooms you already keep green, photographed, with the business's name on it if they will let you use it. A dentist in Marshall looking at a lobby they recognize is most of the sale finished before you speak.</p>
+
+ <p class="note">We have no idea how much of your revenue Greening is today, and
+ nothing in this letter assumes an answer. It is the first question we would ask
+ you, because if it is a bigger number than it looks from outside, the site
+ should be built around it rather than beside it.</p>
+</div></section>
+<section id="cost"><div class="wrap">
+ <div class="k">Section five</div>
+ <div class="rule"></div>
+ <h2>What it costs.</h2>
+
+ <div class="pricebox">
+  <div><div class="n">$2,000</div><div class="l">One-time build. Everything in sections three and four, finished and launched on devinesflowersandbotanicals.com. Half to start, half on launch.</div></div>
+  <div><div class="n">$150<span style="font-size:1rem;color:var(--mute)">/mo</span></div><div class="l">Hosting, SSL, security, backups, domain renewal, and ongoing edits. New arrangements, price changes, a workshop date? Send a text.</div></div>
+ </div>
+ <p>That is <strong>$3,800</strong> across the first twelve months, then <strong>$1,800 a year</strong>, and <strong>$11,000</strong> over five years. The store is included in it. There is no separate e-commerce fee, no transaction fee to us, and no plugin bill underneath.</p>
+
+ <ul class="proof">
+  <li><b>Card processing goes to Stripe, not to us.</b> Their published rate is 2.9% plus 30&cent; on a standard online card payment. We take nothing on top of it.</li>
+  <li><b>Nothing gets added to your bill without you hearing the price first.</b> Ever, and that promise lives in the agreement rather than only in this letter.</li>
+  <li><b>Month to month after launch.</b> Thirty days' notice, no early termination penalty, and you leave with the whole site working.</li>
+ </ul>
+
+ <p class="note">If what you pay for your website today is less than $150 a month,
+ this is not a savings pitch and we are not going to dress it up as one. It is a
+ pitch for a better website that you own outright, with a store that answers the
+ delivery question and a Greening form that brings in work. Compare it on that.</p>
+</div></section>
+<section id="next"><div class="wrap">
+ <div class="k">Section six</div>
+ <div class="rule"></div>
+ <h2>What happens next.</h2>
+
+ <div class="step"><div class="no">1</div><div><h4>Twenty minutes, at the shop, whenever is slow</h4><p>Bring the skeptical questions. If the answer is no, that is a fine answer and it costs you twenty minutes. If it is a maybe, we build the concept site next, on our own time, before you owe anything, and you decide by looking at it rather than by reading about it. <a href="https://glazedweb.com" target="_blank" rel="noopener">glazedweb.com</a> &middot; kevin@glazedweb.com</p></div></div>
+
+ <h3>What we would need from you</h3>
+ <p>Your real logo file, from whoever made your sign or printed your shirts. Permission to use the photography already on your site. Your delivery fee and your same-day cutoff time. And half an hour of somebody's memory about Greening: who you keep green, and whether we can name them.</p>
+ <p>Separately, and whether or not any of this goes anywhere: we will send you all seven listings we found still carrying 810, with a link to each one, so somebody there can correct them at the source. That is not billable work and we are not going to pretend it is. It just needs doing.</p>
+ <p class="note">Written by Kevin Hershock, who lives here. Glazed Web builds and
+ looks after websites for Marshall businesses, one at a time, by hand.</p>
+</div></section>
+<footer><div class="wrap">
+ <div>
+  <span class="bw" style="font-size:21px">glazed<span>web</span></span> Kevin Hershock &middot; Marshall, Michigan<br>
+  <a href="https://glazedweb.com" target="_blank" rel="noopener">glazedweb.com</a> &middot; kevin@glazedweb.com
+  <div class="conf">Prepared for DeVine's Flowers &amp; Botanicals &middot; August 2026 &middot; Valid 60 days</div>
+ </div>
+ <svg class="gmark gl-foot" viewBox="0 0 200 250" overflow="visible" aria-hidden="true"><defs><linearGradient id="dgGrad" x1="0" y1="92" x2="0" y2="165" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#5FA850"></stop><stop offset="100%" stop-color="#43813A"></stop></linearGradient><linearGradient id="lgGrad" x1="0" y1="92" x2="0" y2="215" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#D9EDA0"></stop><stop offset="55%" stop-color="#BFE07A"></stop><stop offset="100%" stop-color="#A3CE55"></stop></linearGradient><radialGradient id="pinkGrad" cx="40%" cy="34%" r="75%"><stop offset="0%" stop-color="#F887B2"></stop><stop offset="55%" stop-color="#E84D8A"></stop><stop offset="100%" stop-color="#CE3672"></stop></radialGradient><linearGradient id="creepGrad" x1="0" y1="90" x2="0" y2="124" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#E3F2B0"></stop><stop offset="100%" stop-color="#C3E181"></stop></linearGradient></defs><g class="goo"><g fill="url(#dgGrad)"><ellipse cx="100" cy="110" rx="38" ry="15"></ellipse><path class="wobB" d="M 86 100 C 86 116, 87 130, 88 142 C 88 148, 91 149, 92 142 C 93 130, 92 114, 92 100 Z"></path><path d="M 114 100 C 114 112, 115 124, 116 134 C 116 140, 119 141, 120 134 C 121 124, 120 110, 120 100 Z"></path></g><g fill="url(#lgGrad)"><path class="wob1" d="M 64 100 C 63 120, 65 138, 66 152 C 66 164, 68 172, 74 173 C 80 172, 83 165, 82 154 C 84 136, 85 116, 86 100 Z"></path><path class="wob2" d="M 92 100 C 91 128, 93 152, 94 172 C 94 188, 97 199, 104 200 C 111 199, 114 190, 112 174 C 113 150, 114 124, 114 100 Z"></path><path class="wob3" d="M 120 100 C 119 116, 120 130, 121 142 C 121 152, 123 159, 129 160 C 134 159, 137 153, 135 144 C 136 130, 137 114, 137 100 Z"></path></g></g><path class="string" d="M 104 199 L 104 209" stroke="#BFE07A" stroke-width="2.5" stroke-linecap="round" fill="none"></path><g class="droplet"><circle cx="104" cy="213" r="7" fill="#BFE07A"></circle><circle cx="102" cy="211" r="2" fill="#F1F8DC" opacity="0.9"></circle></g><circle class="droplet2" cx="74" cy="186" r="4.5" fill="#BFE07A"></circle><circle cx="100" cy="70" r="52" fill="url(#pinkGrad)"></circle><path d="M 56 98 A 52 52 0 0 0 144 98 C 142 94, 138 92, 134 94 C 130 97, 129 102, 125 104 C 119 106, 116 98, 110 96 C 104 94, 103 102, 98 105 C 93 107, 90 100, 84 97 C 78 95, 76 100, 71 102 C 66 103, 62 100, 56 98 Z" fill="url(#creepGrad)"></path><path d="M 68 106 A 42 42 0 0 0 84 116" fill="none" stroke="#F1F8DC" stroke-width="4" stroke-linecap="round" opacity="0.85"></path><path d="M 97 144 Q 103 151 109 144" fill="none" stroke="#55974A" stroke-width="4" stroke-linecap="round"></path><g stroke="#F1F8DC" fill="none" stroke-linecap="round"><path d="M 97 128 C 96 148, 97 166, 100 182" stroke-width="4.5" opacity="0.85"></path><path d="M 69 118 C 68 132, 70 146, 71 156" stroke-width="3.5" opacity="0.8"></path><path d="M 124 114 C 123 124, 125 138, 126 148" stroke-width="3.5" opacity="0.8"></path></g><circle cx="100" cy="192" r="2.5" fill="#F1F8DC" opacity="0.9"></circle><circle cx="100" cy="72" r="13" fill="#201712"></circle><circle cx="100" cy="72" r="13" fill="none" stroke="#C22F6B" stroke-width="3" opacity="0.3"></circle><path class="sheen" d="M 62 46 A 44 44 0 0 1 82 28" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"></path><circle class="sheen" cx="92" cy="26" r="3.5" fill="#FFFFFF"></circle></svg>
+</div></footer>
+</body></html>
