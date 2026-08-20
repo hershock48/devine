@@ -2,6 +2,7 @@ import { site, formatHours, addressOneLine } from "@/lib/site";
 import { NAV, href } from "@/lib/nav";
 import { categories } from "@/lib/catalog";
 import { CartLink } from "./Cart";
+import Logo from "./Logo";
 
 /**
  * Header and footer.
@@ -14,20 +15,9 @@ export function Header() {
   return (
     <header className="site-head">
       <div className="wrap bar">
-        {/* THE REAL MARK. glaze.md: lift the real thing, do not approximate it. This
-            is their own logo file with the white oval fill lifted out, so the black
-            line work sits on the cream ground without a milky patch behind it. It
-            was typeset as text here until the file arrived; that was a stand-in. */}
-        <a className="brand" href={href("")} aria-label={`${site.name}, home`}>
-          <img
-            src="/img/brand/logo.webp"
-            srcSet="/img/brand/logo-sm.webp 480w, /img/brand/logo.webp 1200w"
-            sizes="200px"
-            width={1200}
-            height={744}
-            alt={site.name}
-          />
-        </a>
+        {/* THE REAL MARK, with the breeze. See components/Logo.tsx: the petal that
+            blows off it is lifted out of their own drawing, not drawn to resemble it. */}
+        <Logo />
 
         <nav className="site-nav" aria-label="Main">
           {NAV.map((n) => (

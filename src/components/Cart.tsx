@@ -3,17 +3,17 @@
 /**
  * THE CART.
  *
- * In memory for the length of a visit, deliberately. glaze.md forbids browser storage
- * assumptions we cannot verify, and a demo that persists a cart across sessions
- * invites the question "where is that stored" during a pitch meeting. When this
- * becomes a real store the same interface backs onto Stripe Checkout; nothing above
- * this file changes.
+ * Held for the length of a visit, in sessionStorage. An earlier version of this
+ * comment said "in memory, deliberately" and was wrong: in memory it did not survive
+ * a single click, because every link here is a full page load. See the note on the
+ * provider. When this becomes a real store the same interface backs onto Stripe
+ * Checkout; nothing above this file changes.
  *
  * Quantities are per slug, never per name: three products share the name "Designer's
  * Choice" and merging them would charge the wrong price.
  */
 
-import { createContext, useContext, useMemo, useState, useCallback } from "react";
+import { createContext, useContext, useMemo, useState, useCallback, useEffect } from "react";
 import { bySlug, money, type Product } from "@/lib/catalog";
 
 type Line = { slug: string; qty: number };
@@ -30,8 +30,62 @@ type Ctx = {
 
 const CartCtx = createContext<Ctx | null>(null);
 
+const STORE_KEY = "devines.cart.v1";
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [lines, setLines] = useState<Line[]>([]);
+
+  /*
+    THE CART HAS TO SURVIVE A CLICK.
+
+    Every internal link on this site is a plain <a>, so every navigation is a full
+    document load and this provider remounts. Held in useState alone the cart was
+    emptied by the first click after adding to it, which made /demo/cart incapable
+    of ever showing a line item. The audit caught it; I had never navigated between
+    pages while testing the cart, which is exactly the kind of thing a green build
+    does not tell you.
+
+    sessionStorage rather than localStorage on purpose: a florist cart is a visit,
+    not a possession, and a bouquet still sitting in the cart a fortnight later is
+    a worse experience than an empty one. It clears when the tab closes.
+
+    Wrapped in try/catch because storage throws rather than returns null in private
+    mode on some browsers, and a thrown exception here would take the whole header
+    down with it. A cart that forgets is a small problem; a site that white-screens
+    is not.
+
+    Read in an effect rather than in useState's initialiser: the server renders with
+    an empty cart, so seeding from storage during the first client render would make
+    the markup disagree with the server's and React would throw a hydration error.
+  */
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(STORE_KEY);
+      if (!raw) return;
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      // Validate rather than trust: a stale or hand-edited value must not be able
+      // to put a NaN quantity or an unknown slug into a subtotal.
+      const clean = parsed
+        .filter((l): l is Line =>
+          !!l && typeof l === "object" &&
+          typeof (l as Line).slug === "string" &&
+          Number.isFinite((l as Line).qty) &&
+          bySlug.has((l as Line).slug))
+        .map((l) => ({ slug: l.slug, qty: Math.min(99, Math.max(1, Math.round(l.qty))) }));
+      if (clean.length) setLines(clean);
+    } catch {
+      /* storage unavailable: the cart simply starts empty */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(STORE_KEY, JSON.stringify(lines));
+    } catch {
+      /* nothing to do, and nothing worth breaking the page over */
+    }
+  }, [lines]);
 
   const add = useCallback((slug: string, qty = 1) => {
     setLines((cur) => {

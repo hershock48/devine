@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { CartProvider } from "@/components/Cart";
 import { Header, Footer } from "@/components/Chrome";
+import { BreezeOnLoad } from "@/components/Logo";
 import { site } from "@/lib/site";
 
 /**
@@ -27,6 +28,9 @@ export default function DemoLayout({ children }: { children: React.ReactNode }) 
       <Header />
       <main id="main">{children}</main>
       <Footer />
+      {/* Arms the logo animation. Renders nothing; see components/Logo.tsx for why
+          the animation is opt-in rather than the default state. */}
+      <BreezeOnLoad />
     </CartProvider>
   );
 }
