@@ -112,88 +112,144 @@ a:hover { color: var(--green-deep); }
 .site-head { border-bottom: 1px solid var(--line); background: var(--paper); }
 .site-head .bar { display: flex; align-items: center; gap: 20px; padding: 16px 0; flex-wrap: wrap; }
 /* ---- the mark, and the breeze through it -------------------------------------
-   Their real logo file, sized as an image rather than typeset. Width is capped and
-   height follows, because the file is 1200x744 and would otherwise fill the header.
+   Their real logo file, sized as an image rather than typeset.
 
-   EVERYTHING HERE IS THE FINISHED STATE. The logo is fully visible, the petal sits
-   exactly where it sits in the drawing, nothing is transparent and nothing is
-   clipped away. The animation lives entirely under .is-blowing below, which a
-   script adds on load. Script blocked, JS error, old browser: the logo is complete.
-   That ordering is the whole point of glaze.md's first motion rule. */
+   EVERYTHING IN THIS FIRST BLOCK IS THE FINISHED STATE: logo fully visible, veil
+   parked off to the right where it covers nothing, petals at zero opacity because
+   the drawing already contains them. Script blocked, JS error, old browser: the
+   visitor gets the complete logo, sitting still. The animation exists only under
+   .is-blowing, which a script adds. That ordering is glaze.md's first motion rule.
+
+   ONLY transform AND opacity ARE ANIMATED. Both are compositor properties, so no
+   frame here touches layout or paint. The first version animated clip-path, which
+   does, and that is most of why it read as clunky rather than as air. */
 .brand { display: block; line-height: 0; flex-shrink: 0; }
-.brand-plate { position: relative; display: block; }
+.brand-plate { position: relative; display: block; overflow: visible; }
 .brand-img { width: 190px; height: auto; display: block; }
 @media (max-width: 520px) { .brand-img { width: 148px; } }
 
-/* The petal, parked over the one it was lifted from. Its box is 277x310 in the
-   source drawing, which is 1200x744; these percentages put it back exactly there,
-   so it is invisible against the original until it moves. */
-.brand-petal {
+/* The veil: the header's own paper colour with a feathered leading edge, parked
+   past the right edge so it hides nothing until it is asked to. */
+.brand-veil {
+  position: absolute;
+  inset: -6% -4% -6% 0;
+  background: linear-gradient(90deg, rgba(251, 247, 240, 0) 0%, var(--paper) 9%, var(--paper) 100%);
+  transform: translate3d(115%, 0, 0);
+  pointer-events: none;
+}
+
+/* The petals sit above the veil so one can drift across the letters that have not
+   arrived yet. Parked over the petal each was lifted from. */
+.petal {
   position: absolute;
   left: 14.6%;
-  top: 51.6%;
+  top: 50%;
   width: 23.1%;
-  height: auto;
-  color: var(--ink);
-  opacity: 0;              /* the drawing already contains this petal */
+  /* Lighter than the mark on purpose. At full ink the outline reads as a cut-out
+     sitting on top of the logo; a step back in weight puts it in the air. */
+  color: #4a4038;
+  opacity: 0;
   pointer-events: none;
-  transform-origin: 82% 18%;   /* where it joins the flower: it hinges, then lets go */
+  will-change: transform, opacity;
+}
+.petal-float { display: block; }
+.petal-turn { display: block; width: 100%; height: auto; }
+.petal--lead  { transform-origin: 80% 20%; }
+.petal--trail { left: 17%; top: 58%; width: 17%; }
+
+/* ---- armed --------------------------------------------------------------- */
+
+/* The wordmark arrives. Slow out, never quite stopping, so it settles rather than
+   halts: the last 25% of the travel is almost all of the easing curve. */
+.breeze.is-blowing .brand-veil {
+  animation: veil-off 1750ms cubic-bezier(.16, .84, .34, 1) 420ms both;
 }
 
-/* ---- armed ---- */
-.breeze.is-blowing .brand-img {
-  /* the wordmark wipes in behind the petal rather than fading: a fade reads as a
-     slow image load, a wipe reads as something being uncovered */
-  animation: brand-wipe 1150ms cubic-bezier(.33, 0, .30, 1) 300ms both;
-}
-.breeze.is-blowing .brand-petal {
-  animation: petal-go 1500ms cubic-bezier(.33, 0, .30, 1) 120ms both;
-}
-.breeze.is-blowing .brand-plate {
-  /* the lily's own sway, on a period that lines up with neither of the above.
-     Three things arriving together read as one slide; 150-300ms apart read as air */
-  animation: lily-sway 5200ms ease-in-out 1600ms infinite;
+/* The lead petal. 2400ms is long for a header, deliberately: the previous version
+   crossed in 1500ms and read as a flick. */
+.breeze.is-blowing .petal--lead { animation: drift-lead 2200ms cubic-bezier(.22, .5, .3, 1) 160ms both; }
+.breeze.is-blowing .petal--lead .petal-float { animation: float-lead 2200ms cubic-bezier(.33, 0, .5, 1) 160ms both; }
+.breeze.is-blowing .petal--lead .petal-turn  { animation: turn-lead 1490ms ease-in-out 160ms both; }
+
+/* The trail petal, on periods that share no common factor with the lead's, so the
+   two never fall into step. */
+.breeze.is-blowing .petal--trail { animation: drift-trail 2450ms cubic-bezier(.26, .46, .28, 1) 520ms both; }
+.breeze.is-blowing .petal--trail .petal-float { animation: float-trail 2450ms cubic-bezier(.33, 0, .5, 1) 520ms both; }
+.breeze.is-blowing .petal--trail .petal-turn  { animation: turn-trail 1130ms ease-in-out 520ms both; }
+
+/* The lily keeps breathing after the petals have gone. Half a degree, nine seconds:
+   below the threshold where anyone can point at it and say the logo is moving. */
+.breeze.is-blowing .brand-img { animation: lily-breathe 9000ms ease-in-out 2600ms infinite; }
+
+@keyframes veil-off {
+  from { transform: translate3d(29%, 0, 0); }
+  to   { transform: translate3d(118%, 0, 0); }
 }
 
-@keyframes brand-wipe {
-  from { clip-path: inset(0 62% 0 0); }
-  to   { clip-path: inset(0 0 0 0); }
+/* X only. The rise lives on .petal-float and the wobble on .petal-turn; keeping
+   them apart is what stops the path looking like a ruler.
+
+   THE ARC GOES OVER THE TOP. A first attempt sent the petals straight across at the
+   height they started, which took them through the middle of the script wordmark.
+   At that size, over that much detail, they stopped reading as petals and started
+   reading as smudges on the letters. They now lift clear of the oval before they
+   travel, which is also what a petal actually does when it comes off in wind. */
+@keyframes drift-lead {
+   0%  { opacity: 0;   transform: translate3d(0, 0, 0) scale(.66); }
+   7%  { opacity: .8;  transform: translate3d(2%, 0, 0) scale(.66); }
+  55%  { opacity: .75; transform: translate3d(158%, 0, 0) scale(.6); }
+  85%  { opacity: .34; transform: translate3d(278%, 0, 0) scale(.55); }
+ 100%  { opacity: 0;   transform: translate3d(340%, 0, 0) scale(.52); }
+}
+@keyframes float-lead {
+   0%  { transform: translate3d(0, 0, 0); }
+  26%  { transform: translate3d(0, -104%, 0); }
+  62%  { transform: translate3d(0, -186%, 0); }
+ 100%  { transform: translate3d(0, -158%, 0); }
+}
+@keyframes turn-lead {
+   0%  { transform: rotate(0deg); }
+  35%  { transform: rotate(-11deg); }
+  70%  { transform: rotate(6deg); }
+ 100%  { transform: rotate(-4deg); }
 }
 
-@keyframes petal-go {
-  /* holds for a beat, tears loose, tumbles up and right, gone before the wipe lands */
-   0%  { opacity: 0;   transform: translate(0, 0) rotate(0deg) scale(1); }
-   8%  { opacity: .95; transform: translate(0, 0) rotate(-4deg) scale(1); }
-  22%  { opacity: .95; transform: translate(14%, -12%) rotate(16deg) scale(.94); }
-  55%  { opacity: .7;  transform: translate(150%, -46%) rotate(128deg) scale(.72); }
-  80%  { opacity: .35; transform: translate(280%, -30%) rotate(232deg) scale(.6); }
- 100%  { opacity: 0;   transform: translate(370%, -58%) rotate(310deg) scale(.52); }
+@keyframes drift-trail {
+   0%  { opacity: 0;   transform: translate3d(0, 0, 0) scale(.5); }
+  10%  { opacity: .45; transform: translate3d(4%, 0, 0) scale(.5); }
+  58%  { opacity: .42; transform: translate3d(172%, 0, 0) scale(.46); }
+  86%  { opacity: .2;  transform: translate3d(298%, 0, 0) scale(.42); }
+ 100%  { opacity: 0;   transform: translate3d(362%, 0, 0) scale(.4); }
+}
+@keyframes float-trail {
+   0%  { transform: translate3d(0, 0, 0); }
+  30%  { transform: translate3d(0, -128%, 0); }
+  66%  { transform: translate3d(0, -224%, 0); }
+ 100%  { transform: translate3d(0, -196%, 0); }
+}
+@keyframes turn-trail {
+   0%  { transform: rotate(0deg); }
+  40%  { transform: rotate(13deg); }
+  75%  { transform: rotate(-7deg); }
+ 100%  { transform: rotate(5deg); }
 }
 
-@keyframes lily-sway {
+@keyframes lily-breathe {
   0%, 100% { transform: rotate(0deg); }
-  50%      { transform: rotate(.5deg); }
+  50%      { transform: rotate(.4deg); }
 }
 
 /* REDUCED MOTION: restores the finished state rather than setting animation:none
-   and hoping. Declared after the armed rules so it wins. Checked by screenshot at
-   1440 and 390 with the preference forced on. */
+   and hoping. Declared last so it wins. Verified by screenshot at 1440 and 390 with
+   the preference forced on: pixel-identical to the static mark. */
 @media (prefers-reduced-motion: reduce) {
+  .breeze.is-blowing .brand-veil,
   .breeze.is-blowing .brand-img,
-  .breeze.is-blowing .brand-petal,
-  .breeze.is-blowing .brand-plate { animation: none; }
-  .breeze.is-blowing .brand-img { clip-path: none; }
-  .breeze.is-blowing .brand-petal { opacity: 0; }
-}
-.site-nav { display: flex; gap: 20px; flex-wrap: wrap; margin-left: auto; }
-.site-nav a { font-size: 14.5px; text-decoration: none; color: var(--ink); font-weight: 500; }
-.site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--green); text-decoration: underline; }
-.head-cta { display: flex; align-items: center; gap: 14px; }
-.head-phone { font-size: 14.5px; font-weight: 600; white-space: nowrap; }
-@media (max-width: 860px) {
-  .site-head .bar { gap: 12px; }
-  .site-nav { order: 3; width: 100%; margin-left: 0; gap: 14px; padding-bottom: 4px; }
-  .head-cta { margin-left: auto; }
+  .breeze.is-blowing .petal,
+  .breeze.is-blowing .petal-float,
+  .breeze.is-blowing .petal-turn { animation: none; }
+  .breeze.is-blowing .brand-veil { transform: translate3d(115%, 0, 0); }
+  .breeze.is-blowing .petal { opacity: 0; }
 }
 
 /* ---- product grid ---- */
