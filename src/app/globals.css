@@ -227,8 +227,64 @@ a:hover { color: var(--rose-ink); text-decoration-color: currentColor; }
   padding-inline-end: clamp(24px, 4vw, 72px);
   padding-block: calc(var(--u) * 6);
 }
-.hero-art { height: 100%; }
+.hero-art { height: 100%; position: relative; }
 .hero-art img { width: 100%; height: 100%; min-height: min(78vh, 760px); object-fit: cover; }
+
+/* ---- the hand over the photograph ----------------------------------------
+   Four blooms traced out of this exact file (tools/trace-hero.py) and drawn on in
+   sequence, held, then released.
+
+   THE DEFAULT STATE IS opacity: 0 — the finished state of this page is the
+   photograph with nothing on it. Everything below only happens inside .is-drawing,
+   which the arming script adds on load and never adds when the visitor has asked
+   for reduced motion. A drawing that is about the act of drawing has no useful
+   still frame, so reduced motion gets the photograph and nothing else.        */
+.hero-trace {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+}
+.ht {
+  fill: none;
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* pathLength="1" on every path is what lets one rule cover paths of very
+     different real lengths. See the note in components/HeroTrace.tsx. */
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  /* vector-effect keeps the line the same visual weight however the SVG is scaled
+     to cover the hero box, which changes a lot between 320px and 1440px. */
+  vector-effect: non-scaling-stroke;
+}
+.ht--outer { stroke-width: 1.6px; opacity: .92; }
+.ht--inner { stroke-width: 1.15px; opacity: .72; }
+
+.is-drawing .hero-trace { opacity: 1; }
+.is-drawing .ht {
+  animation: ht-draw var(--dur) cubic-bezier(.32, .16, .3, 1) var(--delay) both;
+}
+/* The whole drawing dissolves rather than being switched off. It starts leaving
+   400ms after the last stroke lands, which is long enough to read as a held beat
+   and short enough that nobody waits for it. */
+.is-drawing .hero-trace-ink {
+  animation: ht-release 1100ms ease-in 3705ms both;
+}
+@keyframes ht-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes ht-release {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-drawing .hero-trace { opacity: 0; }
+  .is-drawing .ht, .is-drawing .hero-trace-ink { animation: none; }
+}
 
 @media (max-width: 900px) {
   .hero-grid { grid-template-columns: 1fr; min-height: 0; }
@@ -615,10 +671,35 @@ main:has(> :last-child.band) + .site-foot { margin-top: 0; }
    verified in both degraded states; restyling around it must not disturb it. */
 /* The veil: the header's own paper colour with a feathered leading edge, parked
    past the right edge so it hides nothing until it is asked to. */
+/*
+  THE OVAL IS NEVER TOUCHED. The veil used to be a full-height rectangle, so the wipe
+  took the ring with it and the mark assembled itself frame by frame, ring included.
+  The ring is not a thing that arrives; it is the shape the logo IS.
+
+  So the veil is confined to an ellipse just inside the stroke. The clip is on THIS
+  element rather than on the veil because clip-path resolves before transform: put it
+  on the veil and the ellipse travels with it, which at rest covered the left of the
+  mark and ate the right half of the ring.
+
+  48.6/47.6 rather than 50/50 because the oval is inscribed in the image frame and
+  its stroke is about 0.35% of the width — this keeps the veil's feathered edge off
+  the line even when the browser rounds the ellipse to whole pixels.
+*/
+.brand-reveal {
+  position: absolute;
+  inset: 0;
+  clip-path: ellipse(48.6% 47.6% at 50% 50%);
+  pointer-events: none;
+}
 .brand-veil {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(251, 247, 240, 0) 0%, var(--paper) 9%, var(--paper) 100%);
+  /* A wide feather. At 9% the leading edge was soft in principle and still read as
+     a line crossing the lily's outer strokes. 22% over a 71px mark is about 15px of
+     gradient, which is enough that no single frame shows an edge. The transparent
+     stop is --paper at zero alpha, not a hand-typed near-match, so there is no hue
+     shift across the ramp. */
+  background: linear-gradient(90deg, rgb(250 247 241 / 0) 0%, var(--paper) 22%, var(--paper) 100%);
   transform: translate3d(115%, 0, 0);
   pointer-events: none;
 }
@@ -637,12 +718,68 @@ main:has(> :last-child.band) + .site-foot { margin-top: 0; }
   pointer-events: none;
   will-change: transform, opacity;
 }
-.petal-float { display: block; }
+/* The perspective lives on the parent of the tilted element, which is the only
+   place it does anything. 260px against a ~16px petal is a strong, short lens —
+   enough that the near edge grows visibly as it turns, which is the whole reason
+   the layer exists. */
+.petal-float { display: block; perspective: 260px; }
+.petal-tilt  { display: block; transform-style: preserve-3d; }
 .petal-turn { display: block; width: 100%; height: auto; }
 .petal--lead  { transform-origin: 80% 20%; }
 .petal--trail { left: 17%; top: 58%; width: 17%; }
 
-/* ---- armed --------------------------------------------------------------- */
+/* ---- armed ---------------------------------------------------------------
+
+   WHY THIS WAS REBUILT, AND THE NUMBER THAT PROVED IT.
+
+   The previous version read as clunky and stiff, and tools/motion.mjs said exactly
+   why. Sampling the lead petal every 60ms across its flight:
+
+     t=600   65 px/s      t=1502   0 px/s      t=1565  77 px/s
+     t=2150   2 px/s      t=2216  64 px/s      t=2404  10 px/s
+
+   The petal STOPPED, three times, and lurched forward again. 21 of 38 visible
+   samples were near-stationary. Rotation was worse: it froze at -4 degrees at
+   t=1755 and stayed frozen for the last third of the flight, so the petal finished
+   its journey as a rigid object being slid sideways.
+
+   THE CAUSE. A CSS timing function is applied BETWEEN EVERY PAIR OF KEYFRAMES, not
+   once across the animation. drift-lead declared X at 0/7/55/85/100% with an
+   ease-out curve, so the petal decelerated to a stop at each waypoint and then had
+   to accelerate again from rest. Four keyframes, four decelerations. Every intuition
+   about "adding keyframes to make it more organic" produces exactly this.
+
+   THE FIX, and it is a rule rather than a tuning:
+
+     A property that should move CONTINUOUSLY is declared at 0% and 100% ONLY, so it
+     gets one segment and one clean curve. Anything needing a shape mid-flight is
+     declared at more keyframes AND its animation is set to linear, so the shape
+     comes from where the keyframes sit rather than from a curve re-applied at each.
+
+   AND THE CURVE ITSELF HAD TO CHANGE, not just the keyframe count. The first pass
+   at this fix used a strong ease-out, which removed the lurches but replaced them
+   with the other classic failure: 137 px/s at 390ms, 15 px/s by 2000ms, near zero
+   for the last half-second. Smooth, and still wrong — the petal flicked out and then
+   hung there fading. The curve is now ease-IN to a near-constant speed
+   (cubic-bezier control points with the second on the diagonal, which is what makes
+   the exit slope 1) so the petal accelerates as the gust takes it and is still
+   travelling at the moment it fades out. Air does not slow down at the edge of a
+   logo.
+
+   So X is a single eased segment. Rotation is a single continuous sweep that never
+   rests. The vertical arc gets exactly two segments, because the pause at the apex
+   of an arc is real — that is what an arc is. The flutter is many keyframes on a
+   linear track.
+
+   EVERY LAYER RUNS THE SAME DURATION as its drift. The old rotation was 1490ms
+   against a 2200ms drift, which is the only reason it could freeze while the petal
+   was still moving. Nothing here finishes early, so nothing can seize up.
+
+   FOUR LAYERS NOW, NOT THREE. The fourth is the one that makes it read as a petal
+   rather than a sticker: rotateY, under perspective, so the thing turns edge-on into
+   the air and catches the light-side of itself back. A shape that only ever spins in
+   the picture plane is a sticker no matter how well it is eased.
+*/
 
 /* The wordmark arrives. Slow out, never quite stopping, so it settles rather than
    halts: the last 25% of the travel is almost all of the easing curve. */
@@ -650,73 +787,101 @@ main:has(> :last-child.band) + .site-foot { margin-top: 0; }
   animation: veil-off 1750ms cubic-bezier(.16, .84, .34, 1) 420ms both;
 }
 
-/* The lead petal. 2400ms is long for a header, deliberately: the previous version
-   crossed in 1500ms and read as a flick. */
-.breeze.is-blowing .petal--lead { animation: drift-lead 2200ms cubic-bezier(.22, .5, .3, 1) 160ms both; }
-.breeze.is-blowing .petal--lead .petal-float { animation: float-lead 2200ms cubic-bezier(.33, 0, .5, 1) 160ms both; }
-.breeze.is-blowing .petal--lead .petal-turn  { animation: turn-lead 1490ms ease-in-out 160ms both; }
+/* The lead petal. Every layer 2800ms so none of them can finish early and freeze. */
+.breeze.is-blowing .petal--lead { animation: drift-lead 2800ms cubic-bezier(.32, .06, .75, .75) 240ms both; }
+.breeze.is-blowing .petal--lead .petal-float { animation: float-lead 2800ms cubic-bezier(.3, 0, .5, 1) 240ms both; }
+.breeze.is-blowing .petal--lead .petal-tilt  { animation: tilt-lead  2800ms linear 240ms both; }
+.breeze.is-blowing .petal--lead .petal-turn  { animation: turn-lead  2800ms cubic-bezier(.24, .4, .5, 1) 240ms both; }
 
-/* The trail petal, on periods that share no common factor with the lead's, so the
-   two never fall into step. */
-.breeze.is-blowing .petal--trail { animation: drift-trail 2450ms cubic-bezier(.26, .46, .28, 1) 520ms both; }
-.breeze.is-blowing .petal--trail .petal-float { animation: float-trail 2450ms cubic-bezier(.33, 0, .5, 1) 520ms both; }
-.breeze.is-blowing .petal--trail .petal-turn  { animation: turn-trail 1130ms ease-in-out 520ms both; }
+/* The trail petal. Later, smaller, fainter, and on a longer period, so the two never
+   fall into step and the pair reads as weather rather than as a matched pair. */
+.breeze.is-blowing .petal--trail { animation: drift-trail 3100ms cubic-bezier(.36, .05, .74, .74) 620ms both; }
+.breeze.is-blowing .petal--trail .petal-float { animation: float-trail 3100ms cubic-bezier(.3, 0, .5, 1) 620ms both; }
+.breeze.is-blowing .petal--trail .petal-tilt  { animation: tilt-trail  3100ms linear 620ms both; }
+.breeze.is-blowing .petal--trail .petal-turn  { animation: turn-trail  3100ms cubic-bezier(.26, .38, .5, 1) 620ms both; }
 
 /* The lily keeps breathing after the petals have gone. Half a degree, nine seconds:
    below the threshold where anyone can point at it and say the logo is moving. */
-.breeze.is-blowing .brand-img { animation: lily-breathe 9000ms ease-in-out 2600ms infinite; }
+.breeze.is-blowing .brand-img { animation: lily-breathe 9000ms ease-in-out 3200ms infinite; }
 
 @keyframes veil-off {
   from { transform: translate3d(29%, 0, 0); }
   to   { transform: translate3d(118%, 0, 0); }
 }
 
-/* X only. The rise lives on .petal-float and the wobble on .petal-turn; keeping
-   them apart is what stops the path looking like a ruler.
+/* THE JOURNEY. transform is declared at 0% and 100% and NOWHERE ELSE, which is what
+   makes it one smooth segment instead of four stop-starts. opacity carries the extra
+   keyframes; nobody has ever seen a fade stutter.
 
-   THE ARC GOES OVER THE TOP. A first attempt sent the petals straight across at the
-   height they started, which took them through the middle of the script wordmark.
-   At that size, over that much detail, they stopped reading as petals and started
-   reading as smudges on the letters. They now lift clear of the oval before they
-   travel, which is also what a petal actually does when it comes off in wind. */
+   640% of a 16px petal is about 105px, so it clears the mark, crosses the first nav
+   item and is gone. The old one travelled 57px in 2.2s and never really left. */
 @keyframes drift-lead {
    0%  { opacity: 0;   transform: translate3d(0, 0, 0) scale(.66); }
-   7%  { opacity: .8;  transform: translate3d(2%, 0, 0) scale(.66); }
-  55%  { opacity: .75; transform: translate3d(158%, 0, 0) scale(.6); }
-  85%  { opacity: .34; transform: translate3d(278%, 0, 0) scale(.55); }
- 100%  { opacity: 0;   transform: translate3d(340%, 0, 0) scale(.52); }
+   5%  { opacity: .82; }
+  55%  { opacity: .76; }
+  78%  { opacity: .5; }
+  92%  { opacity: .16; }
+ 100%  { opacity: 0;   transform: translate3d(640%, 0, 0) scale(.5); }
 }
+
+/* THE ARC. Two segments and two only. The pause at the top is not a stall, it is the
+   apex — vertical velocity at the top of a throw is zero, and faking motion through
+   it is what makes an arc look like a slide. Up on an ease-out, over and down on an
+   ease-in, which is gravity's own shape. */
 @keyframes float-lead {
-   0%  { transform: translate3d(0, 0, 0); }
-  26%  { transform: translate3d(0, -104%, 0); }
-  62%  { transform: translate3d(0, -186%, 0); }
- 100%  { transform: translate3d(0, -158%, 0); }
+   0%  { transform: translate3d(0, 0, 0); animation-timing-function: cubic-bezier(.12, .62, .3, 1); }
+  58%  { transform: translate3d(0, -196%, 0); animation-timing-function: cubic-bezier(.5, 0, .78, .6); }
+ 100%  { transform: translate3d(0, -104%, 0); }
 }
+
+/* THE FLUTTER, and the layer that makes it a petal. rotateY under perspective turns
+   the shape edge-on and back, so it catches air instead of spinning flat. It never
+   reaches 90deg — at 90 a flat shape vanishes, which reads as a glitch rather than
+   as a turn. Linear, because a flutter that eases at every extreme is a metronome. */
+@keyframes tilt-lead {
+   0%  { transform: rotateY(0deg); }
+  14%  { transform: rotateY(-34deg); }
+  29%  { transform: rotateY(22deg); }
+  43%  { transform: rotateY(-52deg); }
+  57%  { transform: rotateY(31deg); }
+  70%  { transform: rotateY(-44deg); }
+  84%  { transform: rotateY(26deg); }
+ 100%  { transform: rotateY(-38deg); }
+}
+
+/* ONE SWEEP, START TO FINISH. Declared at two keyframes so the petal is still
+   turning at the instant it fades out. The old version stopped rotating 700ms before
+   the drift ended and the last third looked like a decal on a conveyor. */
 @keyframes turn-lead {
-   0%  { transform: rotate(0deg); }
-  35%  { transform: rotate(-11deg); }
-  70%  { transform: rotate(6deg); }
- 100%  { transform: rotate(-4deg); }
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-46deg); }
 }
 
 @keyframes drift-trail {
    0%  { opacity: 0;   transform: translate3d(0, 0, 0) scale(.5); }
-  10%  { opacity: .45; transform: translate3d(4%, 0, 0) scale(.5); }
-  58%  { opacity: .42; transform: translate3d(172%, 0, 0) scale(.46); }
-  86%  { opacity: .2;  transform: translate3d(298%, 0, 0) scale(.42); }
- 100%  { opacity: 0;   transform: translate3d(362%, 0, 0) scale(.4); }
+   7%  { opacity: .46; }
+  58%  { opacity: .42; }
+  80%  { opacity: .28; }
+  93%  { opacity: .09; }
+ 100%  { opacity: 0;   transform: translate3d(720%, 0, 0) scale(.38); }
 }
 @keyframes float-trail {
-   0%  { transform: translate3d(0, 0, 0); }
-  30%  { transform: translate3d(0, -128%, 0); }
-  66%  { transform: translate3d(0, -224%, 0); }
- 100%  { transform: translate3d(0, -196%, 0); }
+   0%  { transform: translate3d(0, 0, 0); animation-timing-function: cubic-bezier(.14, .6, .32, 1); }
+  62%  { transform: translate3d(0, -244%, 0); animation-timing-function: cubic-bezier(.5, 0, .78, .6); }
+ 100%  { transform: translate3d(0, -142%, 0); }
+}
+@keyframes tilt-trail {
+   0%  { transform: rotateY(0deg); }
+  17%  { transform: rotateY(41deg); }
+  33%  { transform: rotateY(-29deg); }
+  48%  { transform: rotateY(57deg); }
+  62%  { transform: rotateY(-36deg); }
+  79%  { transform: rotateY(48deg); }
+ 100%  { transform: rotateY(-25deg); }
 }
 @keyframes turn-trail {
-   0%  { transform: rotate(0deg); }
-  40%  { transform: rotate(13deg); }
-  75%  { transform: rotate(-7deg); }
- 100%  { transform: rotate(5deg); }
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(58deg); }
 }
 
 @keyframes lily-breathe {
@@ -724,14 +889,12 @@ main:has(> :last-child.band) + .site-foot { margin-top: 0; }
   50%      { transform: rotate(.4deg); }
 }
 
-/* REDUCED MOTION: restores the finished state rather than setting animation:none
-   and hoping. Declared last so it wins. Verified by screenshot at 1440 and 390 with
-   the preference forced on: pixel-identical to the static mark. */
 @media (prefers-reduced-motion: reduce) {
   .breeze.is-blowing .brand-veil,
   .breeze.is-blowing .brand-img,
   .breeze.is-blowing .petal,
   .breeze.is-blowing .petal-float,
+  .breeze.is-blowing .petal-tilt,
   .breeze.is-blowing .petal-turn { animation: none; }
   .breeze.is-blowing .brand-veil { transform: translate3d(115%, 0, 0); }
   .breeze.is-blowing .petal { opacity: 0; }

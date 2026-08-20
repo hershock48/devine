@@ -1,4 +1,5 @@
 import ProductCard from "@/components/ProductCard";
+import HeroTrace from "@/components/HeroTrace";
 import { featured, categories, inCategory, priceRange, money, products } from "@/lib/catalog";
 import { site, formatHours } from "@/lib/site";
 import { href } from "@/lib/nav";
@@ -49,7 +50,7 @@ export default function Home() {
               </a>
             </p>
           </div>
-          <div className="hero-art">
+          <div className="hero-art draws">
             <img
               src="/img/shop/shop-4.webp"
               width={1000}
@@ -59,6 +60,10 @@ export default function Home() {
               decoding="async"
               fetchPriority="high"
             />
+            {/* Four blooms out of this exact photograph, drawn on and then let go.
+                Renders nothing visible unless the page arms it, and never arms
+                under reduced motion. See components/HeroTrace.tsx. */}
+            <HeroTrace />
           </div>
         </div>
       </section>
