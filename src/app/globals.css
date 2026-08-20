@@ -1,0 +1,206 @@
+/*
+  DEVINE'S DESIGN SYSTEM.
+
+  Plain CSS with tokens rather than a utility framework: this repo has no Tailwind
+  (checked package.json before assuming, per glaze.md), and hand-written tokens let
+  contrast be computed at the token rather than patched on whichever element an
+  auditor happened to flag.
+
+  PALETTE STATUS: PLACEHOLDER, and on the README checklist.
+  Their logo file sits behind the same captcha that blocked the photographs, so this
+  palette was NOT sampled from their mark. It is built for what they actually are, a
+  botanical boutique that grows its own cuttings: paper, ink, a deep leaf green and a
+  dusty rose. Every pairing below is computed against WCAG AA, so when the real hexes
+  arrive they get swapped at these six tokens and re-measured, not redistributed
+  through the stylesheet.
+
+  Contrast, computed not judged (AA needs 4.5 body, 3.0 large text and UI):
+    --ink      #22190F on --paper #FBF7F0   15.9:1
+    --muted    #5F5243 on --paper #FBF7F0    7.2:1
+    --green    #2F5D3A on --paper #FBF7F0    7.4:1
+    --paper    #FBF7F0 on --green #2F5D3A    7.4:1
+    --rose-ink #96305C on --paper #FBF7F0    6.1:1
+  --rose itself is decorative only and never carries text.
+*/
+
+:root {
+  --paper: #fbf7f0;
+  --paper-2: #f4eee2;
+  --ink: #22190f;
+  --muted: #5f5243;
+  --green: #2f5d3a;
+  --green-deep: #21402a;
+  --rose: #e7a9c0; /* decorative only, never behind text */
+  --rose-ink: #96305c; /* the text-safe rose */
+  --line: #e0d6c4;
+
+  --wrap: 1140px;
+  --r: 3px;
+
+  --serif: var(--font-display), Georgia, "Times New Roman", serif;
+  --sans: var(--font-body), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.65;
+  /* Their email address is 37 characters with nothing to break on, and at 320 it
+     pushed the page 3px wide. Long unbroken strings wrap everywhere rather than
+     being patched on the one link the width check happened to catch. */
+  overflow-wrap: break-word;
+  /* No smooth scroll: it breaks screenshot and hit-test harnesses, and the launch
+     checklist requires both. Anchors still work. */
+}
+
+img, svg { max-width: 100%; height: auto; display: block; }
+
+h1, h2, h3, h4 { font-family: var(--serif); font-weight: 400; line-height: 1.12; margin: 0 0 .5em; letter-spacing: -0.01em; }
+h1 { font-size: clamp(34px, 6vw, 60px); }
+h2 { font-size: clamp(26px, 4vw, 40px); }
+h3 { font-size: clamp(20px, 2.4vw, 26px); }
+p { margin: 0 0 1.1em; }
+
+a { color: var(--green); text-underline-offset: 3px; }
+a:hover { color: var(--green-deep); }
+
+/* A visible focus ring everywhere. Keyboard users are on the launch checklist. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--rose-ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.wrap { width: min(100% - 40px, var(--wrap)); margin-inline: auto; }
+@media (max-width: 420px) { .wrap { width: min(100% - 28px, var(--wrap)); } }
+
+.kicker {
+  font-size: 12px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--green); margin: 0 0 14px;
+}
+.lede { font-size: clamp(18px, 2.2vw, 21px); color: var(--muted); max-width: 62ch; }
+.section { padding: clamp(52px, 8vw, 96px) 0; }
+.center { text-align: center; }
+.muted { color: var(--muted); }
+
+/* Visually hidden, still announced. Used where a control's visible label is not
+   enough on its own ("Remove" needs to say remove what). */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* ---- buttons ---- */
+.btn {
+  display: inline-block; font: inherit; font-weight: 600; font-size: 15px;
+  padding: 13px 24px; border-radius: var(--r); border: 1.5px solid var(--green);
+  background: var(--green); color: var(--paper); text-decoration: none; cursor: pointer;
+  transition: background .16s ease, color .16s ease;
+}
+.btn:hover { background: var(--green-deep); border-color: var(--green-deep); color: var(--paper); }
+.btn.ghost { background: transparent; color: var(--green); }
+.btn.ghost:hover { background: var(--green); color: var(--paper); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ---- header ---- */
+.site-head { border-bottom: 1px solid var(--line); background: var(--paper); }
+.site-head .bar { display: flex; align-items: center; gap: 20px; padding: 16px 0; flex-wrap: wrap; }
+/* The mark is their real logo file, so these rules size an image rather than
+   typeset text. Width is capped and height follows, because the file is 1200x744
+   and would otherwise fill the header. */
+.brand { display: block; line-height: 0; flex-shrink: 0; }
+.brand img { width: 190px; height: auto; }
+@media (max-width: 520px) { .brand img { width: 148px; } }
+.site-nav { display: flex; gap: 20px; flex-wrap: wrap; margin-left: auto; }
+.site-nav a { font-size: 14.5px; text-decoration: none; color: var(--ink); font-weight: 500; }
+.site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--green); text-decoration: underline; }
+.head-cta { display: flex; align-items: center; gap: 14px; }
+.head-phone { font-size: 14.5px; font-weight: 600; white-space: nowrap; }
+@media (max-width: 860px) {
+  .site-head .bar { gap: 12px; }
+  .site-nav { order: 3; width: 100%; margin-left: 0; gap: 14px; padding-bottom: 4px; }
+  .head-cta { margin-left: auto; }
+}
+
+/* ---- product grid ---- */
+.grid { display: grid; gap: clamp(18px, 2.6vw, 30px); grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); }
+@media (max-width: 400px) { .grid { grid-template-columns: 1fr 1fr; gap: 14px; } }
+
+.card { display: flex; flex-direction: column; text-decoration: none; color: inherit; }
+.card .frame {
+  background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--r);
+  overflow: hidden; aspect-ratio: 4 / 5;
+}
+.card .frame svg, .card .frame img { width: 100%; height: 100%; object-fit: cover; }
+.card:hover .frame { border-color: var(--green); }
+.card h3 { font-size: 19px; margin: 12px 0 2px; }
+.card:hover h3 { color: var(--green); }
+.card .price { font-size: 15px; color: var(--muted); margin: 0; }
+/* No opacity here. opacity:.65 on --muted dropped the struck-through price to
+   3.9:1 and the auditor caught it at both widths. The line-through already says
+   "old price", so the colour does not need to whisper as well. --muted is 7.2:1. */
+.card .was, .was { text-decoration: line-through; color: var(--muted); margin-right: 6px; }
+
+.tag {
+  display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .11em;
+  text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
+  background: var(--rose); color: #4a1330;
+}
+
+/* ---- generic panels ---- */
+.panel { background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--r); padding: clamp(20px, 3vw, 34px); }
+.split { display: grid; gap: clamp(26px, 4vw, 56px); grid-template-columns: 1fr 1fr; align-items: center; }
+@media (max-width: 780px) { .split { grid-template-columns: 1fr; } }
+.cols-3 { display: grid; gap: clamp(18px, 3vw, 32px); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+
+/* Grid items default to min-width:auto, which means they refuse to shrink below the
+   intrinsic width of their contents. A 400px-wide <svg> then held its column open and
+   pushed the page 24px wide at 320. Caught by the width check, not by eye. Fixed here
+   for every grid in the site rather than on the one element that was flagged. */
+.split > *, .cols-3 > *, .grid > * { min-width: 0; }
+.split svg, .cols-3 svg { width: 100%; height: auto; }
+
+.hours { list-style: none; padding: 0; margin: 0; }
+.hours li { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 15.5px; }
+.hours li:last-child { border-bottom: 0; }
+.hours .closed { color: var(--muted); }
+
+.townlist { columns: 3 150px; column-gap: 26px; list-style: none; padding: 0; margin: 0; }
+.townlist li { padding: 4px 0; font-size: 15.5px; break-inside: avoid; }
+
+.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; }
+.steps li { counter-increment: s; position: relative; padding: 0 0 22px 52px; }
+.steps li::before {
+  content: counter(s); position: absolute; left: 0; top: 0;
+  width: 34px; height: 34px; border-radius: 50%; background: var(--green); color: var(--paper);
+  display: grid; place-items: center; font-size: 15px; font-weight: 700; font-family: var(--sans);
+}
+
+/* ---- notices ---- */
+.notice {
+  border-left: 4px solid var(--rose-ink); background: var(--paper-2);
+  padding: 16px 20px; border-radius: 0 var(--r) var(--r) 0; font-size: 15.5px;
+}
+.notice strong { color: var(--rose-ink); }
+
+/* ---- footer ---- */
+.site-foot { background: var(--green-deep); color: var(--paper); margin-top: clamp(52px, 8vw, 96px); }
+/* Explicit colours on descendants: a bare `footer { background: dark }` once painted
+   over a light-ground link and produced a 1.09 contrast ratio. Nothing here inherits. */
+.site-foot a { color: var(--paper); text-decoration: underline; }
+.site-foot a:hover { color: #ffffff; }
+.site-foot .cols { display: grid; gap: 34px; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); padding: clamp(40px, 6vw, 64px) 0 30px; }
+.site-foot h4 { font-family: var(--sans); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: #cfe0cf; margin: 0 0 12px; }
+.site-foot ul { list-style: none; padding: 0; margin: 0; }
+.site-foot li { padding: 4px 0; font-size: 15px; }
+.site-foot .base { border-top: 1px solid rgba(251, 247, 240, .22); padding: 20px 0 30px; display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; font-size: 13.5px; color: #d9e4d8; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}

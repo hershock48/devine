@@ -1,0 +1,108 @@
+{
+  "_note": "Harvested from devinesflowersandbotanicals.com on 2026-08-20, cross-verified against the site's own WooCommerce Store API. 57 unique products; the shop's category badges sum to 66 because 9 products sit in two categories. Keyed on SLUG, never on name: three separate products are all called 'Designer's Choice'.",
+  "categories": [
+    { "slug": "celebration-of-life", "name": "Celebration of Life" },
+    { "slug": "gifts-add-ons", "name": "Gifts & Add Ons" },
+    { "slug": "new-baby", "name": "New Baby" },
+    { "slug": "wedding", "name": "Wedding" },
+    { "slug": "just-because", "name": "Just Because" },
+    { "slug": "anniversary", "name": "Anniversary" },
+    { "slug": "birthday", "name": "Birthday" },
+    { "slug": "plants", "name": "Plants" }
+  ],
+  "products": [
+    { "slug": "natures-home", "name": "Nature's Home", "price": 95.00, "cats": ["celebration-of-life"], "img": "2026/08/IMG_0661-1-scaled.jpeg" },
+    { "slug": "eden", "name": "Eden", "price": 125.00, "cats": ["celebration-of-life"], "img": "2026/07/IMG_0211-scaled.jpeg" },
+    { "slug": "gayles-garden", "name": "Gayle's Garden", "price": 215.00, "cats": ["celebration-of-life"], "img": "2024/07/Gayles-Garden.jpg" },
+    { "slug": "mary", "name": "Mary", "price": 95.00, "cats": ["celebration-of-life"], "img": "2024/07/Mary.jpg" },
+    { "slug": "crystal-cross", "name": "Crystal Cross Garden", "price": 130.00, "cats": ["celebration-of-life"], "img": "2024/07/Crystal-Cross.jpg" },
+
+    { "slug": "magic-hour-vitality-tea", "name": "Magic Hour Vitality Tea", "price": 12.00, "cats": ["gifts-add-ons"], "img": "2026/07/Vitality-2-scaled.jpeg" },
+    { "slug": "magic-hour-balance-tea", "name": "Magic Hour Balance Tea", "price": 12.00, "cats": ["gifts-add-ons"], "img": "2026/07/IMG_0167-scaled.jpeg" },
+    { "slug": "magic-hour-rest-tea", "name": "Magic Hour Rest Tea", "price": 12.00, "cats": ["gifts-add-ons"], "img": "2026/07/IMG_0173-scaled.jpeg" },
+    { "slug": "bohemian-breakfast-tea", "name": "Bohemian Breakfast Tea", "price": 15.00, "cats": ["gifts-add-ons"], "img": "2026/07/IMG_0178-scaled.jpeg" },
+    { "slug": "petite-box-of-chocolates", "name": "Signature Collection of Chocolates", "price": 15.00, "cats": ["gifts-add-ons"], "img": "2026/07/IMG_0656-scaled.jpeg" },
+    { "slug": "lil-lovey", "name": "Lil' Lovey", "price": 21.00, "cats": ["gifts-add-ons", "new-baby"], "img": "2026/07/IMG_0294-scaled.jpeg" },
+    { "slug": "claire-the-cat", "name": "Claire the Cat", "price": 28.95, "cats": ["gifts-add-ons", "new-baby"], "img": "2026/07/IMG_0305-scaled.jpeg" },
+    { "slug": "piper-the-puppy", "name": "Piper the Puppy", "price": 28.95, "cats": ["gifts-add-ons", "new-baby"], "img": "2026/07/IMG_0309.jpeg" },
+    { "slug": "grand-collection-of-chocolates", "name": "Grand Collection of Chocolates", "price": 30.00, "cats": ["gifts-add-ons"], "img": "2026/07/IMG_0661-scaled.jpeg" },
+    { "slug": "duke-the-dog", "name": "Duke the Dog", "price": 31.95, "cats": ["gifts-add-ons", "new-baby"], "img": "2026/07/IMG_0300-scaled.jpeg" },
+    { "slug": "mindful-moments-basket", "name": "Mindful Moments Basket", "price": 80.00, "cats": ["gifts-add-ons"], "img": "2025/09/IMG_0280-1-scaled.jpeg" },
+
+    { "slug": "honey-bee", "name": "Honey Bee", "price": 75.00, "cats": ["new-baby"], "img": "2026/06/IMG_0560-scaled.jpeg" },
+    { "slug": "butterfly-kisses", "name": "Butterfly Kisses", "price": 75.00, "cats": ["new-baby"], "img": "2026/06/IMG_9575-scaled.jpeg" },
+    { "slug": "bears-baby-box", "name": "Bear's Baby Box", "price": 110.00, "cats": ["new-baby"], "img": "2026/08/IMG_0419-scaled.jpeg" },
+    { "slug": "blossom-and-blooms", "name": "Blossom and Blooms", "price": 110.00, "cats": ["new-baby"], "img": "2026/07/IMG_0326-scaled.jpeg" },
+
+    { "slug": "classic-boutonniere", "name": "Classic Boutonniere", "price": 21.95, "cats": ["wedding"], "img": "2025/09/IMG_6890.jpg" },
+    { "slug": "classic-wrist-corsage", "name": "Classic Wrist Corsage", "price": 35.95, "cats": ["wedding"], "img": "2025/09/IMG_6894-scaled.jpg" },
+    { "slug": "classic-bridesmaid-bouquet", "name": "Classic Bridesmaid Bouquet", "price": 75.00, "cats": ["wedding"], "img": "2025/09/IMG_6856-scaled.jpg" },
+    { "slug": "classic-bridal-bouquet", "name": "Classic Bridal Bouquet", "price": 260.00, "cats": ["wedding"], "img": "2025/09/Classic-Bridal-Bouquet.png" },
+
+    { "slug": "designers-choice", "name": "Designer's Choice", "price": 55.00, "cats": ["just-because", "birthday"], "img": "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png", "placeholderImage": true },
+    { "slug": "designers-choice-3", "name": "Designer's Choice", "price": 75.00, "cats": ["just-because", "anniversary", "birthday"], "img": "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png", "placeholderImage": true },
+    { "slug": "designers-choice-2", "name": "Designer's Choice", "price": 100.00, "cats": ["just-because", "anniversary", "birthday"], "img": "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png", "placeholderImage": true },
+    { "slug": "maeve", "name": "Maeve", "price": 65.00, "cats": ["just-because"], "img": "2026/08/IMG_0759-scaled.jpeg" },
+    { "slug": "gwendolyn", "name": "Gwendolyn", "price": 65.00, "cats": ["just-because"], "img": "2026/08/IMG_0690-scaled.jpeg" },
+    { "slug": "harper-2", "name": "Harper", "price": 65.00, "cats": ["just-because"], "img": "2026/08/IMG_0714-scaled.jpeg" },
+    { "slug": "della", "name": "Della", "price": 79.00, "cats": ["just-because"], "img": "2026/08/IMG_0688-scaled.jpeg" },
+    { "slug": "ginger", "name": "Ginger", "price": 85.00, "cats": ["just-because"], "img": "2026/08/IMG_0741-scaled.jpeg" },
+    { "slug": "bridget", "name": "Bridget", "price": 85.00, "cats": ["just-because"], "img": "2026/08/IMG_0676-scaled.jpeg" },
+    { "slug": "helene", "name": "Helene", "price": 115.00, "cats": ["just-because"], "img": "2026/08/IMG_0805-scaled.jpeg" },
+
+    { "slug": "hanna", "name": "Hanna", "price": 60.00, "cats": ["anniversary"], "img": "2026/08/IMG_0557-scaled.jpeg" },
+    { "slug": "dozen-roses", "name": "Classic Red Dozen", "price": 75.00, "regularPrice": 126.95, "onSale": true, "cats": ["anniversary"], "img": "2026/01/IMG_0513-scaled.jpeg" },
+    { "slug": "serena", "name": "Serena", "price": 100.00, "cats": ["anniversary"], "img": "2026/08/IMG_0754-scaled.jpeg" },
+    { "slug": "roxanne", "name": "Roxanne", "price": 100.00, "cats": ["anniversary"], "img": "2026/07/IMG_0349-scaled.jpeg" },
+    { "slug": "mixed-dozen-of-roses", "name": "Mixed Dozen Roses", "price": 126.95, "cats": ["anniversary"], "img": "2026/08/IMG_0416-scaled.jpeg" },
+    { "slug": "eliza", "name": "Eliza", "price": 135.00, "cats": ["anniversary"], "img": "2026/08/IMG_0478-scaled.jpeg" },
+
+    { "slug": "looking-lovely", "name": "Looking Lovely", "price": 55.00, "cats": ["birthday"], "img": "2026/03/IMG_9491-scaled.jpeg" },
+    { "slug": "blooming-candle", "name": "Blooming Candle", "price": 70.00, "cats": ["birthday"], "img": "2024/07/IMG_8580-scaled.jpeg" },
+    { "slug": "clementine", "name": "Clementine", "price": 85.00, "cats": ["birthday"], "img": "2026/06/Screenshot-2026-06-01-105732.png" },
+    { "slug": "nicole", "name": "Nicole", "price": 110.00, "cats": ["birthday"], "img": "2025/04/Nicole-2-1.jpg" },
+
+    { "slug": "6-peace-lily", "name": "6″ Peace Lily", "price": 46.95, "cats": ["plants"], "img": "2024/08/6-inch-Peace-Lily.jpg" },
+    { "slug": "small-ceramic-dish-garden", "name": "Small Ceramic Dish Garden", "price": 50.95, "cats": ["plants"], "img": "2026/02/IMG_0028-scaled.jpeg" },
+    { "slug": "small-chime-stand", "name": "30″ Wind Chime", "price": 50.95, "cats": ["plants"], "img": "2024/07/Untitled-design-2.png" },
+    { "slug": "terra-bowel", "name": "Terra Bowl", "price": 52.95, "cats": ["plants"], "img": "2024/06/Terra-Bowel.jpg" },
+    { "slug": "beautiful-memory", "name": "Beautiful Memory", "price": 59.95, "cats": ["plants"], "img": "2024/09/IMG_0031-scaled.jpeg" },
+    { "slug": "peaceful-garden-2", "name": "Peaceful Garden", "price": 59.95, "cats": ["plants"], "img": "2024/07/IMG_0077-scaled.jpeg" },
+    { "slug": "succulent-garden", "name": "Succulent Garden", "price": 59.95, "cats": ["plants"], "img": "2024/06/Succulent-Garden.jpg" },
+    { "slug": "cylinder-wind-chime", "name": "Cylinder Wind Chime", "price": 61.00, "cats": ["plants"], "img": "2024/07/Untitled-design-1.png" },
+    { "slug": "8-peace-lily", "name": "8″ Peace Lily", "price": 65.95, "cats": ["plants"], "img": "2024/07/8-inch-Peace-Lily.jpg" },
+    { "slug": "rustic-box-planter", "name": "Rustic Box Planter", "price": 68.95, "cats": ["plants"], "img": "2024/07/Rustic-Box-.jpg" },
+    { "slug": "medium-ceramic-dish-garden", "name": "Medium Ceramic Dish Garden", "price": 72.95, "cats": ["plants"], "img": "2024/07/Medium-Ceramic-Dish-Garden-.jpg" },
+    { "slug": "wing-and-a-prayer", "name": "A Wing and A Prayer Dish Garden", "price": 79.95, "cats": ["plants"], "img": "2024/07/IMG_0072-scaled.jpeg" },
+    { "slug": "large-ceramic-dish-garden", "name": "Large Ceramic Dish Garden", "price": 94.95, "cats": ["plants"], "img": "2024/07/Large-Dish-Garden.jpg" }
+  ],
+  "otherImages": {
+    "logo": "2023/07/DeVine_Logo-white-bg-fade.png",
+    "staff": {
+      "Gayle Scantlen": "2025/06/5972161860159757723.jpg",
+      "Becky Moore": "2025/06/6456171607788653296.jpg",
+      "Lacey Andrews": "2025/06/1803267948977367450.jpg",
+      "Shawna Wilcox": "2025/06/IMG_5692r-scaled.jpg"
+    },
+    "lifestyle": [
+      "2026/06/image0-1024x768-2000x2000.jpeg",
+      "2026/05/IMG_0414-1019x1024-2000x2000.jpeg",
+      "2025/08/521226521_1230373469116957_4712724090112329100_n-2000x2000.jpg",
+      "2025/05/25-Emily-1-926x1024-2000x2000.jpg",
+      "2025/08/IMG_6505-1024x957-1000x1100.jpg",
+      "2024/06/Vi-2-858x1024-532x624.jpg",
+      "2024/06/Frannie-1-1-768x1024-532x624.jpg"
+    ],
+    "wedding": [
+      "2026/06/501196092_24438420822425121_2859005303446364011_n-1024x683-800x750.jpg",
+      "2026/06/631511901_1567702131383118_8970689936609488794_n-1024x683-500x500.jpg",
+      "2025/06/Wedding-3-500x500.jpg",
+      "2024/06/IMG_7549-704x1024-500x500.jpg",
+      "2025/06/Kujawa-Wedding-7-500x500.jpg",
+      "2026/06/500367175_24438420562425147_6142328442725076557_n-695x1024-500x500.jpg",
+      "2025/06/IMG_9589-683x1024-500x500.jpeg",
+      "2025/06/Wedding-12-683x1024-500x500.jpg",
+      "2025/06/Varvatos-Wedding-4-1024x693-500x500.jpg"
+    ]
+  }
+}

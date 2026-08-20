@@ -1,0 +1,102 @@
+{
+ "brand/logo": {
+  "h": 744,
+  "w": 1200
+ },
+ "product/6-peace-lily": {
+  "h": 944,
+  "w": 1000
+ },
+ "product/8-peace-lily": {
+  "h": 931,
+  "w": 1000
+ },
+ "product/beautiful-memory": {
+  "h": 1170,
+  "w": 1000
+ },
+ "product/bridget": {
+  "h": 960,
+  "w": 1000
+ },
+ "product/cylinder-wind-chime": {
+  "h": 1250,
+  "w": 1000
+ },
+ "product/della": {
+  "h": 750,
+  "w": 750
+ },
+ "product/ginger": {
+  "h": 750,
+  "w": 750
+ },
+ "product/gwendolyn": {
+  "h": 750,
+  "w": 750
+ },
+ "product/harper-2": {
+  "h": 750,
+  "w": 750
+ },
+ "product/helene": {
+  "h": 750,
+  "w": 750
+ },
+ "product/large-ceramic-dish-garden": {
+  "h": 1274,
+  "w": 1000
+ },
+ "product/maeve": {
+  "h": 750,
+  "w": 750
+ },
+ "product/medium-ceramic-dish-garden": {
+  "h": 990,
+  "w": 1000
+ },
+ "product/peaceful-garden-2": {
+  "h": 989,
+  "w": 1000
+ },
+ "product/rustic-box-planter": {
+  "h": 1046,
+  "w": 1000
+ },
+ "product/small-ceramic-dish-garden": {
+  "h": 1166,
+  "w": 1000
+ },
+ "product/small-chime-stand": {
+  "h": 1250,
+  "w": 1000
+ },
+ "product/succulent-garden": {
+  "h": 990,
+  "w": 1000
+ },
+ "product/terra-bowel": {
+  "h": 1336,
+  "w": 1000
+ },
+ "product/wing-and-a-prayer": {
+  "h": 976,
+  "w": 1000
+ },
+ "shop/shop-1": {
+  "h": 500,
+  "w": 600
+ },
+ "shop/shop-2": {
+  "h": 500,
+  "w": 1000
+ },
+ "shop/shop-3": {
+  "h": 500,
+  "w": 1000
+ },
+ "shop/shop-4": {
+  "h": 1100,
+  "w": 1000
+ }
+}

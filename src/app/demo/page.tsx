@@ -1,63 +1,139 @@
-/*
-  THE PLACEHOLDER, at /demo.
+import ProductCard from "@/components/ProductCard";
+import { featured, categories, inCategory } from "@/lib/catalog";
+import { site, formatHours } from "@/lib/site";
+import { href } from "@/lib/nav";
 
-  A real route now, not a rewrite target. The concept build does not exist yet, and the
-  honest behaviour for a route with nothing behind it is to say so rather than render an
-  empty shell that reads as a broken site.
-
-  This page can only ever be reached by asking for /demo. It is no longer possible for
-  it to answer / by accident, which is exactly what went wrong before: the root rewrite
-  was scoped to a hostname, the hostname was spelled wrong, and the client got this page
-  when they should have got the proposal.
-
-  When the real build lands, this becomes the homepage of the concept site. Until then:
-  do not send anyone a /demo link.
-*/
-export default function Placeholder() {
+/**
+ * HOME.
+ *
+ * Their current homepage opens with a 14-word heading and then prints the same three
+ * paragraphs twice, with small wording differences between the two copies. This says
+ * it once.
+ *
+ * Order is deliberate: what they are, what you can buy, whether they deliver to you,
+ * then who they are. Someone visiting a florist is usually buying today, so the shop
+ * comes before the story.
+ */
+export default function Home() {
   return (
-    <main
-      style={{
-        minHeight: "100svh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "24px",
-        background: "#FDF6EC",
-        color: "#2B1E16",
-        fontFamily:
-          '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif',
-        textAlign: "center",
-      }}
-    >
-      <div style={{ maxWidth: "34em" }}>
-        <p
-          style={{
-            fontSize: "12px",
-            fontWeight: 700,
-            letterSpacing: "0.3em",
-            textTransform: "uppercase",
-            color: "#467C3D",
-            margin: "0 0 14px",
-          }}
-        >
-          Glazed Web
-        </p>
-        <h1
-          style={{
-            fontSize: "clamp(28px,5vw,40px)",
-            fontWeight: 800,
-            letterSpacing: "-1.2px",
-            lineHeight: 1.1,
-            margin: "0 0 16px",
-          }}
-        >
-          Nothing here yet.
-        </h1>
-        <p style={{ color: "#6B5747", fontSize: "17px", lineHeight: 1.6, margin: 0 }}>
-          This address is reserved for a concept build that has not been made yet. The
-          proposal is at the root of this domain.
-        </p>
-      </div>
-    </main>
+    <>
+      <section className="section" style={{ paddingBottom: 0 }}>
+        <div className="wrap split">
+          <div>
+            <p className="kicker">Marshall, Michigan</p>
+            <h1>Flowers grown, gathered and arranged by hand.</h1>
+            <p className="lede">
+              A full-service, independently owned and women operated flower and plant shop.
+              We grow many of our own cuttings and source the rest locally, so what we put in
+              your hands is whatever the season is actually doing.
+            </p>
+            <p style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 28 }}>
+              <a className="btn" href={href("/shop")}>
+                Shop arrangements
+              </a>
+              <a className="btn ghost" href={href("/weddings")}>
+                Weddings &amp; events
+              </a>
+            </p>
+          </div>
+          {/* Their own photograph, not an illustration. The hero is the one image a
+              visitor judges a florist on, so it is eager rather than lazy. */}
+          <div style={{ maxWidth: 460, marginInline: "auto", width: "100%" }}>
+            <img
+              src="/img/shop/shop-4.webp"
+              width={1000}
+              height={1100}
+              alt="A hand-tied arrangement of purple lisianthus, delphinium and pink alstroemeria, made at DeVine's"
+              style={{ width: "100%", height: "auto", borderRadius: "var(--r)" }}
+              loading="eager"
+              decoding="async"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="wrap">
+          <p className="kicker">Ready to send</p>
+          <h2>This week from the studio</h2>
+          <p className="lede" style={{ marginBottom: 34 }}>
+            Designed here, in the shop, from what came in fresh.
+          </p>
+          <div className="grid">
+            {featured.map((p) => (
+              <ProductCard key={p.slug} p={p} />
+            ))}
+          </div>
+          <p style={{ marginTop: 34 }}>
+            <a className="btn ghost" href={href("/shop")}>
+              See everything
+            </a>
+          </p>
+        </div>
+      </section>
+
+      <section
+        className="section"
+        style={{ background: "var(--paper-2)", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}
+      >
+        <div className="wrap">
+          <p className="kicker">Shop by occasion</p>
+          <h2>What are the flowers for?</h2>
+          <div className="cols-3" style={{ marginTop: 34 }}>
+            {categories.map((c) => {
+              const n = inCategory(c.slug).length;
+              return (
+                <a
+                  key={c.slug}
+                  className="panel"
+                  href={href(`/shop/${c.slug}`)}
+                  style={{ textDecoration: "none", color: "inherit", display: "block", background: "var(--paper)" }}
+                >
+                  <h3 style={{ marginBottom: 8 }}>{c.name}</h3>
+                  <p className="muted" style={{ fontSize: 15.5, marginBottom: 10 }}>
+                    {c.blurb}
+                  </p>
+                  <p style={{ margin: 0, fontSize: 14, color: "var(--green)", fontWeight: 600 }}>
+                    {n} {n === 1 ? "arrangement" : "arrangements"}
+                  </p>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="wrap split">
+          <div>
+            <p className="kicker">Delivery</p>
+            <h2>We deliver to {site.deliveryTowns.length} towns.</h2>
+            <p className="lede">
+              {site.delivery.sameDay} From Marshall out to Jackson, Coldwater, Charlotte and
+              Battle Creek, across {site.deliveryZips.length} zip codes.
+            </p>
+            <p>
+              <a className="btn ghost" href={href("/delivery")}>
+                Check your town
+              </a>
+            </p>
+          </div>
+          <div className="panel">
+            <h3 style={{ marginBottom: 14 }}>Shop hours</h3>
+            <ul className="hours">
+              {site.hours.map((h) => (
+                <li key={h.day}>
+                  <span>{h.day}</span>
+                  <span className={h.open ? undefined : "closed"}>{formatHours(h)}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="muted" style={{ fontSize: 15, margin: "16px 0 0" }}>
+              Walk-in flower and plant orders are welcome. {site.address.parking}
+            </p>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }
