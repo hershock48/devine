@@ -1,7 +1,7 @@
 /*
   THE PLACEHOLDER.
 
-  On devines.glazedweb.com this page answers /demo, because of the host split in
+  On devine.glazedweb.com this page answers /demo, because of the host split in
   next.config.ts. The concept build does not exist yet, and the honest behaviour for a
   route that has nothing behind it is to say so rather than to render an empty shell
   that reads as a broken site.

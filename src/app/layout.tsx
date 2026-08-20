@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 /*
   Deliberately bare. The only thing this app serves today is the placeholder in
-  page.tsx; the proposal is a self-contained HTML file in public/pitch/devines/ and
+  page.tsx; the proposal is a self-contained HTML file in public/pitch/devine/ and
   carries its own <head>, its own stylesheet and its own link card. When the concept
   build lands, this layout becomes the real one: fonts self-hosted via next/font, the
   site header and footer, and the metadataBase pointed at DeVine's own domain.

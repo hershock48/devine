@@ -20,10 +20,10 @@ const nextConfig: NextConfig = {
     DELETE this whole block, and public/pitch/, once DeVine's signs or passes.
   */
   async rewrites() {
-    const onPitchHost = [{ type: "host" as const, value: "devines.glazedweb.com" }];
+    const onPitchHost = [{ type: "host" as const, value: "devine.glazedweb.com" }];
     return {
       beforeFiles: [
-        { source: "/", destination: "/pitch/devines/index.html", has: onPitchHost },
+        { source: "/", destination: "/pitch/devine/index.html", has: onPitchHost },
         { source: "/demo", destination: "/", has: onPitchHost },
         { source: "/demo/:path*", destination: "/:path*", has: onPitchHost },
       ],

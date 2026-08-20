@@ -9,9 +9,9 @@ yet. Read `glaze.md` in the `glazedweb` repo before touching any of this.
 
 | Path | What it is |
 |---|---|
-| `public/pitch/devines/index.html` | The proposal. One self-contained file, no build step, hand-editable on a phone if a call goes sideways. |
-| `public/pitch/devines/og.jpg` | The proposal's link card, 1200x630, 44KB. Rendered from a real page, not assembled by hand. |
-| `public/pitch/devines/icon.png` | Favicon, 256px. |
+| `public/pitch/devine/index.html` | The proposal. One self-contained file, no build step, hand-editable on a phone if a call goes sideways. |
+| `public/pitch/devine/og.jpg` | The proposal's link card, 1200x630, 44KB. Rendered from a real page, not assembled by hand. |
+| `public/pitch/devine/icon.png` | Favicon, 256px. |
 | `src/app/page.tsx` | Placeholder. On the pitch host this answers `/demo`. **Do not send anyone a `/demo` link until this is a real site.** |
 | `next.config.ts` | The host split and the noindex headers. |
 | `src/app/robots.ts` | Search engines out, social card scrapers in. |
@@ -20,13 +20,13 @@ yet. Read `glaze.md` in the `glazedweb` repo before touching any of this.
 
 1. Import this repo into Vercel. One project per repo; check there is not already a
    duplicate, because several Glazed repos ended up imported twice.
-2. Add the domain **`devines.glazedweb.com`** to the project. Add the apex form only.
+2. Add the domain **`devine.glazedweb.com`** to the project. Add the apex form only.
    Adding `www.` gives you a hostname with no certificate, which fails in the browser
    and has already burned one prospect link.
 3. Confirm, by fetching the deployed URL rather than assuming:
-   - `https://devines.glazedweb.com/` serves the proposal, not the placeholder.
+   - `https://devine.glazedweb.com/` serves the proposal, not the placeholder.
    - The response carries `X-Robots-Tag: noindex, nofollow`.
-   - `https://devines.glazedweb.com/pitch/devines/og.jpg` returns 200 and an image
+   - `https://devine.glazedweb.com/pitch/devine/og.jpg` returns 200 and an image
      content type.
 4. Paste the link into Messages **and** into one non-Apple surface, and look at the
    card. Apple's preview is fetched by the sending device, so a card can look right in
