@@ -1,125 +1,154 @@
 import ProductCard from "@/components/ProductCard";
-import { featured, categories, inCategory } from "@/lib/catalog";
+import { featured, categories, inCategory, priceRange, money, products } from "@/lib/catalog";
 import { site, formatHours } from "@/lib/site";
 import { href } from "@/lib/nav";
 
 /**
  * HOME.
  *
- * Their current homepage opens with a 14-word heading and then prints the same three
- * paragraphs twice, with small wording differences between the two copies. This says
- * it once.
+ * THE FLOW, and why it is in this order.
  *
- * Order is deliberate: what they are, what you can buy, whether they deliver to you,
- * then who they are. Someone visiting a florist is usually buying today, so the shop
- * comes before the story.
+ * Their current homepage opens with a 14-word heading and then prints the same
+ * three paragraphs twice, with small wording differences between the copies. The
+ * first pass of this rebuild said it once, which was better, but it was still six
+ * boxed sections stacked at the same width in the same rhythm: a document, not a
+ * shop.
+ *
+ * The page alternates now. A bleeding photograph, a narrow column of type, a wide
+ * grid, a full-width band, a quiet index, a practical close. That alternation is
+ * what gives scrolling a cadence, and it is the thing every one of the reference
+ * sites does and no template does.
+ *
+ * Someone visiting a florist is usually buying today, so the shop sits above the
+ * story and the delivery question is answered before either.
  */
 export default function Home() {
   return (
     <>
-      <section className="section" style={{ paddingBottom: 0 }}>
-        <div className="wrap split">
-          <div>
+      {/* 1. THE PHOTOGRAPH FIRST, running off the right edge of the viewport. */}
+      <section className="hero bleed">
+        <div className="hero-grid">
+          <div className="hero-copy">
             <p className="kicker">Marshall, Michigan</p>
-            <h1>Flowers grown, gathered and arranged by hand.</h1>
+            <h1>
+              Grown, gathered,
+              <br />
+              arranged by hand.
+            </h1>
             <p className="lede">
-              A full-service, independently owned and women operated flower and plant shop.
-              We grow many of our own cuttings and source the rest locally, so what we put in
-              your hands is whatever the season is actually doing.
+              An independently owned, women operated flower and plant shop. We grow a good
+              share of what we arrange and source the rest close by, so what you send is
+              whatever the season is actually doing.
             </p>
-            <p style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 28 }}>
-              <a className="btn" href={href("/shop")}>
+            <p className="btnrow">
+              <a className="btn btn--solid" href={href("/shop")}>
                 Shop arrangements
               </a>
-              <a className="btn ghost" href={href("/weddings")}>
-                Weddings &amp; events
+              <a className="btn" href={href("/weddings")}>
+                Weddings
               </a>
             </p>
           </div>
-          {/* Their own photograph, not an illustration. The hero is the one image a
-              visitor judges a florist on, so it is eager rather than lazy. */}
-          <div style={{ maxWidth: 460, marginInline: "auto", width: "100%" }}>
+          <div className="hero-art">
             <img
               src="/img/shop/shop-4.webp"
               width={1000}
               height={1100}
               alt="A hand-tied arrangement of purple lisianthus, delphinium and pink alstroemeria, made at DeVine's"
-              style={{ width: "100%", height: "auto", borderRadius: "var(--r)" }}
               loading="eager"
               decoding="async"
+              fetchPriority="high"
             />
           </div>
         </div>
       </section>
 
-      <section className="section">
+      {/* 2. ONE LINE, WITH AIR AROUND IT. Used once on the whole site. */}
+      <section className="section--loose">
         <div className="wrap">
-          <p className="kicker">Ready to send</p>
-          <h2>This week from the studio</h2>
-          <p className="lede" style={{ marginBottom: 34 }}>
-            Designed here, in the shop, from what came in fresh.
+          <p className="statement">
+            Arranged this morning, forty feet from the counter you collect them at.
           </p>
+          <p className="statement-note">
+            No wire service. No call center. The person who made it is the person who
+            hands it to you.
+          </p>
+        </div>
+      </section>
+
+      {/* 3. THE SHOP, three columns rather than four. */}
+      <section className="section" style={{ paddingTop: 0 }}>
+        <div className="wrap">
+          <div className="sec-head">
+            <p className="kicker" style={{ margin: 0 }}>
+              This week from the studio
+            </p>
+            <a className="btn" href={href("/shop")}>
+              All {products.length} designs
+            </a>
+          </div>
           <div className="grid">
             {featured.map((p) => (
               <ProductCard key={p.slug} p={p} />
             ))}
           </div>
-          <p style={{ marginTop: 34 }}>
-            <a className="btn ghost" href={href("/shop")}>
-              See everything
-            </a>
-          </p>
         </div>
       </section>
 
-      <section
-        className="section"
-        style={{ background: "var(--paper-2)", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}
-      >
+      {/* 4. A FULL-WIDTH BAND, breaking the rhythm before the index. */}
+      <figure className="band bleed" style={{ margin: 0 }}>
+        <img
+          src="/img/shop/shop-3.webp"
+          width={1000}
+          height={500}
+          alt="Peach roses, coral carnations, orange ranunculus and Queen Anne's lace, hand-tied at the shop"
+          loading="lazy"
+          decoding="async"
+        />
+        <figcaption>Designed daily, from whatever came in fresh that morning</figcaption>
+      </figure>
+
+      {/* 5. OCCASIONS, as an index rather than eight boxes. */}
+      <section className="section">
         <div className="wrap">
-          <p className="kicker">Shop by occasion</p>
-          <h2>What are the flowers for?</h2>
-          <div className="cols-3" style={{ marginTop: 34 }}>
+          <p className="kicker">What are the flowers for?</p>
+          <ul className="index">
             {categories.map((c) => {
-              const n = inCategory(c.slug).length;
+              const items = inCategory(c.slug);
+              const [min] = priceRange(c.slug);
               return (
-                <a
-                  key={c.slug}
-                  className="panel"
-                  href={href(`/shop/${c.slug}`)}
-                  style={{ textDecoration: "none", color: "inherit", display: "block", background: "var(--paper)" }}
-                >
-                  <h3 style={{ marginBottom: 8 }}>{c.name}</h3>
-                  <p className="muted" style={{ fontSize: 15.5, marginBottom: 10 }}>
-                    {c.blurb}
-                  </p>
-                  <p style={{ margin: 0, fontSize: 14, color: "var(--green)", fontWeight: 600 }}>
-                    {n} {n === 1 ? "arrangement" : "arrangements"}
-                  </p>
-                </a>
+                <li key={c.slug}>
+                  <a href={href(`/shop/${c.slug}`)}>
+                    <span className="index-name">{c.name}</span>
+                    <span className="index-meta">
+                      {items.length} designs &middot; from {money(min)}
+                    </span>
+                  </a>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </div>
       </section>
 
-      <section className="section">
-        <div className="wrap split">
+      {/* 6. THE PRACTICAL CLOSE. */}
+      <section className="section" style={{ paddingTop: 0 }}>
+        <div className="wrap split split--wide-left" style={{ alignItems: "start" }}>
           <div>
             <p className="kicker">Delivery</p>
-            <h2>We deliver to {site.deliveryTowns.length} towns.</h2>
+            <h2>We come to {site.deliveryTowns.length} towns.</h2>
             <p className="lede">
               {site.delivery.sameDay} From Marshall out to Jackson, Coldwater, Charlotte and
               Battle Creek, across {site.deliveryZips.length} zip codes.
             </p>
-            <p>
-              <a className="btn ghost" href={href("/delivery")}>
+            <p className="btnrow">
+              <a className="btn" href={href("/delivery")}>
                 Check your town
               </a>
             </p>
           </div>
-          <div className="panel">
-            <h3 style={{ marginBottom: 14 }}>Shop hours</h3>
+          <div>
+            <p className="kicker">The shop</p>
             <ul className="hours">
               {site.hours.map((h) => (
                 <li key={h.day}>
@@ -128,8 +157,9 @@ export default function Home() {
                 </li>
               ))}
             </ul>
-            <p className="muted" style={{ fontSize: 15, margin: "16px 0 0" }}>
-              Walk-in flower and plant orders are welcome. {site.address.parking}
+            <p className="muted small" style={{ margin: "18px 0 0" }}>
+              {site.address.street}, {site.address.city}. Walk-in orders welcome.{" "}
+              {site.address.parking}
             </p>
           </div>
         </div>

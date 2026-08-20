@@ -6,6 +6,7 @@ import { AddToCart } from "@/components/Cart";
 import { products, bySlug, catBySlug, inCategory, money } from "@/lib/catalog";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
+import { photoFirst } from "@/lib/order";
 
 type Params = { params: Promise<{ slug: string }> };
 
@@ -17,11 +18,23 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { slug } = await params;
   const p = bySlug.get(slug);
   if (!p) return {};
-  return {
-    title: `${p.name}, ${money(p.price)}`,
-    // Their own description, trimmed to a length Google will actually print.
-    description: p.desc.length > 155 ? `${p.desc.slice(0, 152).trimEnd()}...` : p.desc,
-  };
+
+  /*
+    A handful of their products carry no description at all, only the substitution
+    clause, so the catalog holds a PLACEHOLDER string for them. That string was being
+    served to Google as the meta description of a live page — the word PLACEHOLDER, in
+    the search result, on the shop. A missing description is a note for the owner; it
+    is not something a customer should ever read. These pages get a factual sentence
+    built from what we do know until the real copy is written.
+  */
+  const cat = catBySlug.get(p.cats[0]);
+  const description = p.desc.startsWith("PLACEHOLDER")
+    ? `${p.name}, ${money(p.price)}. ${cat ? `${cat.name} ` : ""}designed at DeVine's Flowers & Botanicals in Marshall, Michigan, and delivered across ${site.region}.`
+    : p.desc.length > 155
+      ? `${p.desc.slice(0, 152).trimEnd()}...`
+      : p.desc;
+
+  return { title: `${p.name}, ${money(p.price)}`, description };
 }
 
 export default async function ProductPage({ params }: Params) {
@@ -31,13 +44,17 @@ export default async function ProductPage({ params }: Params) {
 
   const primary = catBySlug.get(p.cats[0]);
   const alsoIn = p.cats.slice(1).map((c) => catBySlug.get(c)).filter(Boolean);
-  const more = inCategory(p.cats[0]).filter((x) => x.slug !== p.slug).slice(0, 4);
+  // three, because the grid is three columns: a fourth sits alone on a second row
+  const more = photoFirst(inCategory(p.cats[0]).filter((x) => x.slug !== p.slug)).slice(0, 3);
   const needsCopy = p.desc.startsWith("PLACEHOLDER");
 
   return (
     <>
+      {/* The photograph carries more of the page than the paragraph does, so it gets
+          more of the width. An even split makes a product page look like a spec
+          sheet. */}
       <section className="section" style={{ paddingBottom: 0 }}>
-        <div className="wrap split" style={{ alignItems: "start" }}>
+        <div className="wrap split split--wide-left" style={{ alignItems: "start" }}>
           <div>
             <ProductImage p={p} detail />
           </div>
@@ -57,7 +74,10 @@ export default async function ProductPage({ params }: Params) {
               )}
             </p>
 
-            <h1 style={{ marginBottom: 12 }}>{p.name}</h1>
+            {/* Not the display size. The site's h1 is a masthead face, and a product
+                name set at 92px in a half-width column breaks into four lines and
+                shouts over the photograph it is labelling. */}
+            <h1 style={{ fontSize: "clamp(34px, 4vw, 52px)", marginBottom: 12 }}>{p.name}</h1>
 
             <p style={{ fontSize: 25, fontFamily: "var(--serif)", margin: "0 0 20px" }}>
               {p.regularPrice && (
@@ -87,18 +107,15 @@ export default async function ProductPage({ params }: Params) {
               <AddToCart slug={p.slug} name={p.name} />
             </div>
 
-            <div className="panel" style={{ padding: 20 }}>
-              <p style={{ margin: "0 0 8px", fontWeight: 600, fontSize: 15 }}>Delivery</p>
-              <p className="muted" style={{ margin: "0 0 12px", fontSize: 15 }}>
-                {site.delivery.sameDay} We deliver to {site.deliveryTowns.length} towns across{" "}
-                {site.region}.{" "}
-                <a href={href("/delivery")}>Check your town</a>.
-              </p>
-              {!p.noSubs && (
-                <p className="muted" style={{ margin: 0, fontSize: 14.5 }}>
-                  {site.substitutionPolicy}
+            <div className="notes" style={{ gridTemplateColumns: "1fr" }}>
+              <div>
+                <h3>Delivery</h3>
+                <p>
+                  {site.delivery.sameDay} We deliver to {site.deliveryTowns.length} towns
+                  across {site.region}. <a href={href("/delivery")}>Check your town</a>.
                 </p>
-              )}
+                {!p.noSubs && <p>{site.substitutionPolicy}</p>}
+              </div>
             </div>
 
             {alsoIn.length > 0 && (
@@ -120,8 +137,17 @@ export default async function ProductPage({ params }: Params) {
       {more.length > 0 && (
         <section className="section">
           <div className="wrap">
-            <h2>More from {primary?.name}</h2>
-            <div className="grid" style={{ marginTop: 26 }}>
+            <div className="sec-head">
+              <p className="kicker" style={{ margin: 0 }}>
+                More from {primary?.name}
+              </p>
+              {primary && (
+                <a className="btn" href={href(`/shop/${primary.slug}`)}>
+                  All {inCategory(primary.slug).length}
+                </a>
+              )}
+            </div>
+            <div className="grid">
               {more.map((m) => (
                 <ProductCard key={m.slug} p={m} />
               ))}

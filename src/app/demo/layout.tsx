@@ -25,6 +25,12 @@ export const metadata: Metadata = {
 export default function DemoLayout({ children }: { children: React.ReactNode }) {
   return (
     <CartProvider>
+      {/* First tab stop on every page. The header carries a logo, five nav items, a
+          delivery line, a phone number and a cart, so a keyboard user reaching the
+          actual page otherwise tabs through nine controls on every single route. */}
+      <a className="skip" href="#main">
+        Skip to content
+      </a>
       <Header />
       <main id="main">{children}</main>
       <Footer />

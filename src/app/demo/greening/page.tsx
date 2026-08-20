@@ -26,8 +26,8 @@ export default function Greening() {
 
   return (
     <>
-      <section className="section" style={{ paddingBottom: 0 }}>
-        <div className="wrap" style={{ maxWidth: 780 }}>
+      <section className="page-head">
+        <div className="wrap">
           <p className="kicker">Greening</p>
           <h1>Living things, for rooms that need them.</h1>
           <p className="lede">
@@ -38,8 +38,25 @@ export default function Greening() {
         </div>
       </section>
 
+      <figure className="band bleed" style={{ margin: 0 }}>
+        <img
+          src="/img/shop/shop-2.webp"
+          width={1000}
+          height={500}
+          alt="House plants on the shelves at the shop, philodendron and mixed foliage"
+          loading="lazy"
+          decoding="async"
+        />
+        <figcaption>The greening shelves on Industrial Road</figcaption>
+      </figure>
+
       <section className="section">
         <div className="wrap">
+          <div className="sec-head">
+            <p className="kicker" style={{ margin: 0 }}>
+              {plants.length} plants and planters
+            </p>
+          </div>
           <div className="grid">
             {plants.map((p) => (
               <ProductCard key={p.slug} p={p} />
@@ -48,8 +65,8 @@ export default function Greening() {
         </div>
       </section>
 
-      <section className="section" style={{ background: "var(--paper-2)", borderTop: "1px solid var(--line)" }}>
-        <div className="wrap split">
+      <section className="quiet">
+        <div className="wrap split split--wide-left" style={{ alignItems: "start" }}>
           <div>
             <p className="kicker">For businesses</p>
             <h2>Corporate plant maintenance</h2>
@@ -59,26 +76,29 @@ export default function Greening() {
               gives up. Your staff do not have to remember, and nobody has to explain the dead
               ficus to a client.
             </p>
-            <p>
-              <a className="btn" href={`mailto:${site.email}?subject=${encodeURIComponent("Corporate plant maintenance")}`}>
+            <p className="btnrow">
+              <a
+                className="btn btn--solid"
+                href={`mailto:${site.email}?subject=${encodeURIComponent("Corporate plant maintenance")}`}
+              >
                 Ask about a contract
               </a>
             </p>
           </div>
-          <div className="panel" style={{ background: "var(--paper)" }}>
-            <h3>Also in the building</h3>
-            <p className="muted" style={{ fontSize: 15.5 }}>
-              The shop on Industrial Road is a multi-business building with interior plants,
-              locally crafted gifts and culinary items, plus an open workshop area and the
-              floral design studio. On the same corner, by appointment:
-            </p>
-            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 15.5 }}>
-              {site.neighbors.map((n) => (
-                <li key={n} style={{ padding: "3px 0" }}>
-                  {n}
-                </li>
-              ))}
-            </ul>
+          <div className="notes" style={{ gridTemplateColumns: "1fr" }}>
+            <div>
+              <h3>Also in the building</h3>
+              <p>
+                The shop on Industrial Road is a multi-business building with interior plants,
+                locally crafted gifts and culinary items, plus an open workshop area and the
+                floral design studio. On the same corner, by appointment:
+              </p>
+              <ul style={{ marginTop: "calc(var(--u) * 1.5)" }}>
+                {site.neighbors.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       </section>

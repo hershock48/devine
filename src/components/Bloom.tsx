@@ -93,16 +93,48 @@ function rng(seed: string) {
   };
 }
 
+/**
+ * Pulls a colour toward the paper and takes some saturation out of it.
+ *
+ * The lexicon above holds the colour a florist means when they write "blue
+ * delphinium": a real, saturated blue. Rendered at full strength, twelve of these
+ * in a grid read as confetti, and on the Celebration of Life page, where every
+ * product happens to be an illustration rather than a photograph, five bright
+ * tiles in a row were the wrong thing entirely on a page about funerals.
+ *
+ * Muted, they read as a pressed print on paper, which is what they are meant to
+ * be, and they sit beside the real photographs without competing with them. The
+ * hue is still the hue their own description named; only the volume changed.
+ */
+function mute(hex: string, toward = "#F3EDE1", amount = 0.34, desat = 0.22): string {
+  const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [r, g, b] = rgb(hex);
+  const [tr, tg, tb] = rgb(toward);
+  const grey = 0.299 * r + 0.587 * g + 0.114 * b;
+  const mix = (c: number, t: number) => {
+    const flat = c + (grey - c) * desat;          // pull toward its own grey
+    return Math.round(flat + (t - flat) * amount); // then toward the paper
+  };
+  return (
+    "#" +
+    [mix(r, tr), mix(g, tg), mix(b, tb)]
+      .map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
 function read(desc: string) {
   const d = desc.toLowerCase();
   const palette: string[] = [];
-  for (const [word, hex] of COLORS) if (d.includes(word) && !palette.includes(hex)) palette.push(hex);
+  for (const [word, hex] of COLORS) if (d.includes(word) && !palette.includes(hex)) palette.push(mute(hex));
   const forms: Form[] = [];
   for (const [word, form] of FORMS) if (d.includes(word) && !forms.includes(form)) forms.push(form);
   return {
-    // A garden palette for the few products whose copy names no colour: the teas,
-    // the plush toys, the dish gardens.
-    palette: palette.length >= 2 ? palette.slice(0, 5) : ["#E086A8", "#E8BE3E", "#77419A", "#5386C0"],
+    // For the few products whose copy names no colour: the teas, the plush toys,
+    // the dish gardens. This fallback sits next to real photographs in a three-column grid,
+    // so it is pitched to the site's own neutrals rather than to primaries. A
+    // brighter set read as confetti against the photos.
+    palette: palette.length >= 2 ? palette.slice(0, 5) : ["#C08497", "#C9A94E", "#7E7A6B", "#8FA083"].map((c) => mute(c, "#F3EDE1", 0.2, 0.1)),
     forms: forms.length ? forms : (["round", "rose", "spike", "berry"] as Form[]),
   };
 }
@@ -130,8 +162,8 @@ function Bloom_({ form, color, r, seed }: { form: Form; color: string; r: number
               ))}
             </g>
           ))}
-          <circle r={r * 0.17} fill="#F0DFA8" />
-          <circle r={r * 0.09} fill="#C9A94E" opacity="0.8" />
+          <circle r={r * 0.17} fill="#EBE0C4" />
+          <circle r={r * 0.09} fill="#BFA875" opacity="0.75" />
         </g>
       );
     }
@@ -202,7 +234,7 @@ export default function Bloom({ slug, desc, name, detail = false, className }: P
 
   /* Foliage first: big, soft, low-contrast, deliberately running off the edges so the
      frame reads as a crop out of a larger print rather than an object on a card. */
-  const GREENS = ["#5C8A4A", "#3F6B3C", "#6E9159", "#2F5D3A"];
+  const GREENS = ["#5C8A4A", "#3F6B3C", "#6E9159", "#2F5D3A"].map((c) => mute(c, "#F3EDE1", 0.3, 0.18));
   const leaves = Array.from({ length: detail ? 26 : 20 }, () => ({
     x: rand() * W,
     y: rand() * H,
@@ -255,7 +287,7 @@ export default function Bloom({ slug, desc, name, detail = false, className }: P
       </defs>
 
       <g clipPath={`url(#${uid}c)`}>
-        <rect width={W} height={H} fill="#F6F0E4" />
+        <rect width={W} height={H} fill="#F3EDE1" />
         <rect width={W} height={H} fill={`url(#${uid}w)`} />
 
         {leaves.map((l, i) => (

@@ -19,6 +19,8 @@ Two things live here:
 | `src/lib/catalog.ts` | All 57 products with their real names, prices and their own copy. Keyed on slug, never on name. |
 | `src/lib/image-manifest.json` | Which products have a real photograph, and its true pixel size. Generated, not hand-written. |
 | `src/components/ProductImage.tsx` | Decides photograph or generated art, per product. Nothing above it knows which. |
+| `src/lib/order.ts` | `photoFirst()`. Any list that shows only SOME of a category leads with the photographed items; a full category page stays in price order. Becomes a no-op when the last photograph lands. |
+| `tools/shots.mjs` | Full-page screenshots at a given width, with the scroll sweep that makes lazy images actually load. |
 | `src/components/Bloom.tsx` | The generated botanical print, for products with no photograph yet. **Delete this file when the last photo lands.** |
 | `src/app/demo/**` | The site. Home, shop, 8 category pages, 57 product pages, weddings, sympathy, greening, delivery, workshops, about, cart. |
 | `next.config.ts` | The root rewrite and the noindex headers. |
@@ -87,7 +89,29 @@ Each one is visible in the code as `PLACEHOLDER` and must be closed before launc
 - [ ] **"Classic Red Dozen" is on sale** at $75 from $126.95, the only sale in the
       catalog. Confirm that is still intended before it ports over.
 
+## The design system, in one paragraph
+
+`src/app/globals.css` is the whole thing and its header comment carries the reasoning
+and the measured contrast figures. Four neutral values and never black; a type scale
+that commits to a big display voice and a plain text voice with a tracked micro-label
+where a mid-level heading would normally sit; one spacing token, `--u: 8px`; a three
+column grid, never four except where a category is exactly four items; hairlines
+instead of boxes. The reusable page objects are `.page-head` (every interior page opens
+the same way), `.notes` (what the three-tinted-boxes-in-a-row pattern should have
+been), `.quiet` (a full-width tinted tier, the rhythm break for pages with no
+photograph), `.band` (the same break where there IS one), `.figures`, `.index` and
+`.sec-head`. There are four atmosphere photographs and all four are placed: shop-4 the
+homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
+
 ## Traps, and why things are the way they are
+
+- **A `.sec-head` above a `.notes` draws two rules a few pixels apart.** Use a bare
+  `.kicker` when the section head would carry no button.
+- **`next start` does not fail loudly when an older instance holds the port.** It logs
+  EADDRINUSE and exits, the old server keeps serving the previous build, and the new
+  build's stylesheet 500s — so every page screenshots unstyled and looks catastrophic.
+  Kill the port (`fuser -k 3111/tcp`), restart, and check the CSS chunk returns 200
+  before believing anything a screenshot tells you.
 
 - **Three products are all called "Designer's Choice"**, differing only by price.
   Anything keyed on product name silently merges them and charges the wrong amount.

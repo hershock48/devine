@@ -145,7 +145,7 @@ export function AddToCart({ slug, name }: { slug: string; name: string }) {
   const inCart = lines.find((l) => l.slug === slug)?.qty ?? 0;
   return (
     <div>
-      <button className="btn" onClick={() => add(slug)} type="button">
+      <button className="btn btn--solid" onClick={() => add(slug)} type="button">
         Order now
       </button>
       {/* aria-live so the confirmation is announced, not just drawn */}

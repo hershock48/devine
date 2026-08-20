@@ -33,8 +33,8 @@ const upcoming: { title: string; when: string; detail: string }[] = [
 export default function Workshops() {
   return (
     <>
-      <section className="section" style={{ paddingBottom: 0 }}>
-        <div className="wrap split">
+      <section className="page-head">
+        <div className="wrap split split--wide-left">
           <div>
             <p className="kicker">At the shop</p>
             <h1>Come and make something.</h1>
@@ -44,7 +44,7 @@ export default function Workshops() {
               sits right next to the design studio, so you are working where the flowers are.
             </p>
           </div>
-          <div style={{ maxWidth: 400, marginInline: "auto", width: "100%" }}>
+          <div style={{ maxWidth: 380, marginInline: "auto", width: "100%" }}>
             <Bloom
               slug="workshops"
               desc="garden roses stock solidago daisies mixed greenery pink yellow green seasonal"
@@ -55,74 +55,85 @@ export default function Workshops() {
         </div>
       </section>
 
-      <section className="section">
-        <div className="wrap" style={{ maxWidth: 760 }}>
-          <h2>What is coming up</h2>
-
+      {/* The empty state gets the tinted tier to itself. An empty calendar handled
+          honestly is the most interesting thing on this page, so it is not buried in
+          a box halfway down a column. */}
+      <section className="quiet">
+        <div className="wrap">
+          <div className="text">
           {upcoming.length === 0 ? (
-            <div className="panel" style={{ marginTop: 20 }}>
-              <p style={{ margin: "0 0 12px", fontSize: 18 }}>
-                Nothing on the calendar this minute.
+            <>
+              <p className="kicker">What is coming up</p>
+              <p className="pull">Nothing on the calendar this minute.</p>
+              <p className="pull-note">
+                Workshops are announced a few weeks out and they fill quickly. The fastest
+                way to hear about the next one is to follow along, or to call the shop and
+                ask us to put your name down.
               </p>
-              <p className="muted" style={{ marginBottom: 18 }}>
-                Workshops are announced a few weeks out and they fill quickly. The fastest way
-                to hear about the next one is to follow along, or to call the shop and ask us
-                to put your name down.
-              </p>
-              <p style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: 0 }}>
+              <p className="btnrow">
+                <a className="btn btn--solid" href={site.phoneHref}>
+                  Call {site.phone}
+                </a>
                 <a className="btn" href={site.social.facebook}>
                   Follow on Facebook
                 </a>
-                <a className="btn ghost" href={site.phoneHref}>
-                  Call {site.phone}
-                </a>
               </p>
-            </div>
+            </>
           ) : (
-            <ul style={{ listStyle: "none", padding: 0, marginTop: 20 }}>
-              {upcoming.map((e) => (
-                <li key={e.title} className="panel" style={{ marginBottom: 14 }}>
-                  <h3 style={{ margin: "0 0 4px" }}>{e.title}</h3>
-                  <p style={{ margin: "0 0 6px", color: "var(--green)", fontWeight: 600 }}>{e.when}</p>
-                  <p className="muted" style={{ margin: 0, fontSize: 15.5 }}>{e.detail}</p>
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="kicker">What is coming up</p>
+              <ul className="index" style={{ marginTop: "calc(var(--u) * 3)" }}>
+                {upcoming.map((e) => (
+                  <li key={e.title}>
+                    <div style={{ padding: "calc(var(--u) * 2.6) 0" }}>
+                      <span className="index-name" style={{ display: "block" }}>{e.title}</span>
+                      <span className="index-meta" style={{ display: "block", marginTop: 8 }}>
+                        {e.when}
+                      </span>
+                      <p className="muted small" style={{ margin: "10px 0 0" }}>{e.detail}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
+          </div>
         </div>
       </section>
 
-      <section className="section" style={{ paddingTop: 0 }}>
+      <section className="section">
         <div className="wrap">
-          <h2>What a workshop usually is</h2>
-          <div className="cols-3" style={{ marginTop: 24 }}>
-            <div className="panel">
+          {/* A kicker on its own, not a .sec-head: the rule a section head draws would
+              land directly on top of the rules .notes draws over each column. */}
+          <p className="kicker">What a workshop usually is</p>
+          <div className="notes" style={{ marginTop: "calc(var(--u) * 4)" }}>
+            <div>
               <h3>Floral design</h3>
-              <p className="muted" style={{ fontSize: 15.5, marginBottom: 0 }}>
+              <p>
                 Build an arrangement start to finish and take it home. Our designers show you
                 how they actually do it, which is mostly about where you put the first stem.
               </p>
             </div>
-            <div className="panel">
+            <div>
               <h3>Seasonal plants</h3>
-              <p className="muted" style={{ fontSize: 15.5, marginBottom: 0 }}>
+              <p>
                 Pot something up and leave knowing what light it wants and how often it really
                 needs water, which is less often than you think.
               </p>
             </div>
-            <div className="panel">
+            <div>
               <h3>Private groups</h3>
-              <p className="muted" style={{ fontSize: 15.5, marginBottom: 0 }}>
+              <p>
                 Birthdays, showers, a team that needs to do something other than a restaurant.
                 Ask us what a group of your size would look like.
               </p>
             </div>
           </div>
-          <p style={{ marginTop: 30 }}>
+          <p className="btnrow" style={{ marginTop: "calc(var(--u) * 8)" }}>
             <a className="btn" href={`mailto:${site.email}?subject=${encodeURIComponent("Workshop inquiry")}`}>
               Ask about a private group
-            </a>{" "}
-            <a className="btn ghost" href={href("/shop")} style={{ marginLeft: 8 }}>
+            </a>
+            <a className="btn" href={href("/shop")}>
               Or just send flowers
             </a>
           </p>
