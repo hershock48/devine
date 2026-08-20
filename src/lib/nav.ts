@@ -20,10 +20,27 @@ export const href = (path = "") => `${BASE}${path}`;
  */
 export const NAV = [
   { label: "Shop", path: "/shop" },
-  { label: "Weddings & Events", path: "/weddings" },
-  { label: "Celebration of Life", path: "/celebration-of-life" },
+  { label: "Weddings", path: "/weddings" },
+  { label: "Sympathy", path: "/celebration-of-life" },
   { label: "Greening", path: "/greening" },
+  { label: "Visit", path: "/about" },
+] as const;
+
+/**
+ * Not in the top strip, and deliberately.
+ *
+ * Seven items at 17px made a 687px-wide nav and a 151px-tall header, which is
+ * what a directory looks like rather than a shop. The florists whose sites read
+ * as expensive carry two to five: Saipua's whole header is "The Farm" and "Shop",
+ * with Story, Contact, Newsletter and the Journal all pushed to the footer.
+ *
+ * These two pages are not less important, they are reached where they are
+ * actually wanted: delivery from the header's own delivery line, from every
+ * product page and from the homepage; workshops from the footer and from Visit.
+ * A nav item is not the only way to reach a page, and treating it as one is how
+ * headers end up with eleven things in them.
+ */
+export const FOOTER_ONLY = [
   { label: "Delivery", path: "/delivery" },
   { label: "Workshops", path: "/workshops" },
-  { label: "Our Shop & Team", path: "/about" },
 ] as const;

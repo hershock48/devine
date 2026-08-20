@@ -108,31 +108,120 @@ a:hover { color: var(--green-deep); }
 .btn.ghost:hover { background: var(--green); color: var(--paper); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
-/* ---- header ---- */
-.site-head { border-bottom: 1px solid var(--line); background: var(--paper); }
-.site-head .bar { display: flex; align-items: center; gap: 20px; padding: 16px 0; flex-wrap: wrap; }
-/* ---- the mark, and the breeze through it -------------------------------------
-   Their real logo file, sized as an image rather than typeset.
+/* ---- header --------------------------------------------------------------
+   REBUILT AGAINST MEASURED REFERENCES, not taste. The first version measured
+   151px tall, with a 190x119px mark and seven nav items at 17px with no
+   tracking, making a 687px-wide nav. Every one of those numbers is what the
+   research came back calling a template tell.
 
-   EVERYTHING IN THIS FIRST BLOCK IS THE FINISHED STATE: logo fully visible, veil
-   parked off to the right where it covers nothing, petals at zero opacity because
-   the drawing already contains them. Script blocked, JS error, old browser: the
-   visitor gets the complete logo, sitting still. The animation exists only under
-   .is-blowing, which a script adds. That ordering is glaze.md's first motion rule.
+   What the florists that read as expensive actually do:
+     header height     48-64px          (Field Studies Flora ships 48px)
+     mark height       24-40px          (Nicolai Bergmann 40px, FSF 29px)
+     nav items         2-5              (Saipua ships 2, Worm 4)
+     nav type          11-13px, .1-.2em tracking, uppercase only when tracked
+     live information where a template puts more menu
 
-   ONLY transform AND opacity ARE ANIMATED. Both are compositor properties, so no
-   frame here touches layout or paint. The first version animated clip-path, which
-   does, and that is most of why it read as clunky rather than as air. */
+   Uppercase at 16px with no tracking was named as the single most reliable tell.
+   Ours is 11.5px at .16em. */
+.site-head {
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.site-head .bar {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-height: 62px;
+  padding: 9px 0;
+}
+
+/* The mark: 44px tall rather than 119px. Their logo is an oval containing a
+   script wordmark, so it cannot go to the 29px the reference sites use without
+   the name becoming illegible. 44px is the smallest height at which "De Vine's"
+   still reads, checked by screenshot rather than assumed. */
 .brand { display: block; line-height: 0; flex-shrink: 0; }
-.brand-plate { position: relative; display: block; overflow: visible; }
-.brand-img { width: 190px; height: auto; display: block; }
-@media (max-width: 520px) { .brand-img { width: 148px; } }
+.brand-plate { position: relative; display: block; }
+/* clips the veil so it cannot paint over the nav when parked */
+.brand-mask { position: relative; display: block; overflow: hidden; }
+.brand-img { height: 44px; width: auto; display: block; }
+
+.site-nav { display: flex; align-items: center; gap: 26px; margin-left: 8px; }
+.site-nav a {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+  white-space: nowrap;
+  padding: 6px 0;
+  border-bottom: 1px solid transparent;
+}
+.site-nav a:hover,
+.site-nav a[aria-current="page"] { color: var(--green); border-bottom-color: var(--green); }
+
+/* The right-hand group. A phone number typed at body size is what a plumber's
+   site does; here it is a labelled block of live information, which is what the
+   reference headers put in this position. */
+.head-cta { display: flex; align-items: center; gap: 22px; margin-left: auto; }
+.head-info {
+  display: block;
+  text-align: right;
+  text-decoration: none;
+  color: var(--ink);
+  line-height: 1.35;
+}
+.head-info b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.head-info span {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.head-info:hover b { color: var(--green); }
+
+.head-cart {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 9px 17px;
+  white-space: nowrap;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.head-cart:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+@media (max-width: 1020px) {
+  .site-head .bar { gap: 18px; }
+  .site-nav { gap: 18px; }
+  .head-info { display: none; }
+}
+@media (max-width: 820px) {
+  .site-head .bar { flex-wrap: wrap; gap: 12px; min-height: 0; }
+  .brand-img { height: 38px; }
+  .site-nav { order: 3; width: 100%; margin-left: 0; gap: 20px; padding-bottom: 6px; overflow-x: auto; }
+  .head-cta { margin-left: auto; }
+}
 
 /* The veil: the header's own paper colour with a feathered leading edge, parked
    past the right edge so it hides nothing until it is asked to. */
 .brand-veil {
   position: absolute;
-  inset: -6% -4% -6% 0;
+  inset: 0;
   background: linear-gradient(90deg, rgba(251, 247, 240, 0) 0%, var(--paper) 9%, var(--paper) 100%);
   transform: translate3d(115%, 0, 0);
   pointer-events: none;

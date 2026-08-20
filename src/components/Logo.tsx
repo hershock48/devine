@@ -87,15 +87,25 @@ export default function Logo() {
   return (
     <a className="brand breeze" href={href("")} aria-label={`${site.name}, home`}>
       <span className="brand-plate">
-        <img
-          className="brand-img"
-          src="/img/brand/logo.webp"
-          srcSet="/img/brand/logo-sm.webp 480w, /img/brand/logo.webp 1200w"
-          sizes="200px"
-          width={1200}
-          height={744}
-          alt={site.name}
-        />
+        {/*
+          The mark and its veil live in their own clipped box. The veil parks past
+          the right edge when it is not travelling, and with nothing clipping it
+          that parked rectangle sat on top of the first nav item and painted it out
+          in the header's own colour. The petals stay OUTSIDE this box, because they
+          have to leave it.
+        */}
+        <span className="brand-mask">
+          <img
+            className="brand-img"
+            src="/img/brand/logo.webp"
+            srcSet="/img/brand/logo-sm.webp 480w, /img/brand/logo.webp 1200w"
+            sizes="200px"
+            width={1200}
+            height={744}
+            alt={site.name}
+          />
+          <span className="brand-veil" aria-hidden="true" />
+        </span>
 
         {/*
           THE REVEAL IS A VEIL, NOT A CUT. A rectangle in the header's own paper
@@ -108,8 +118,6 @@ export default function Logo() {
           It sits under the petals in the stack, so a petal can pass over the veil
           and be seen against the part of the mark that has not arrived yet.
         */}
-        <span className="brand-veil" aria-hidden="true" />
-
         {/*
           Two petals, not one. One petal is an event; two travelling at different
           speeds on different paths is weather. The second is smaller, fainter and

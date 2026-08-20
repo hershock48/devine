@@ -134,7 +134,7 @@ export function useCart(): Ctx {
 export function CartLink({ href }: { href: string }) {
   const { count } = useCart();
   return (
-    <a className="btn ghost" href={href} aria-label={count ? `Cart, ${count} item${count === 1 ? "" : "s"}` : "Cart, empty"}>
+    <a className="head-cart" href={href} aria-label={count ? `Cart, ${count} item${count === 1 ? "" : "s"}` : "Cart, empty"}>
       Cart{count > 0 ? ` (${count})` : ""}
     </a>
   );

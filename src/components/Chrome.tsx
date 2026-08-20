@@ -1,5 +1,5 @@
 import { site, formatHours, addressOneLine } from "@/lib/site";
-import { NAV, href } from "@/lib/nav";
+import { NAV, FOOTER_ONLY, href } from "@/lib/nav";
 import { categories } from "@/lib/catalog";
 import { CartLink } from "./Cart";
 import Logo from "./Logo";
@@ -28,12 +28,25 @@ export function Header() {
         </nav>
 
         <div className="head-cta">
+          {/*
+            LIVE INFORMATION, not another menu item. The reference headers put a
+            studio's actual state here: what they do, when, for whom. A florist's
+            version of that is where they deliver, so this doubles as the route to
+            the delivery page that came out of the top nav.
+          */}
+          <a className="head-info" href={href("/delivery")}>
+            <span>Same-day when we can</span>
+            <b>Delivery to {site.deliveryTowns.length} towns</b>
+          </a>
+
           {/* A tel: link, because most visitors to a florist are on a phone and the
               single most common action is calling the shop. Their current site
               prints the number as plain text. */}
-          <a className="head-phone" href={site.phoneHref}>
-            {site.phone}
+          <a className="head-info" href={site.phoneHref}>
+            <span>Call the shop</span>
+            <b>{site.phone}</b>
           </a>
+
           <CartLink href={href("/cart")} />
         </div>
       </div>
@@ -80,6 +93,20 @@ export function Footer() {
                 <a href={href(`/shop/${c.slug}`)}>{c.name}</a>
               </li>
             ))}
+          </ul>
+        </div>
+
+        <div>
+          <h4>More</h4>
+          <ul>
+            {FOOTER_ONLY.map((n) => (
+              <li key={n.path}>
+                <a href={href(n.path)}>{n.label}</a>
+              </li>
+            ))}
+            <li>
+              <a href={href("/about")}>Our shop &amp; team</a>
+            </li>
           </ul>
         </div>
 
