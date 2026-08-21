@@ -6,40 +6,160 @@ import ProductImage from "@/components/ProductImage";
 import { money } from "@/lib/catalog";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
+import { occasions } from "@/lib/occasions";
 
 /**
- * THE CART, AND AN HONEST CHECKOUT.
+ * THE CART, AND A CHECKOUT THAT SENDS SOMEWHERE.
  *
- * glaze.md is explicit about the failure mode here: "What is not acceptable is a stub
- * that waits half a second and says 'Thanks, we got it' while sending nowhere." So
- * this checkout does not pretend. It states plainly that it is a demonstration, that
- * no card is taken and no order reaches the shop, and it hands over two routes that
- * do work today: the phone and email.
+ * Phase 1 of the DeVine build: the order form is real. It POSTs to /api/order,
+ * which prices the cart on the server and emails a ticket to the shop over SMTP.
+ * No card is taken online; the shop calls to confirm the details and take
+ * payment, which is how a florist already handles every phone order it gets.
  *
- * The real thing is a small change from here: Stripe hosted Checkout, which takes the
- * card on Stripe's own page so no card number ever touches this site. The cart shape
- * above already matches what that call wants.
+ * glaze.md's line still governs the failure modes: "What is not acceptable is a
+ * stub that waits half a second and says 'Thanks, we got it' while sending
+ * nowhere." So the form has exactly three honest outcomes:
  *
- * NOTE ON THE TOTAL: no tax line and no delivery fee. Their site publishes neither a
- * delivery fee nor an order minimum anywhere, and inventing either would put a number
- * in front of a customer that the shop never agreed to. Both are on the README
- * checklist as questions for the owner.
+ *   sent         "Order DV-0821-4183 is in. We'll call you." The cart clears.
+ *   not sent     (mail unconfigured, or the send failed) The visitor is told
+ *                plainly that nothing reached the shop, and handed the two
+ *                routes that always work: the phone, and a mailto carrying
+ *                every field they typed. Nothing to retype, nothing pretended.
+ *   bad order    the server's validation message, next to the button.
+ *
+ * NOTE ON THE TOTAL: still no tax line and no delivery fee. Their site publishes
+ * neither a delivery fee nor an order minimum, and inventing either would put a
+ * number in front of a customer that the shop never agreed to. The ticket and
+ * the confirmation both say the subtotal is settled on the confirm call. Both
+ * facts stay on the README checklist as questions for the owner.
  */
+
+const field: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  font: "inherit",
+  fontSize: 15.5,
+  border: "1px solid var(--line)",
+  borderRadius: 3,
+  background: "var(--paper)",
+  color: "var(--ink)",
+};
+
+const labelText: React.CSSProperties = {
+  display: "block",
+  fontSize: 14.5,
+  fontWeight: 600,
+  marginBottom: 5,
+};
+
+type Outcome =
+  | { state: "idle" }
+  | { state: "sending" }
+  | { state: "sent"; number: string }
+  | { state: "invalid"; message: string }
+  | { state: "unreached"; reason: "unconfigured" | "send-failed" };
+
 export default function CartView() {
-  const { items, subtotal, setQty, remove, count } = useCart();
-  const [showDemoNote, setShowDemoNote] = useState(false);
+  const { items, subtotal, setQty, remove, count, clear } = useCart();
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [outcome, setOutcome] = useState<Outcome>({ state: "idle" });
+
   /*
-    THE CARD MESSAGE IS WRITTEN HERE, NOT ON THE PHONE. The proposal's sympathy
-    section ends on exactly this: "a card message field that does not make them
-    phone a stranger to say it out loud." Someone ordering funeral flowers at 11pm
-    should type the hard sentence privately, once, and have it travel with the
-    order. Local state only: it flows into the order email below, and a half-typed
-    message is not something to persist anywhere without asking.
+    THE CARD MESSAGE IS WRITTEN HERE, NOT ON THE PHONE. Someone ordering funeral
+    flowers at 11pm should type the hard sentence privately, once, and have it
+    travel with the order. Local state only: it flows into the ticket, and a
+    half-typed message is not something to persist anywhere without asking.
   */
   const [cardMessage, setCardMessage] = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">("delivery");
+  const [recipient, setRecipient] = useState("");
+  const [street, setStreet] = useState("");
+  const [town, setTown] = useState("");
+  const [zip, setZip] = useState("");
+  const [date, setDate] = useState("");
+  const [occasion, setOccasion] = useState("");
+  const [notes, setNotes] = useState("");
 
+  // Client date, not build date: a statically frozen "today" once sold birds for
+  // the wrong year (glaze.md failure log). This runs per visit, in the browser.
+  const today = new Date().toISOString().slice(0, 10);
+
+  const delivering = fulfillment === "delivery";
+  const zipKnown = (site.deliveryZips as readonly string[]).includes(zip.trim());
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setOutcome({ state: "sending" });
+    const payload = {
+      lines: items.map((i) => ({ slug: i.product.slug, qty: i.qty })),
+      name, phone, email, fulfillment,
+      recipient: delivering ? recipient : "",
+      street: delivering ? street : "",
+      town: delivering ? town : "",
+      zip: delivering ? zip.trim() : "",
+      date, occasion, cardMessage, notes,
+    };
+    try {
+      const res = await fetch("/api/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.ok) {
+        setOutcome({ state: "sent", number: body.number });
+        clear();
+      } else if (res.status === 400) {
+        setOutcome({ state: "invalid", message: body?.error || "Something in the order needs another look." });
+      } else {
+        setOutcome({ state: "unreached", reason: body?.reason === "unconfigured" ? "unconfigured" : "send-failed" });
+      }
+    } catch {
+      // The fetch itself failed: offline, or the site is down. Same honesty.
+      setOutcome({ state: "unreached", reason: "send-failed" });
+    }
+  }
+
+  /* Everything the visitor typed, ready to travel by email instead. */
   const orderSummary = items.map((i) => `${i.qty} x ${i.product.name} (${money(i.product.price)})`).join("\n");
-  const messageLine = cardMessage.trim() ? `Card message: ${cardMessage.trim()}` : "Card message:";
+  const mailtoBody = [
+    "Hello,", "", "I would like to order:", "", orderSummary, "",
+    `Subtotal: ${money(subtotal)}`, "",
+    `My name: ${name}`,
+    `My phone: ${phone}`,
+    delivering ? `Deliver to: ${recipient || name}` : "Pickup",
+    delivering ? `Address: ${street}, ${town} ${zip}` : null,
+    `Requested date: ${date}`,
+    occasion ? `Occasion: ${occasion}` : null,
+    `Card message: ${cardMessage.trim()}`,
+    notes ? `Notes: ${notes}` : null,
+  ].filter((l): l is string => l !== null).join("\n");
+  const mailtoHref = `mailto:${site.email}?subject=${encodeURIComponent("Flower order")}&body=${encodeURIComponent(mailtoBody + "\n")}`;
+
+  if (outcome.state === "sent") {
+    return (
+      <section className="section">
+        <div className="wrap" style={{ maxWidth: 860 }}>
+          <p className="kicker">Your order</p>
+          <h1>It&rsquo;s in.</h1>
+          <p className="lede" style={{ marginTop: 12 }}>
+            Order <strong>{outcome.number}</strong> is with the shop.
+          </p>
+          <p style={{ maxWidth: "58ch" }}>
+            We&rsquo;ll call you at <strong>{phone}</strong> to confirm the details and take
+            payment. Nothing has been charged online.
+            {email.trim() ? " A copy of the order is on its way to your email." : ""}
+          </p>
+          <p style={{ marginTop: 24 }}>
+            <a className="btn" href={href("/shop")}>Back to the shop</a>
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="section">
@@ -72,7 +192,12 @@ export default function CartView() {
                   </div>
 
                   <div style={{ flex: "1 1 190px", minWidth: 0 }}>
-                    <a href={href(`/product/${p.slug}`)} style={{ fontWeight: 600, textDecoration: "none", color: "var(--ink)" }}>
+                    {/* inline-block + padding: a 20px-tall link is a miss-tap
+                        on a phone, and this one navigates away from a full cart */}
+                    <a
+                      href={href(`/product/${p.slug}`)}
+                      style={{ fontWeight: 600, textDecoration: "none", color: "var(--ink)", display: "inline-block", padding: "4px 0" }}
+                    >
                       {p.name}
                     </a>
                     <p className="muted" style={{ margin: "2px 0 0", fontSize: 15 }}>
@@ -87,8 +212,19 @@ export default function CartView() {
                       min={1}
                       max={99}
                       value={qty}
-                      onChange={(e) => setQty(p.slug, Number(e.target.value))}
-                      style={{ width: 64, padding: "7px 8px", font: "inherit", fontSize: 15, border: "1px solid var(--line)", borderRadius: 3, background: "var(--paper)", color: "var(--ink)" }}
+                      /*
+                        Ignore anything that does not parse to a real quantity.
+                        The old handler passed Number(value) straight through,
+                        and clearing the field to retype it produced 0, which
+                        setQty treats as removal — so backspacing "2" to type
+                        "3" deleted the flowers. Removing is the Remove
+                        button's job and only its job.
+                      */
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        if (Number.isFinite(n) && n >= 1) setQty(p.slug, Math.min(99, Math.round(n)));
+                      }}
+                      style={{ ...field, width: 64, padding: "7px 8px", fontSize: 15 }}
                     />
                   </label>
 
@@ -112,12 +248,12 @@ export default function CartView() {
               <strong>{money(subtotal)}</strong>
             </div>
             <p className="muted" style={{ fontSize: 14.5, marginTop: -8 }}>
-              Delivery is arranged when we call to confirm. Their current site publishes no
-              delivery fee, so this build does not invent one.
+              No payment is taken online. We call to confirm every order, arrange delivery,
+              and take payment then.
             </p>
 
             <label style={{ display: "block", marginTop: 20 }}>
-              <span style={{ display: "block", fontSize: 14.5, fontWeight: 600, marginBottom: 5 }}>
+              <span style={labelText}>
                 Card message <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
               </span>
               <textarea
@@ -125,41 +261,169 @@ export default function CartView() {
                 onChange={(e) => setCardMessage(e.target.value)}
                 rows={3}
                 placeholder="Written on the card exactly as you type it, handwriting ours."
-                style={{ width: "100%", maxWidth: 560, padding: "10px 12px", font: "inherit", fontSize: 15.5, border: "1px solid var(--line)", borderRadius: 3, background: "var(--paper)", color: "var(--ink)" }}
+                style={{ ...field, maxWidth: 560 }}
               />
             </label>
 
-            <p style={{ marginTop: 24 }}>
-              <button className="btn btn--solid" type="button" onClick={() => setShowDemoNote(true)}>
-                Continue to checkout
-              </button>
-            </p>
+            {!checkingOut ? (
+              <p style={{ marginTop: 24 }}>
+                <button className="btn btn--solid" type="button" onClick={() => setCheckingOut(true)}>
+                  Continue to checkout
+                </button>
+              </p>
+            ) : (
+              <form onSubmit={submit} style={{ marginTop: 28, maxWidth: 560 }}>
+                <h2 style={{ fontSize: 24, margin: "0 0 4px" }}>Where it&rsquo;s going</h2>
+                <p className="muted" style={{ fontSize: 14.5, margin: "0 0 18px" }}>
+                  We&rsquo;ll call to confirm before anything is made or charged.
+                </p>
 
-            {showDemoNote && (
-              <div className="notice" role="status" style={{ marginTop: 8 }}>
-                <p style={{ margin: "0 0 10px" }}>
-                  <strong>This is a demonstration, so checkout is switched off.</strong>
+                <div style={{ display: "grid", gap: 16 }}>
+                  <label>
+                    <span style={labelText}>Your name</span>
+                    <input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" style={field} />
+                  </label>
+
+                  <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+                    <label>
+                      <span style={labelText}>Phone</span>
+                      <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoComplete="tel" style={field} />
+                    </label>
+                    <label>
+                      <span style={labelText}>
+                        Email <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
+                      </span>
+                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" style={field} />
+                    </label>
+                  </div>
+
+                  {/* Radios, not a select: two options, both visible, one tap. */}
+                  <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+                    <legend style={labelText}>Delivery or pickup</legend>
+                    <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
+                      {(["delivery", "pickup"] as const).map((f) => (
+                        <label key={f} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15.5, padding: "4px 0" }}>
+                          {/* 20px, not the 13px browser default: this gets
+                              tapped on a phone at least as often as clicked */}
+                          <input
+                            type="radio"
+                            name="fulfillment"
+                            checked={fulfillment === f}
+                            onChange={() => setFulfillment(f)}
+                            style={{ width: 20, height: 20, accentColor: "var(--green)" }}
+                          />
+                          {f === "delivery" ? "Deliver it" : `Pickup at the shop`}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  {delivering && (
+                    <>
+                      <label>
+                        <span style={labelText}>
+                          Recipient&rsquo;s name{" "}
+                          <span className="muted" style={{ fontWeight: 400 }}>(if not you)</span>
+                        </span>
+                        <input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={field} />
+                      </label>
+                      <label>
+                        <span style={labelText}>Street address</span>
+                        <input value={street} onChange={(e) => setStreet(e.target.value)} required autoComplete="street-address" style={field} />
+                      </label>
+                      <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr minmax(110px, 140px)" }}>
+                        <label>
+                          <span style={labelText}>Town</span>
+                          <input value={town} onChange={(e) => setTown(e.target.value)} required style={field} />
+                        </label>
+                        <label>
+                          <span style={labelText}>Zip</span>
+                          <input value={zip} onChange={(e) => setZip(e.target.value)} inputMode="numeric" autoComplete="postal-code" style={field} />
+                        </label>
+                      </div>
+                      {/* ZipCheck's rule: a near miss is a phone call, not a wall.
+                          The order still submits; the ticket carries a flag. */}
+                      {zip.trim().length === 5 && !zipKnown && (
+                        <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }} aria-live="polite">
+                          {zip.trim()} isn&rsquo;t on our published delivery list. Send the order
+                          anyway and we&rsquo;ll tell you honestly on the confirm call, or ask us
+                          first on <a href={site.phoneHref}>{site.phone}</a>.
+                        </p>
+                      )}
+                    </>
+                  )}
+
+                  <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+                    <label>
+                      <span style={labelText}>{delivering ? "Delivery date" : "Pickup date"}</span>
+                      <input type="date" value={date} min={today} onChange={(e) => setDate(e.target.value)} required style={field} />
+                    </label>
+                    <label>
+                      <span style={labelText}>
+                        Occasion <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
+                      </span>
+                      <select value={occasion} onChange={(e) => setOccasion(e.target.value)} style={field}>
+                        <option value="">Choose one</option>
+                        {occasions.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  {/* The shop's own asks, surfaced exactly when they apply. */}
+                  {occasion === "Hospital" && (
+                    <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }}>
+                      {site.delivery.hospitalNote} The notes field below is the place.
+                    </p>
+                  )}
+                  {occasion === "Sympathy or funeral" && (
+                    <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }}>
+                      {site.delivery.funeralNote}
+                    </p>
+                  )}
+
+                  <label>
+                    <span style={labelText}>
+                      Anything else we should know <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
+                    </span>
+                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={field} />
+                  </label>
+                </div>
+
+                <p style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                  <button className="btn btn--solid" type="submit" disabled={outcome.state === "sending"}>
+                    {outcome.state === "sending" ? "Sending…" : "Send the order"}
+                  </button>
+                  <span className="muted" style={{ fontSize: 14.5 }}>
+                    Nothing is charged online.
+                  </span>
                 </p>
-                <p style={{ margin: "0 0 10px" }}>
-                  No card is taken and nothing reaches the shop. On the live site this button
-                  opens Stripe&rsquo;s own hosted checkout, where the card is entered on
-                  Stripe&rsquo;s page rather than this one. DeVine&rsquo;s would pay Stripe
-                  2.9% plus 30&cent; per order and nothing to anybody else.
-                </p>
-                <p style={{ margin: 0 }}>
-                  To order today:{" "}
-                  <a href={site.phoneHref}>
-                    <strong>{site.phone}</strong>
-                  </a>{" "}
-                  or{" "}
-                  <a
-                    href={`mailto:${site.email}?subject=${encodeURIComponent("Flower order")}&body=${encodeURIComponent(`Hello,\n\nI would like to order:\n\n${orderSummary}\n\nSubtotal: ${money(subtotal)}\n\nMy name:\nDelivery address:\nDelivery date:\n${messageLine}\n`)}`}
-                  >
-                    email the shop
-                  </a>
-                  . The email arrives with this order already written into it.
-                </p>
-              </div>
+
+                {/* aria-live so the outcome is announced, not just drawn */}
+                <div aria-live="polite">
+                  {outcome.state === "invalid" && (
+                    <p style={{ color: "var(--rose-ink)", fontWeight: 600, marginTop: 10 }}>{outcome.message}</p>
+                  )}
+                  {outcome.state === "unreached" && (
+                    <div className="notice" role="status" style={{ marginTop: 14 }}>
+                      <p style={{ margin: "0 0 10px" }}>
+                        <strong>
+                          {outcome.reason === "unconfigured"
+                            ? "Online ordering isn't connected yet, so your order did not reach the shop."
+                            : "We couldn't send your order just now, so it did not reach the shop."}
+                        </strong>
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        Two routes that do work: call{" "}
+                        <a href={site.phoneHref}><strong>{site.phone}</strong></a> or{" "}
+                        <a href={mailtoHref}>email the shop</a>. The email opens with everything
+                        you just typed already written into it. Nothing to redo.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </form>
             )}
           </>
         )}

@@ -7,7 +7,9 @@ Two things live here:
 
 - **the proposal**, at the root of `devine.glazedweb.com`
 - **the concept site**, at `/demo` — a full rebuild of their site, 57 real products,
-  a working cart, and a checkout that is honest about being switched off
+  a working cart, and a real order intake: checkout posts to `/api/order`, which
+  emails a ticket to the shop over SMTP. No card online; the shop calls to confirm
+  and takes payment then. Unconfigured, it degrades honestly (see `.env.example`).
 
 ## What is here
 
@@ -29,6 +31,13 @@ Two things live here:
 | `tools/shots.mjs` | Full-page screenshots at a given width, with the scroll sweep that makes lazy images actually load. |
 | `src/components/Bloom.tsx` | The generated botanical print, for products with no photograph yet. **Delete this file when the last photo lands.** |
 | `src/app/demo/**` | The site. Home, shop, 8 category pages, 57 product pages, weddings, sympathy, greening, delivery, workshops, about, cart. |
+| `src/lib/intake.ts` | Order intake. Server-side pricing from the catalog (a client-supplied total is a number a customer chose), the shop's plain-text ticket, the customer's copy, and the SMTP send with its three honest states. The long comment at the top says why a failed send is told to the customer rather than swallowed, deliberately diverging from glaze.md's contact-form rule. |
+| `src/app/api/order/route.ts` | The one route with a side effect. 200 sent, 400 bad order, 503 mail unconfigured, 502 send failed. The cart is honest about each. |
+| `src/lib/occasions.ts` | One list, two importers: the form renders it, the intake validates against it. Alone because `intake.ts` is server-only and `CartView` is a client component. |
+| `.env.example` | The authority on what checkout needs to actually send. Five variables, set by Kevin in Vercel. While this is a pitch, `ORDER_TO` is Glazed's inbox, not the shop's; the flip is an env edit. |
+| `src/app/workroom/**` | **The shop's own tool, Phase 2.** An order board at `/workroom` (web orders land on it by themselves; phone orders get written up on it) and a stem tracker at `/workroom/stems`: purchases, shrink with reasons, per-product recipes, and a Monday-morning week report of bought / tossed / shrink % / revenue / stem cost / margin. Sits outside `/demo` because it is not part of the customer demo and does not move on launch day. |
+| `src/lib/workroom/store.ts` | Two storage backends behind one interface, ported from the pjs kitchen system: Postgres when `DATABASE_URL` is set (Neon free tier via Vercel, tables create themselves), in-memory otherwise — and the pages show a plain warning on memory, because a board that silently misses orders is worse than one that says why. |
+| `src/lib/workroom/auth.ts` | A PIN and a cookie. A gate, not a vault: nothing behind it moves money. `WORKROOM_PIN`, falling back to the shop phone's last four. |
 | `next.config.ts` | The root rewrite and the noindex headers. |
 | `src/app/robots.ts` | Search engines out, social card scrapers in. |
 
@@ -76,10 +85,10 @@ Measured against the production build on 2026-08-20, not the dev server:
 - **0** console errors, **0** 4xx.
 - JavaScript, measured per route by observing what the browser actually requests,
   not by summing the build directory: **136.6KB gzip / 116.5KB brotli** on most
-  routes, worst case **142.6KB gzip / 121.7KB brotli** on `/demo/cart`, which loads
-  one extra chunk. Against a 150KB bar. The earlier "136KB per page" in this file
-  was right for `/demo` and understated the worst route, which is the number that
-  matters.
+  routes, worst case **149KB gzip** on `/demo/cart` since the checkout form landed
+  (2026-08-21; it was 142.6KB gzip / 121.7KB brotli before). Against a 150KB bar.
+  The earlier "136KB per page" in this file was right for `/demo` and understated
+  the worst route, which is the number that matters.
 - Every one of the 74 routes has its own title and its own meta description. This
   file previously claimed that when it was not true: the 6" and 8" Peace Lily shared
   a description, and all three "Designer's Choice" shared another. See the note in
@@ -155,8 +164,27 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
   and no error anywhere. A rule that fails by serving the wrong page is a bad rule.
 - **The wedding form posts to `mailto:`.** It is not a stub pretending to send. A real
   destination and a confirmed inbox are two separate things and neither exists yet.
-- **Checkout is switched off and says so.** No card, nothing reaching the shop, and the
-  email fallback arrives with the order already written into it.
+- **Checkout sends a real order by SMTP, and never pretends when it cannot.** With the
+  env unset (or the send failing) the visitor is told plainly that nothing reached the
+  shop and handed the phone number and a mailto that opens with everything they typed,
+  delivery fields included. The full ticket also goes to the server log on every order,
+  sent or not, so nothing is ever only in a failed email.
+- **An off-list delivery zip warns and still submits.** ZipCheck's rule: a near miss is
+  a phone call, not a wall. The ticket carries a flag line instead.
+- **The cart route is 149KB gzip of JavaScript against the 150KB bar** since the
+  checkout form landed (was 142.6KB before it; 148KB before the workroom nudged a
+  shared chunk). Measured 2026-08-21 with `perf-check.mjs`, LCP 748ms, CLS 0.0006.
+  Anything else that wants JS on this route pays for it first. The workroom routes
+  measure 145 to 146KB and are internal, but they are inside the bar anyway.
+- **The workroom is deliberately NOT linked from the site.** Customers have no
+  business finding an order board. Staff bookmark `/workroom`; the PIN is the gate.
+- **A web order reaches the board only when its email actually sent.** On the
+  unconfigured and send-failed paths the customer was told the order did not go
+  through, and a board card for it would be a ghost someone makes flowers for.
+  The comment in `api/order/route.ts` carries this.
+- **The stem tracker never guesses a dollar figure.** A tossed variety with no
+  purchase on record reports "cost unknown"; a product with no recipe reports "no
+  recipe" instead of a margin. glaze.md's placeholder rule, applied to arithmetic.
 
 ## Before this becomes their site
 
@@ -175,7 +203,19 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
       changes. `--gw-above` must match `.site-foot` exactly or a seam shows.
 - [ ] **Tell the owner the studio credit is in their footer.** `brand.md`: it belongs
       in the contract, not in a surprise deploy.
-- [ ] Wire Stripe hosted Checkout. The cart shape already matches what it wants.
+- [ ] **Create the workroom database** (Vercel > Storage > Create Database > Neon,
+      free tier, sets `DATABASE_URL` itself) and set a real `WORKROOM_PIN`. Until
+      then the workroom runs on in-memory storage and says so in a warning banner.
+- [ ] **Set the five order-intake variables in Vercel** (`.env.example` is the list)
+      and point `ORDER_TO` at the shop's inbox. Then place a real order and confirm
+      it **arriving in that inbox**, not just returning 200: glaze.md's bar is a real
+      destination and a confirmed inbox, two separate things.
+- [ ] Ask the owner: delivery fee, order minimum, same-day cutoff. The checkout and
+      the ticket currently say the subtotal is settled on the confirm call, which is
+      honest but shouldn't be permanent.
+- [ ] Wire Stripe hosted Checkout (Phase 1 takes payment on the confirm call, which
+      is how the shop already handles phone orders). The cart shape already matches
+      what Stripe wants.
 
 ## Done, per glaze/launch.md
 
