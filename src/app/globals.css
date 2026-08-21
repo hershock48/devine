@@ -387,6 +387,29 @@ a:hover { color: var(--rose-ink); text-decoration-color: currentColor; }
 .index-meta { font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
 .index a:hover .index-meta { color: var(--rose-ink); }
 
+/*
+  ON A PHONE THE INDEX STACKS, ALWAYS, RATHER THAN SOMETIMES.
+
+  `space-between` plus `flex-wrap` reads as one rule and behaves as two: while a
+  name and its meta fit on a line the meta is flung to the right margin, and the
+  moment they do not it wraps and sits hard left. Down a list of eight
+  categories the two outcomes alternate on the same screen — Just Because
+  stacked, Birthday right-aligned, Anniversary stacked — which is what "it
+  glitches out" was describing. Nothing was animating; the layout was simply
+  making a different decision per row.
+
+  Below 640 every row stacks, so eight rows have one shape. The desktop
+  contents-page look is untouched above it.
+*/
+@media (max-width: 640px) {
+  .index a {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: calc(var(--u) * 0.75);
+  }
+}
+
 /* ---- editorial blocks ---------------------------------------------------- */
 .panel { background: var(--paper-2); border-radius: 2px; padding: calc(var(--u) * 4); }
 .split {
@@ -717,18 +740,31 @@ main:has(> :last-child.band) + .site-foot { margin-top: 0; }
     the clipping happened inside the nav's own box, which is exactly the kind of
     defect that hides from a scrollWidth comparison and not from a phone.
 
-    Five items at this size fit on one line at 390 with the gap and tracking
-    below, and break into a balanced two-line block at 320. A wrapped second line
-    is a smaller cost than an invisible page: every route stays reachable, no
-    gesture has to be discovered.
+    RETRACTED, and measured this time. The line above used to claim five items
+    fit on one line at 390 with a 17px gap and .13em tracking. They do not, and
+    never did: the five links measure 286px, the gaps add 68, and the nav has
+    342px at 390 — 354 into 342, so VISIT dropped onto a second row and the
+    sticky header stood 137px tall on every phone. The claim was written from
+    the intent rather than from a measurement, which is exactly the failure
+    glaze.md keeps naming.
+
+    Now: 10.5px at .08em with a 12px gap needs 305px, which fits on one line at
+    360 and up (312px of nav at 360) and therefore on every phone in common use.
+    320 still wraps to two balanced rows and that remains the deliberate
+    outcome, because fitting five uppercase words into 272px means type nobody
+    can read. A wrapped second line is a smaller cost than an invisible page:
+    every route stays reachable, no gesture has to be discovered.
+
+    Numbers checked at 320, 360, 375 and 390. If you retouch the tracking or the
+    gap, re-measure all four; the margin at 360 is seven pixels.
   */
   .site-nav {
     order: 3; width: 100%; margin-left: 0;
     flex-wrap: wrap;
-    gap: 0 17px;
+    gap: 0 12px;
     padding-bottom: 2px;
   }
-  .site-nav a { font-size: 11px; letter-spacing: .13em; padding: 7px 2px; }
+  .site-nav a { font-size: 10.5px; letter-spacing: .08em; padding: 7px 2px; }
   .head-cta { margin-left: auto; }
 }
 

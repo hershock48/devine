@@ -215,9 +215,13 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
       changes. `--gw-above` must match `.site-foot` exactly or a seam shows.
 - [ ] **Tell the owner the studio credit is in their footer.** `brand.md`: it belongs
       in the contract, not in a surprise deploy.
+- [ ] **Set `WORKROOM_PIN` in Vercel. Nothing at `/workroom` opens without it**,
+      by design: the old fallback was the shop phone's last four, committed to
+      this repo, guarding customer names, phones and addresses. Do this before
+      demoing the workroom to anyone, or the PIN screen will refuse the demo too.
 - [ ] **Create the workroom database** (Vercel > Storage > Create Database > Neon,
-      free tier, sets `DATABASE_URL` itself) and set a real `WORKROOM_PIN`. Until
-      then the workroom runs on in-memory storage and says so in a warning banner.
+      free tier, sets `DATABASE_URL` itself). Until then the workroom runs on
+      in-memory storage and says so in a warning banner.
 - [ ] **Set the five order-intake variables in Vercel** (`.env.example` is the list)
       and point `ORDER_TO` at the shop's inbox. Then place a real order and confirm
       it **arriving in that inbox**, not just returning 200: glaze.md's bar is a real

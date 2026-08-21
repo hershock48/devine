@@ -19,20 +19,40 @@ import { cookies } from "next/headers";
  */
 
 const COOKIE = "devine_workroom";
+/** Local development only. See workroomPin(). */
 const PIN_FALLBACK = "0830";
 
-export function workroomPin(): string {
-  return process.env.WORKROOM_PIN || PIN_FALLBACK;
+/**
+ * The PIN, or null meaning "this deployment has no workroom".
+ *
+ * THE FALLBACK IS NOT ALLOWED IN PRODUCTION, and that is a change made after a
+ * review found the old behaviour indefensible: the fallback is committed to
+ * this repo AND it is the last four of the shop's published phone number, so a
+ * deployed workroom with WORKROOM_PIN unset was guarding every customer's
+ * name, phone, delivery address and card message behind a number printed in
+ * the footer. The README listed setting it as a to-do, which is not a control.
+ *
+ * So in production an unset variable closes the door rather than fitting a
+ * known lock: isWorkroomAuthed returns false and the login route says plainly
+ * that the workroom is not configured. Nothing is guessable, and the failure
+ * is loud to the operator instead of silent to everyone else.
+ */
+export function workroomPin(): string | null {
+  const set = process.env.WORKROOM_PIN;
+  if (set && set.trim()) return set.trim();
+  return process.env.NODE_ENV === "production" ? null : PIN_FALLBACK;
 }
 
 export async function isWorkroomAuthed(): Promise<boolean> {
+  const pin = workroomPin();
+  if (pin === null) return false;
   const jar = await cookies();
-  return jar.get(COOKIE)?.value === workroomPin();
+  return jar.get(COOKIE)?.value === pin;
 }
 
-export async function setWorkroomCookie(): Promise<void> {
+export async function setWorkroomCookie(pin: string): Promise<void> {
   const jar = await cookies();
-  jar.set(COOKIE, workroomPin(), {
+  jar.set(COOKIE, pin, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

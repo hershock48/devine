@@ -74,7 +74,7 @@ export async function PUT(req: Request) {
   const p = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!p || typeof p.id !== "string") return NextResponse.json({ error: "Malformed." }, { status: 400 });
 
-  const existing = (await getStore().listQuotes()).find((q) => q.id === p.id);
+  const existing = await getStore().getQuote(p.id);
   if (!existing) return NextResponse.json({ error: "No such quote." }, { status: 404 });
 
   const pieces: QuotePiece[] = [];

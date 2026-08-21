@@ -117,6 +117,18 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
   const recipeBySlug = useMemo(() => new Map(recipes.map((r) => [r.slug, r])), [recipes]);
 
   const week = weekOf(anchor);
+  /*
+    The page loads 90 days. Pick an older week and every figure computes to a
+    perfectly convincing zero — which on a page whose whole job is giving her
+    numbers she has never had, reads as "no shrink that week" rather than "not
+    loaded". Say which it is.
+  */
+  const windowStart = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 90);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+  const outsideWindow = week.from < windowStart;
   const report = useMemo(() => {
     const inWeek = (d: string) => d >= week.from && d <= week.to;
 
@@ -206,9 +218,16 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
           </h2>
           <label style={{ fontSize: 14.5, display: "flex", gap: 8, alignItems: "center" }}>
             <span className="muted">Pick any day in a week</span>
-            <input type="date" value={anchor} onChange={(e) => setAnchor(e.target.value)} style={{ ...field, width: "auto" }} />
+            <input type="date" value={anchor} min={windowStart} onChange={(e) => setAnchor(e.target.value)} style={{ ...field, width: "auto" }} />
           </label>
         </div>
+
+        {outsideWindow && (
+          <p role="status" style={{ margin: "14px 0 0", fontSize: 14.5, fontWeight: 600, color: "var(--rose-ink)" }}>
+            That week is older than the 90 days this page loads, so the figures below
+            are blank rather than real. Nothing is missing from the shop&rsquo;s records.
+          </p>
+        )}
 
         <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", margin: "18px 0 6px" }}>
           <Figure label="Stems bought" value={`${report.bought.stems}`} sub={money(report.bought.cost)} />

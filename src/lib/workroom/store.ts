@@ -182,6 +182,10 @@ type Store = {
   listRecipes(): Promise<Recipe[]>;
   upsertQuote(q: Quote): Promise<void>;
   listQuotes(): Promise<Quote[]>;
+  /** One quote by id. Exists because the callers that need exactly one were
+      pulling the whole table and scanning it in JS — on every autosave, and
+      with a LIMIT that made quotes past the 500th unsaveable. */
+  getQuote(id: string): Promise<Quote | null>;
   deleteQuote(id: string): Promise<void>;
 };
 
@@ -254,6 +258,9 @@ const memoryStore: Store = {
   async listQuotes() {
     return [...bag().quotes.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   },
+  async getQuote(id) {
+    return bag().quotes.get(id) ?? null;
+  },
   async deleteQuote(id) {
     bag().quotes.delete(id);
   },
@@ -282,6 +289,14 @@ async function pgPool(): Promise<PgPool> {
       ssl: cs?.includes("localhost") ? undefined : { rejectUnauthorized: false },
       max: 3,
     }) as unknown as PgPool;
+    /*
+      A FAILED SCHEMA INIT MUST NOT BE CACHED. Storing this promise and never
+      clearing it meant one unlucky cold start — Neon still waking, a blip —
+      left that warm instance permanently broken: every later request awaited
+      the same rejected promise long after the database recovered. On failure
+      the pool and the promise are dropped so the next request retries.
+      Inherited from the pjs store, where the same fix is owed.
+    */
     g.__devinePgReady = g.__devinePgPool.query(`
       CREATE TABLE IF NOT EXISTS workroom_orders (
         id text PRIMARY KEY,
@@ -303,10 +318,14 @@ async function pgPool(): Promise<PgPool> {
         updated_at bigint NOT NULL,
         data jsonb NOT NULL
       );
-    `);
+    `).catch((err: unknown) => {
+      g.__devinePgPool = undefined;
+      g.__devinePgReady = undefined;
+      throw err;
+    });
   }
   await g.__devinePgReady;
-  return g.__devinePgPool;
+  return g.__devinePgPool!;
 }
 
 const postgresStore: Store = {
@@ -382,6 +401,11 @@ const postgresStore: Store = {
     const pool = await pgPool();
     const r = await pool.query(`SELECT data FROM workroom_quotes ORDER BY updated_at DESC LIMIT 500`);
     return r.rows.map((row) => row.data as Quote);
+  },
+  async getQuote(id) {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_quotes WHERE id = $1`, [id]);
+    return r.rows[0] ? (r.rows[0].data as Quote) : null;
   },
   async deleteQuote(id) {
     const pool = await pgPool();

@@ -61,7 +61,8 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   const [backend, setBackend] = useState("memory");
   const [stemPrices, setStemPrices] = useState<Record<string, number>>({});
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
-  const loadedAt = useRef(0);
+  /** The serialization last known to be on the server. */
+  const savedRef = useRef<string>("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pull = useCallback(async () => {
@@ -76,8 +77,9 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
     const q = (d.quotes as Quote[] | undefined)?.find((x) => x.id === id);
     if (!q) setMissing(true);
     else {
-      setDraft(toDraft(q));
-      loadedAt.current = Date.now();
+      const loaded = toDraft(q);
+      savedRef.current = JSON.stringify(loaded);
+      setDraft(loaded);
     }
     setAuthed(true);
   }, [id]);
@@ -87,20 +89,32 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
     pull().catch(() => {});
   }, [authed, pull]);
 
-  /* Autosave: 800ms after the last keystroke, the whole document. A quote is
-     one thought; sending it whole means no field can be the one that missed. */
+  /*
+    Autosave: 800ms after the last keystroke, the whole document. A quote is
+    one thought; sending it whole means no field can be the one that missed.
+
+    SKIP ON CONTENT, NOT ON A CLOCK. This used to bail out for 500ms after
+    load, to avoid echoing the just-loaded document straight back. It also
+    swallowed any real edit inside that window and scheduled nothing to catch
+    it: a review typed into a freshly opened quote, waited well past the
+    debounce, and read the field back empty while the screen said "Saved".
+    Comparing against the last known-saved serialization suppresses the echo
+    exactly and never suppresses a change.
+  */
   const serialized = draft ? JSON.stringify(draft) : "";
   useEffect(() => {
-    if (!draft || Date.now() - loadedAt.current < 500) return;
+    if (!draft || serialized === savedRef.current) return;
     setSaveState("saving");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
       try {
+        const sending = serialized;
         const r = await fetch("/api/workroom/quotes", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(draft),
+          body: sending,
         });
+        if (r.ok) savedRef.current = sending;
         setSaveState(r.ok ? "saved" : "failed");
       } catch {
         setSaveState("failed");

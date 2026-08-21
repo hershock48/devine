@@ -93,7 +93,12 @@ export function PinGate({ onAuthed }: { onAuthed: () => void }) {
       body: JSON.stringify({ pin }),
     });
     if (!r.ok) {
-      setError("Wrong PIN.");
+      // The three failures are different problems for different people: a
+      // typo, a lockout, and an operator who has not set WORKROOM_PIN. One
+      // "Wrong PIN." for all three sends the shop hunting for a PIN that does
+      // not exist.
+      const body = (await r.json().catch(() => null)) as { error?: string } | null;
+      setError(body?.error || "Wrong PIN.");
       return;
     }
     setPin("");

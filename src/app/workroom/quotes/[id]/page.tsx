@@ -21,7 +21,7 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
   // when signed in: the store is not something a locked page should touch.
   let kind: "wedding" | "funeral" = "wedding";
   if (authed) {
-    const q = (await getStore().listQuotes()).find((x) => x.id === id);
+    const q = await getStore().getQuote(id);
     if (q) kind = q.kind;
   }
   return kind === "funeral" ? <FuneralPad id={id} initialAuthed={authed} /> : <QuoteBuilder id={id} initialAuthed={authed} />;

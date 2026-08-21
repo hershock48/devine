@@ -124,8 +124,11 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
   const [backend, setBackend] = useState("memory");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
   const [placed, setPlaced] = useState<string | null>(null);
+  const [placeError, setPlaceError] = useState("");
+  const [placing, setPlacing] = useState(false);
   const [openPiece, setOpenPiece] = useState<string | null>(null);
-  const loadedAt = useRef(0);
+  /** The serialization last known to be on the server. */
+  const savedRef = useRef<string>("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pull = useCallback(async () => {
@@ -139,8 +142,9 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
     const q = (d.quotes as Quote[] | undefined)?.find((x) => x.id === id);
     if (!q) setMissing(true);
     else {
-      setDraft(toDraft(q));
-      loadedAt.current = Date.now();
+      const loaded = toDraft(q);
+      savedRef.current = JSON.stringify(loaded);
+      setDraft(loaded);
     }
     setAuthed(true);
   }, [id]);
@@ -150,18 +154,22 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
     pull().catch(() => {});
   }, [authed, pull]);
 
+  /* Skips on content rather than on a clock — see the long note on the same
+     effect in QuoteBuilder.tsx for the edit this used to swallow. */
   const serialized = draft ? JSON.stringify(draft) : "";
   useEffect(() => {
-    if (!draft || Date.now() - loadedAt.current < 500) return;
+    if (!draft || serialized === savedRef.current) return;
     setSaveState("saving");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
       try {
+        const sending = serialized;
         const r = await fetch("/api/workroom/quotes", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(draft),
+          body: sending,
         });
+        if (r.ok) savedRef.current = sending;
         setSaveState(r.ok ? "saved" : "failed");
       } catch {
         setSaveState("failed");
@@ -241,7 +249,19 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
   }
 
   async function placeOrder() {
-    if (!draft) return;
+    if (!draft || placing) return; // `placing` also stops a double tap
+    setPlaceError("");
+    /*
+      Check here rather than letting the API's 400 vanish. This button is
+      pressed with a family watching; the old version swallowed the failure
+      and did nothing at all, which reads as a broken screen at the worst
+      possible moment.
+    */
+    if (!draft.eventDate) {
+      setPlaceError("Add the service date first — the board sorts by it.");
+      return;
+    }
+    setPlacing(true);
     const lines = draft.pieces
       .filter((p) => p.name.trim())
       .map((p) => ({ name: p.name + (p.ribbon ? ` — ribbon: ${p.ribbon}` : ""), each: Number(p.price) || 0, qty: Number(p.qty) || 1 }));
@@ -283,10 +303,13 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
         lines,
       }),
     });
-    const d = await r.json().catch(() => null);
-    if (d?.ok) {
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; order?: { number: string }; error?: string } | null;
+    setPlacing(false);
+    if (d?.ok && d.order) {
       setPlaced(d.order.number);
       set({ status: "accepted" });
+    } else {
+      setPlaceError(d?.error || "That did not reach the board. Try again, or write it up on the board directly.");
     }
   }
 
@@ -607,12 +630,18 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
                 </p>
               ) : (
                 <>
-                  <button className="btn btn--solid" type="button" onClick={placeOrder} disabled={draft.pieces.length === 0}>
-                    Put it on the board
+                  <button className="btn btn--solid" type="button" onClick={placeOrder} disabled={draft.pieces.length === 0 || placing}>
+                    {placing ? "Sending…" : "Put it on the board"}
                   </button>
-                  <span className="muted" style={{ fontSize: 13 }}>
-                    Makes this a confirmed order the workroom can see. The family is
-                    standing here; nothing to re-type later.
+                  <span aria-live="polite" style={{ fontSize: 13.5 }}>
+                    {placeError ? (
+                      <strong style={{ color: "var(--rose-ink)" }}>{placeError}</strong>
+                    ) : (
+                      <span className="muted">
+                        Makes this a confirmed order the workroom can see. The family is
+                        standing here; nothing to re-type later.
+                      </span>
+                    )}
                   </span>
                 </>
               )}
