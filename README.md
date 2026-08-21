@@ -224,10 +224,16 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 - [ ] Ask the owner: delivery fee, order minimum, same-day cutoff. The checkout and
       the ticket currently say the subtotal is settled on the confirm call, which is
       honest but shouldn't be permanent.
-- [ ] **Rewrite the quote model from her real documents.** Get one actual wedding
-      spreadsheet and one funeral worksheet at the meeting; the provisional
-      markup/labor model and both piece templates are stand-ins for those. Also ask
-      whether she has a quote-validity policy to print.
+- [ ] **Rewrite the wedding model from her real spreadsheet.** She has agreed to
+      send it; the provisional markup/labor model and the wedding template are
+      stand-ins until it lands. Also ask whether she has a quote-validity policy
+      to print.
+- [ ] **Reshape the funeral variant around how funerals actually work here.**
+      There is no funeral worksheet to copy: she quotes them **on the spot, in
+      person, no spreadsheet**. That makes the funeral quote a counter pad, not a
+      document pipeline — it needs to be fast enough to use across a desk from a
+      family, with print as a same-visit courtesy rather than the point. Watch her
+      do one at the meeting before changing it.
 - [ ] Wire Stripe hosted Checkout (Phase 1 takes payment on the confirm call, which
       is how the shop already handles phone orders). The cart shape already matches
       what Stripe wants.

@@ -7,9 +7,16 @@ import type { QuotePiece } from "@/lib/workroom/store";
  * through, in the order it walks through them; every one is editable,
  * removable, and starts with no stems so no number is ever invented.
  *
- * PROVISIONAL until her real documents arrive: the meeting ask is one actual
- * wedding spreadsheet and one funeral worksheet, and these lists get
- * rewritten from those.
+ * PROVISIONAL, and the two halves are provisional in different ways:
+ *
+ *   wedding   she is sending her real spreadsheet. This list and the pricing
+ *             model get rewritten from it.
+ *   funeral   THERE IS NO DOCUMENT TO COPY. She quotes funerals on the spot,
+ *             in person, no spreadsheet (her note, 2026-08-21). So this list
+ *             is not a transcription of anything: it is a guess at the pieces
+ *             a family is offered, and the funeral variant's real design
+ *             problem is speed at a counter, not paperwork. Watch her quote
+ *             one before changing either.
  */
 
 const piece = (name: string, qty: number): Omit<QuotePiece, "id"> => ({
