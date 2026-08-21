@@ -194,7 +194,6 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
   if (!authed) {
     return (
       <>
-        <p className="kicker">DeVine&rsquo;s workroom</p>
         <h1>Funeral quote</h1>
         <PinGate onAuthed={() => pull().catch(() => {})} />
       </>
@@ -203,7 +202,6 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
   if (missing) {
     return (
       <>
-        <p className="kicker">DeVine&rsquo;s workroom</p>
         <h1>That quote is gone</h1>
         <p className="lede">
           It may have been deleted, or the workroom is on memory storage and the server
@@ -215,7 +213,6 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
   if (!draft || !pricing) {
     return (
       <>
-        <p className="kicker">DeVine&rsquo;s workroom</p>
         <h1>Funeral quote</h1>
         <p className="lede" aria-live="polite">Opening…</p>
       </>

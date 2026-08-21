@@ -99,7 +99,6 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   if (!authed) {
     return (
       <>
-        <p className="kicker">DeVine&rsquo;s workroom</p>
         <h1>Orders</h1>
         <PinGate onAuthed={() => pull().catch(() => {})} />
       </>
@@ -108,16 +107,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <p className="kicker">DeVine&rsquo;s workroom</p>
-          <h1>Orders</h1>
-        </div>
-        <nav style={{ display: "flex", gap: 18, fontSize: 15.5 }}>
-          <a href="/workroom/stems">Stems &amp; shrink</a>
-          <a href="/workroom/quotes">Quotes</a>
-        </nav>
-      </div>
+      {/* Page identity only. Getting anywhere else is the shared chrome's job
+          (components/workroom/Chrome.tsx). */}
+      <h1>Orders</h1>
 
       <MemoryWarning backend={backend} />
 

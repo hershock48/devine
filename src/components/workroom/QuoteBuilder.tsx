@@ -140,7 +140,6 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   if (!authed) {
     return (
       <>
-        <p className="kicker">DeVine&rsquo;s workroom</p>
         <h1>Quote</h1>
         <PinGate onAuthed={() => pull().catch(() => {})} />
       </>
@@ -149,7 +148,6 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   if (missing) {
     return (
       <>
-        <p className="kicker">DeVine&rsquo;s workroom</p>
         <h1>That quote is gone</h1>
         <p className="lede">
           It may have been deleted, or the workroom is on memory storage and the server
@@ -161,7 +159,6 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   if (!draft || !pricing) {
     return (
       <>
-        <p className="kicker">DeVine&rsquo;s workroom</p>
         <h1>Quote</h1>
         <p className="lede" aria-live="polite">Opening…</p>
       </>

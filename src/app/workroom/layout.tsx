@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import WorkroomChrome from "@/components/workroom/Chrome";
 
 /**
  * The workroom's shell: none of the shop's marketing chrome, all of its
@@ -16,8 +17,11 @@ export const metadata: Metadata = {
 
 export default function WorkroomLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main id="main" className="section">
-      <div className="wrap" style={{ maxWidth: 1080 }}>{children}</div>
-    </main>
+    <>
+      <WorkroomChrome />
+      <main id="main" className="section" style={{ paddingTop: "calc(var(--u) * 4)" }}>
+        <div className="wrap" style={{ maxWidth: 1080 }}>{children}</div>
+      </main>
+    </>
   );
 }
