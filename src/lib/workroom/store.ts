@@ -110,6 +110,21 @@ export type QuotePiece = {
   /** Vase, foam, ribbon, easel — typed at retail, per piece. */
   hardgoods: number;
   parts: QuotePart[];
+  /**
+   * A retail price set DIRECTLY, which flips the arithmetic for this piece:
+   * instead of stems deciding the price, the price decides how much flower
+   * the designer has to work with. This is how funeral work is actually
+   * sold — "a standing spray at $225" across a counter, stems figured out in
+   * the workroom afterwards. Absent or 0 means price it forward from stems,
+   * which is how weddings are quoted.
+   */
+  price?: number;
+  /** "Beloved Mother", "Grandma". The ribbon is not the card message and the
+      family says it out loud at the counter, so it belongs on the piece. */
+  ribbon?: string;
+  /** Which family or group is paying for this piece. One service routinely
+      splits across several payers, and the ticket has to say which. */
+  from?: string;
 };
 export type Quote = {
   id: string;
@@ -121,6 +136,19 @@ export type Quote = {
   eventDate: string; // yyyy-mm-dd or ""
   venue: string;
   notes: string;
+  /* ---- funeral only. A service is a DEADLINE, not a date: flowers are
+     expected about an hour before the family arrives, and an early or Sunday
+     service means delivering the day before. A date field alone cannot say
+     that, so the time fields are first-class. ---- */
+  deceased?: string;
+  serviceTime?: string; // HH:MM
+  viewingTime?: string; // HH:MM
+  /** Open casket takes a half-couch spray, closed takes full couch, cremation
+      takes neither. It is the first question that changes the piece. */
+  casket?: "open" | "closed" | "cremation" | "";
+  /** What the family said they can spend. Funerals are quoted DOWN to a
+      number the family names; weddings are built UP from a wish list. */
+  budgetTarget?: number;
   /** The quote's own price list, per stem. Prefilled from workroom purchase
       history where known, editable per quote: event flowers are often
       special-ordered at prices the everyday cooler never sees. */

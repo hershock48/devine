@@ -225,12 +225,17 @@ function OrderCard({ o, onMove }: { o: Order; onMove: (id: string, s: Order["sta
       </p>
 
       {/* Built from the parts that exist: a phone order can be taken before
-          the address is known, and "Smoke Test · ," is not an address. */}
+          the address is known, and "Smoke Test · ," is not an address. A named
+          recipient with no street is a real case too, not a missing one — a
+          funeral quote sends flowers to "Kempf Funeral Home" and the driver
+          knows where that is. */}
       {o.fulfillment === "delivery" && (
         <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>
-          {o.street || o.town || o.zip
-            ? [o.recipient || o.name, [o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")].join(" · ")
-            : "No delivery address yet"}
+          {(() => {
+            const where = [o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+            if (where) return `${o.recipient || o.name} · ${where}`;
+            return o.recipient || "No delivery address yet";
+          })()}
           {zipFlag && (
             <strong style={{ color: "var(--rose-ink)" }}> · off the delivery list</strong>
           )}

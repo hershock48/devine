@@ -48,6 +48,11 @@ export async function POST(req: Request) {
     eventDate: "",
     venue: "",
     notes: "",
+    deceased: "",
+    serviceTime: "",
+    viewingTime: "",
+    casket: "",
+    budgetTarget: 0,
     flowers: [],
     pieces: QUOTE_TEMPLATES[kind].map((t) => ({ ...t, id: newId("pc"), parts: [...t.parts] })),
     ...QUOTE_DEFAULTS,
@@ -83,6 +88,9 @@ export async function PUT(req: Request) {
       name,
       qty: Math.min(999, Math.max(1, Math.round(Number(r.qty) || 1))),
       hardgoods: num(r.hardgoods, 100_000),
+      price: num(r.price, 1_000_000),
+      ribbon: str(r.ribbon, 80),
+      from: str(r.from, 120),
       parts: (Array.isArray(r.parts) ? r.parts : [])
         .slice(0, 30)
         .map((pt) => ({
@@ -112,6 +120,13 @@ export async function PUT(req: Request) {
     eventDate: /^\d{4}-\d{2}-\d{2}$/.test(str(p.eventDate, 10)) ? str(p.eventDate, 10) : "",
     venue: str(p.venue, 160),
     notes: str(p.notes, 1000),
+    deceased: str(p.deceased, 120),
+    serviceTime: /^\d{2}:\d{2}$/.test(str(p.serviceTime, 5)) ? str(p.serviceTime, 5) : "",
+    viewingTime: /^\d{2}:\d{2}$/.test(str(p.viewingTime, 5)) ? str(p.viewingTime, 5) : "",
+    casket: (["open", "closed", "cremation"] as const).includes(p.casket as "open")
+      ? (p.casket as Quote["casket"])
+      : "",
+    budgetTarget: num(p.budgetTarget, 1_000_000),
     flowers,
     pieces,
     markup: Math.min(20, Math.max(1, Number(p.markup) || QUOTE_DEFAULTS.markup)),

@@ -39,7 +39,8 @@ Two things live here:
 | `src/lib/workroom/store.ts` | Two storage backends behind one interface, ported from the pjs kitchen system: Postgres when `DATABASE_URL` is set (Neon free tier via Vercel, tables create themselves), in-memory otherwise — and the pages show a plain warning on memory, because a board that silently misses orders is worse than one that says why. |
 | `src/lib/workroom/auth.ts` | A PIN and a cookie. A gate, not a vault: nothing behind it moves money. `WORKROOM_PIN`, falling back to the shop phone's last four. |
 | `src/app/workroom/quotes/**` | **The quote builder** — the owner's sharpest ask ("a model to input flowers and stem count to accurately produce a quote"). Weddings and funerals as separate templates, flowers priced per stem once per quote (prefilled from purchase history), live totals, a wholesale buy list, autosave, and a print view that is the client's copy: same numbers, none of the workings. |
-| `src/lib/workroom/quote-math.ts` | The quote arithmetic, alone in one file with no imports, so the list, the builder and the print can never disagree. **The model is provisional**: flowers × markup (default ×3) + labor % of flower retail (default 25%) + hardgoods + delivery/setup; wedding deposit 50% per their published process. To be rewritten against her real wedding spreadsheet and funeral worksheet after the meeting. |
+| `src/components/workroom/FuneralPad.tsx` | **A different tool at the same URL**, because funerals are quoted on the spot with no spreadsheet. Price-first menu (one tap per piece per price point), the family's budget as the frame with a live gap, the service treated as a deadline rather than a date, ribbon wording and who each piece is from, and a last button that puts it straight on the board while the family is still standing there. |
+| `src/lib/workroom/quote-math.ts` | The quote arithmetic, alone in one file with no imports, so the list, both builders and the print can never disagree. **The model is provisional** and runs BOTH WAYS: forward (stems × markup + labor% + hardgoods) for weddings, and reverse (a set price solved back into a flower budget) for the funeral counter. Wedding deposit 50% per their published process. To be rewritten against her real wedding spreadsheet, and corrected against watching a real funeral quote. |
 | `src/lib/workroom/quote-templates.ts` | The starting piece lists, one per model, every piece editable and none carrying an invented stem count. Also provisional until her documents arrive. |
 | `next.config.ts` | The root rewrite and the noindex headers. |
 | `src/app/robots.ts` | Search engines out, social card scrapers in. |
@@ -228,12 +229,14 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
       send it; the provisional markup/labor model and the wedding template are
       stand-ins until it lands. Also ask whether she has a quote-validity policy
       to print.
-- [ ] **Reshape the funeral variant around how funerals actually work here.**
-      There is no funeral worksheet to copy: she quotes them **on the spot, in
-      person, no spreadsheet**. That makes the funeral quote a counter pad, not a
-      document pipeline — it needs to be fast enough to use across a desk from a
-      family, with print as a same-visit courtesy rather than the point. Watch her
-      do one at the meeting before changing it.
+- [ ] **Put DeVine's own funeral price points into `FUNERAL_MENU`.** The pad ships
+      with published 2026 industry ranges (Kremp, funeral.com, Ever Loved) because
+      there is no worksheet of hers to copy — she quotes funerals on the spot, in
+      person. The screen says so out loud; swapping in her numbers is the first
+      edit after the meeting.
+- [ ] **Watch her quote one funeral live and correct the pad against it.** What she
+      asks first, in what order, what she writes down, what the family walks out
+      with. The pad is a researched guess at that motion, not a transcription.
 - [ ] Wire Stripe hosted Checkout (Phase 1 takes payment on the confirm call, which
       is how the shop already handles phone orders). The cart shape already matches
       what Stripe wants.
