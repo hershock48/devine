@@ -192,6 +192,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
         </div>
         <nav style={{ display: "flex", gap: 18, fontSize: 15.5 }}>
           <a href="/workroom">Order board</a>
+          <a href="/workroom/quotes">Quotes</a>
         </nav>
       </div>
 

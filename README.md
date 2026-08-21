@@ -38,6 +38,9 @@ Two things live here:
 | `src/app/workroom/**` | **The shop's own tool, Phase 2.** An order board at `/workroom` (web orders land on it by themselves; phone orders get written up on it) and a stem tracker at `/workroom/stems`: purchases, shrink with reasons, per-product recipes, and a Monday-morning week report of bought / tossed / shrink % / revenue / stem cost / margin. Sits outside `/demo` because it is not part of the customer demo and does not move on launch day. |
 | `src/lib/workroom/store.ts` | Two storage backends behind one interface, ported from the pjs kitchen system: Postgres when `DATABASE_URL` is set (Neon free tier via Vercel, tables create themselves), in-memory otherwise — and the pages show a plain warning on memory, because a board that silently misses orders is worse than one that says why. |
 | `src/lib/workroom/auth.ts` | A PIN and a cookie. A gate, not a vault: nothing behind it moves money. `WORKROOM_PIN`, falling back to the shop phone's last four. |
+| `src/app/workroom/quotes/**` | **The quote builder** — the owner's sharpest ask ("a model to input flowers and stem count to accurately produce a quote"). Weddings and funerals as separate templates, flowers priced per stem once per quote (prefilled from purchase history), live totals, a wholesale buy list, autosave, and a print view that is the client's copy: same numbers, none of the workings. |
+| `src/lib/workroom/quote-math.ts` | The quote arithmetic, alone in one file with no imports, so the list, the builder and the print can never disagree. **The model is provisional**: flowers × markup (default ×3) + labor % of flower retail (default 25%) + hardgoods + delivery/setup; wedding deposit 50% per their published process. To be rewritten against her real wedding spreadsheet and funeral worksheet after the meeting. |
+| `src/lib/workroom/quote-templates.ts` | The starting piece lists, one per model, every piece editable and none carrying an invented stem count. Also provisional until her documents arrive. |
 | `next.config.ts` | The root rewrite and the noindex headers. |
 | `src/app/robots.ts` | Search engines out, social card scrapers in. |
 
@@ -185,6 +188,14 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 - **The stem tracker never guesses a dollar figure.** A tossed variety with no
   purchase on record reports "cost unknown"; a product with no recipe reports "no
   recipe" instead of a margin. glaze.md's placeholder rule, applied to arithmetic.
+- **The quote's print view filters itself.** Template pieces the conversation never
+  reached (price $0) stay off the client document, and each one says "left off the
+  print" on screen so nothing disappears silently. The print carries no stem
+  counts, markup, or labor split, and only policies the shop has published; a
+  drafted "prices hold 30 days" line was cut because their site states no such
+  policy. Ask the owner for hers.
+- **The quote math lives in one importless file** (`quote-math.ts`) used by the
+  list, the builder and the print. Change the model there and nowhere else.
 
 ## Before this becomes their site
 
@@ -213,6 +224,10 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 - [ ] Ask the owner: delivery fee, order minimum, same-day cutoff. The checkout and
       the ticket currently say the subtotal is settled on the confirm call, which is
       honest but shouldn't be permanent.
+- [ ] **Rewrite the quote model from her real documents.** Get one actual wedding
+      spreadsheet and one funeral worksheet at the meeting; the provisional
+      markup/labor model and both piece templates are stand-ins for those. Also ask
+      whether she has a quote-validity policy to print.
 - [ ] Wire Stripe hosted Checkout (Phase 1 takes payment on the confirm call, which
       is how the shop already handles phone orders). The cart shape already matches
       what Stripe wants.

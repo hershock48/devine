@@ -115,6 +115,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </div>
         <nav style={{ display: "flex", gap: 18, fontSize: 15.5 }}>
           <a href="/workroom/stems">Stems &amp; shrink</a>
+          <a href="/workroom/quotes">Quotes</a>
         </nav>
       </div>
 

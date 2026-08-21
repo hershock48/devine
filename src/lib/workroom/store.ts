@@ -90,6 +90,50 @@ export type Recipe = {
   parts: { variety: string; stems: number }[];
 };
 
+/**
+ * A quote: the owner's sharpest ask, in her words — "a model to input flowers
+ * and stem count to accurately produce a quote", with weddings and funerals
+ * as different models.
+ *
+ * THE PRICING MODEL IS PROVISIONAL, on purpose. flowers × markup, plus labor
+ * as a percentage of the flower retail, plus hardgoods at typed retail, plus
+ * delivery/setup flat. Defaults: markup ×3, labor 25% — industry-common
+ * numbers standing in until her real wedding spreadsheet and funeral
+ * worksheet arrive after the meeting. Every number is a dial she can turn
+ * per quote; nothing is hardcoded into the math.
+ */
+export type QuotePart = { variety: string; stems: number };
+export type QuotePiece = {
+  id: string;
+  name: string;
+  qty: number;
+  /** Vase, foam, ribbon, easel — typed at retail, per piece. */
+  hardgoods: number;
+  parts: QuotePart[];
+};
+export type Quote = {
+  id: string;
+  kind: "wedding" | "funeral";
+  status: "draft" | "sent" | "accepted" | "declined";
+  clientName: string;
+  phone: string;
+  email: string;
+  eventDate: string; // yyyy-mm-dd or ""
+  venue: string;
+  notes: string;
+  /** The quote's own price list, per stem. Prefilled from workroom purchase
+      history where known, editable per quote: event flowers are often
+      special-ordered at prices the everyday cooler never sees. */
+  flowers: { variety: string; costPerStem: number }[];
+  pieces: QuotePiece[];
+  markup: number;
+  laborPct: number;
+  delivery: number;
+  setup: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
 type Store = {
   backend: "postgres" | "memory";
   createOrder(o: WorkroomOrder): Promise<void>;
@@ -108,6 +152,9 @@ type Store = {
   deleteStemEvent(id: string): Promise<void>;
   upsertRecipe(r: Recipe): Promise<void>;
   listRecipes(): Promise<Recipe[]>;
+  upsertQuote(q: Quote): Promise<void>;
+  listQuotes(): Promise<Quote[]>;
+  deleteQuote(id: string): Promise<void>;
 };
 
 export const SHRINK_REASONS = ["wilted", "damaged", "overbought", "event fell through", "other"] as const;
@@ -126,13 +173,16 @@ type Bag = {
   orders: Map<string, WorkroomOrder>;
   stems: Map<string, StemEvent>;
   recipes: Map<string, Recipe>;
+  quotes: Map<string, Quote>;
 };
 
 function bag(): Bag {
   const g = globalThis as typeof globalThis & { __devineWorkroom?: Bag };
   if (!g.__devineWorkroom) {
-    g.__devineWorkroom = { orders: new Map(), stems: new Map(), recipes: new Map() };
+    g.__devineWorkroom = { orders: new Map(), stems: new Map(), recipes: new Map(), quotes: new Map() };
   }
+  // A bag created by an older module instance predates the quotes map.
+  if (!g.__devineWorkroom.quotes) g.__devineWorkroom.quotes = new Map();
   return g.__devineWorkroom;
 }
 
@@ -169,6 +219,15 @@ const memoryStore: Store = {
   },
   async listRecipes() {
     return [...bag().recipes.values()];
+  },
+  async upsertQuote(q) {
+    bag().quotes.set(q.id, q);
+  },
+  async listQuotes() {
+    return [...bag().quotes.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  },
+  async deleteQuote(id) {
+    bag().quotes.delete(id);
   },
 };
 
@@ -209,6 +268,11 @@ async function pgPool(): Promise<PgPool> {
       );
       CREATE TABLE IF NOT EXISTS workroom_recipes (
         slug text PRIMARY KEY,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS workroom_quotes (
+        id text PRIMARY KEY,
+        updated_at bigint NOT NULL,
         data jsonb NOT NULL
       );
     `);
@@ -277,6 +341,23 @@ const postgresStore: Store = {
     const pool = await pgPool();
     const r = await pool.query(`SELECT data FROM workroom_recipes`);
     return r.rows.map((row) => row.data as Recipe);
+  },
+  async upsertQuote(q) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO workroom_quotes (id, updated_at, data) VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO UPDATE SET updated_at = $2, data = $3`,
+      [q.id, q.updatedAt, JSON.stringify(q)],
+    );
+  },
+  async listQuotes() {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_quotes ORDER BY updated_at DESC LIMIT 500`);
+    return r.rows.map((row) => row.data as Quote);
+  },
+  async deleteQuote(id) {
+    const pool = await pgPool();
+    await pool.query(`DELETE FROM workroom_quotes WHERE id = $1`, [id]);
   },
 };
 
