@@ -48,6 +48,12 @@ export const categories: Category[] = [
   { slug: "gifts-add-ons", name: "Gifts & Add Ons", blurb: "Tea, chocolate from Albion, and something soft to hold. Add one to any arrangement." },
 ];
 
+/*
+  ONE EDIT TO THEIR OWN WORDS, and it is on the README checklist for the owner to
+  veto. Three descriptions (Bridget, Helene, Clementine) shipped "grey ceramic".
+  glaze.md requires American spelling without exception, and this is a Michigan
+  florist, so they read "gray" here. Everything else in this file is verbatim.
+*/
 const SUB_NOTE = ""; // substitution language lives in site.ts, shown once per product page
 
 export const products: Product[] = [
@@ -123,11 +129,11 @@ export const products: Product[] = [
   { slug: "ginger", name: "Ginger", price: 85, cats: ["just-because"], img: "2026/08/IMG_0741-scaled.jpeg",
     desc: "A stunning collection of purples and oranges. Deep toned hydrangeas, orange daisies, butterscotch cremones, dark purple button mums, Free Spirit roses, orange carnations, solidago and garden fresh calendula in a clear bowl vase." },
   { slug: "bridget", name: "Bridget", price: 85, cats: ["just-because"], img: "2026/08/IMG_0676-scaled.jpeg",
-    desc: "The more neutral, natural side of autumn, in a grey ceramic container. White Japanese anemones, peachy orange hypericum berries, pale yellow lisianthus, chocolate Queen Anne's lace, burgundy carnations, autumn leaves, and slices of tree trunk and twig." },
+    desc: "The more neutral, natural side of autumn, in a gray ceramic container. White Japanese anemones, peachy orange hypericum berries, pale yellow lisianthus, chocolate Queen Anne's lace, burgundy carnations, autumn leaves, and slices of tree trunk and twig." },
   { slug: "designers-choice-2", name: "Designer's Choice", price: 100, cats: ["just-because", "anniversary", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png", placeholderImage: true,
     desc: "Put the creative agency in the hands of the designer. Container and flowers are chosen for seasonality, availability and inspiration on the day. Tell us any colors or flowers you have in mind in your order notes." },
   { slug: "helene", name: "Helene", price: 115, cats: ["just-because"], img: "2026/08/IMG_0805-scaled.jpeg",
-    desc: "A show stopping vased arrangement in grey ceramic, abundant with seeded eucalyptus, willow eucalyptus, plumosa fern, grasses and ninebark. Woven through the greenery: solidago, cremone mums, burgundy micro daisies, golden fennel and a mixture of hypericum berries. For someone who appreciates a natural, neutral palette." },
+    desc: "A show stopping vased arrangement in gray ceramic, abundant with seeded eucalyptus, willow eucalyptus, plumosa fern, grasses and ninebark. Woven through the greenery: solidago, cremone mums, burgundy micro daisies, golden fennel and a mixture of hypericum berries. For someone who appreciates a natural, neutral palette." },
 
   // ---- Anniversary ----
   { slug: "hanna", name: "Hanna", price: 60, cats: ["anniversary"], img: "2026/08/IMG_0557-scaled.jpeg",
@@ -149,7 +155,7 @@ export const products: Product[] = [
   { slug: "blooming-candle", name: "Blooming Candle", price: 70, cats: ["birthday"], img: "2024/07/IMG_8580-scaled.jpeg",
     desc: "Two gifts in one. Fresh flowers arranged into the top of a scented tinned candle, full of mixed greens, purple stock and larkspur, light blue delphinium, purple button mums, white cushion mums and filler." },
   { slug: "clementine", name: "Clementine", price: 85, cats: ["birthday"], img: "2026/06/Screenshot-2026-06-01-105732.png",
-    desc: "The warmth of summer, in double petaled gerbera daisies, snapdragons, sunset orange daisies, whimsical yellow butterfly ranunculus, purple statice and solidago, in a grey ceramic container with seasonal summer greenery." },
+    desc: "The warmth of summer, in double petaled gerbera daisies, snapdragons, sunset orange daisies, whimsical yellow butterfly ranunculus, purple statice and solidago, in a gray ceramic container with seasonal summer greenery." },
   { slug: "nicole", name: "Nicole", price: 110, cats: ["birthday"], img: "2025/04/Nicole-2-1.jpg",
     desc: "The energy of a garden in full bloom, in a bubble glass vase. Blue delphinium, Free Spirit roses, orange and yellow alstroemeria, blue hydrangea, orange lily, chamomile, pink rice flower and solidago." },
 

@@ -28,11 +28,27 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     built from what we do know until the real copy is written.
   */
   const cat = catBySlug.get(p.cats[0]);
-  const description = p.desc.startsWith("PLACEHOLDER")
-    ? `${p.name}, ${money(p.price)}. ${cat ? `${cat.name} ` : ""}designed at DeVine's Flowers & Botanicals in Marshall, Michigan, and delivered across ${site.region}.`
-    : p.desc.length > 155
-      ? `${p.desc.slice(0, 152).trimEnd()}...`
-      : p.desc;
+
+  /*
+    SHARED DESCRIPTIONS GET DISAMBIGUATED, because their catalog reuses copy across
+    variants and a search engine sees two pages saying the same thing.
+
+    Five routes were affected: the 6" and 8" Peace Lily carry one description
+    between them, and all three "Designer's Choice" carry another. Prefixing the
+    name and price is enough to make each unique and is honest — it is the one
+    thing that actually differs between them.
+  */
+  const sharesDesc = products.some((o) => o.slug !== p.slug && o.desc === p.desc);
+
+  const stem = `${p.name}, ${money(p.price)}.`;
+  const body = p.desc.startsWith("PLACEHOLDER")
+    ? `${cat ? `${cat.name} ` : ""}designed at DeVine's Flowers & Botanicals in Marshall, Michigan, and delivered across ${site.region}.`
+    : sharesDesc
+      ? p.desc
+      : "";
+
+  const raw = body ? `${stem} ${body}` : p.desc;
+  const description = raw.length > 155 ? `${raw.slice(0, 152).trimEnd()}...` : raw;
 
   return { title: `${p.name}, ${money(p.price)}`, description };
 }

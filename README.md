@@ -19,6 +19,10 @@ Two things live here:
 | `src/lib/catalog.ts` | All 57 products with their real names, prices and their own copy. Keyed on slug, never on name. |
 | `src/lib/image-manifest.json` | Which products have a real photograph, and its true pixel size. Generated, not hand-written. |
 | `src/components/ProductImage.tsx` | Decides photograph or generated art, per product. Nothing above it knows which. |
+| `src/lib/seo.ts` | `metadataBase`, the canonical host, and the `LocalBusiness` JSON-LD, all fed from `site.ts`. **`CANONICAL_HOST` is the pitch host today and must become their domain before the noindex comes off.** |
+| `src/app/sitemap.ts` | Derived from the nav and the catalog, so adding a product adds a URL. No `lastModified`, deliberately. |
+| `src/app/og-card/page.tsx` | The demo's link card as a real route, screenshotted by `tools/og.mjs` into `public/og.jpg`. Not linked, not in the sitemap. |
+| `src/components/GlazedPlate.tsx`, `GlazedCredit.tsx` | Copied verbatim from `glaze/assets/glazed-credit/`. **Never rebuild these**, and never redraw the mark. |
 | `src/lib/order.ts` | `photoFirst()`. Any list that shows only SOME of a category leads with the photographed items; a full category page stays in price order. Becomes a no-op when the last photograph lands. |
 | `tools/shots.mjs` | Full-page screenshots at a given width, with the scroll sweep that makes lazy images actually load. |
 | `src/components/Bloom.tsx` | The generated botanical print, for products with no photograph yet. **Delete this file when the last photo lands.** |
@@ -68,8 +72,18 @@ Measured against the production build on 2026-08-20, not the dev server:
 - **0** horizontal overflow at 320, 390, 768 and 1440. 320 caught two real faults: a
   grid item that would not shrink, and their 37-character email address.
 - **0** console errors, **0** 4xx.
-- JavaScript **136KB gzipped** per page, against a 150KB bar.
-- Every route has its own title and meta description.
+- JavaScript, measured per route by observing what the browser actually requests,
+  not by summing the build directory: **136.6KB gzip / 116.5KB brotli** on most
+  routes, worst case **142.6KB gzip / 121.7KB brotli** on `/demo/cart`, which loads
+  one extra chunk. Against a 150KB bar. The earlier "136KB per page" in this file
+  was right for `/demo` and understated the worst route, which is the number that
+  matters.
+- Every one of the 74 routes has its own title and its own meta description. This
+  file previously claimed that when it was not true: the 6" and 8" Peace Lily shared
+  a description, and all three "Designer's Choice" shared another. See the note in
+  `product/[slug]/page.tsx`.
+- Open Graph, canonical, `LocalBusiness` JSON-LD and a sitemap all present and
+  checked in the response, not just in the source.
 
 ## PLACEHOLDERS — none of this is theirs yet
 
@@ -88,6 +102,10 @@ Each one is visible in the code as `PLACEHOLDER` and must be closed before launc
       `globals.css` and re-run the auditor if they have brand colours.
 - [ ] **"Classic Red Dozen" is on sale** at $75 from $126.95, the only sale in the
       catalog. Confirm that is still intended before it ports over.
+- [ ] **One edit to their own product copy, for the owner to veto.** Three
+      descriptions (Bridget, Helene, Clementine) shipped "grey ceramic". House style
+      is American spelling without exception, so they read "gray" here. Everything
+      else in `catalog.ts` is verbatim.
 
 ## The design system, in one paragraph
 
@@ -139,11 +157,72 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 - [ ] Delete `public/pitch/` and the `rewrites()` block in `next.config.ts`.
 - [ ] Delete `src/app/robots.ts` and the `X-Robots-Tag` header, together.
 - [ ] Move `src/app/demo/*` to `src/app/` and drop `BASE` in `src/lib/nav.ts`.
-- [ ] Point `metadataBase` at `devinesflowersandbotanicals.com`, never the
-      `.vercel.app` host.
-- [ ] Swap the footer's "Concept build by Glazed Web" for the real credit component in
-      `glaze/assets/glazed-credit/`, with the real donut mark.
+- [ ] **Point `CANONICAL_HOST` in `src/lib/seo.ts` at their real domain BEFORE
+      lifting the noindex.** It is `devine.glazedweb.com` today. Right now that is
+      harmless because every path on this host sends `noindex, nofollow`; the moment
+      that comes off, every canonical and every sitemap entry would be advertising a
+      copy of their site as the original. Do these two in this order, or not at all.
+- [ ] Change the credit line from "Concept build by" to "Double Dipped by" in
+      `components/Chrome.tsx`. The plate itself is already the real component with
+      the real mark; only the wording is spec-build wording.
+- [ ] Re-run `node glaze/scripts/plate.mjs "<footer bg>"` if the footer colour
+      changes. `--gw-above` must match `.site-foot` exactly or a seam shows.
+- [ ] **Tell the owner the studio credit is in their footer.** `brand.md`: it belongs
+      in the contract, not in a surprise deploy.
 - [ ] Wire Stripe hosted Checkout. The cart shape already matches what it wants.
+
+## Done, per glaze/launch.md
+
+`launch.md` says this list is "the handover artifact, not a private note" and must be
+copied in here as unchecked boxes. It was not, which is why several of these sat
+unnoticed. Ticked means measured on the production build, not intended.
+
+### Correctness
+- [x] Zero accessibility violations at 390 and 1440 on every route.
+- [x] Zero console errors, zero 4xx, on every route.
+- [x] `grep -rn PLACEHOLDER` — every hit is on the list above. Two are deliberately
+      rendered to the visitor as `.notice` callouts, which is disclosure to a
+      prospect rather than leaked scaffolding. No PLACEHOLDER reaches a meta tag.
+- [ ] **Every form actually submitted and confirmed arriving in a real inbox.** The
+      wedding form is a `mailto:` handoff. There is no inbox to confirm yet.
+- [x] Any remote data source verified on the deployment. There is none.
+- [x] Every heading, button and body run measured for contrast. Eleven pairings, in
+      the `globals.css` header. 0 failures.
+
+### The visitor's experience
+- [x] Checked at 320, 390, 768 and 1440.
+- [x] Reduced motion produces a complete page. Header verified pixel-identical to
+      the static mark; the hero drawing does not start.
+- [x] With JavaScript off: nav clicked through to `/demo/shop`, the wedding form
+      keeps its `mailto:` action and `post` method, the wordmark is visible with the
+      veil parked, and both the petals and the hero drawing are at opacity 0. The
+      un-animated state is the finished state. **Note the harness trap:** a first
+      pass using `waitUntil: "domcontentloaded"` reported the trace visible and the
+      wordmark veiled, because the stylesheet had not applied yet. It was measuring
+      an unstyled page. Use `load` plus a settle.
+- [x] Keyboard: focus visible on every interactive element, skip link first in tab
+      order.
+- [ ] **LCP under 2.5s and CLS under 0.1 on a throttled mobile profile.** JavaScript
+      is under the bar (above). LCP and CLS have not been measured on a throttled
+      profile.
+
+### Search and sharing
+- [x] Every route has its own title and meta description.
+- [x] `og:image` absolute, on an origin that serves it, returns 200 as an image.
+- [x] Canonical on every route, self-referential. **Points at the pitch host — see
+      the pre-launch list.**
+- [x] `LocalBusiness` structured data with hours and address.
+- [x] `sitemap.xml` and `robots.txt` present; the host is `noindex` by header and by
+      metadata, and crawling is ALLOWED, which is the distinction `link-cards.md`
+      draws and this build previously got wrong.
+
+### Security and handover
+- [x] HTTPS enforced, 308 to HTTPS, HSTS present, no drop to HTTP.
+- [x] `npm audit --omit=dev`: **0 vulnerabilities**, 2026-08-21.
+- [x] No secret in the repo, in a commit, or in this file.
+- [x] Studio credit placed and the plate ground computed with the script.
+- [ ] **The owner told the credit is there.** Not done; it is not their site yet.
+- [x] README written.
 
 ## Facts not to guess at
 

@@ -37,8 +37,8 @@ export default function Delivery() {
           <p className="kicker">Delivery</p>
           <h1>Do we come to you?</h1>
           <p className="lede">
-            {site.delivery.sameDay} We deliver to {site.deliveryTowns.length} towns across{" "}
-            {site.deliveryZips.length} zip codes in {site.region}.
+            Put in a town or a zip code and we will tell you straight away. The whole
+            range is listed further down.
           </p>
         </div>
       </section>

@@ -3,6 +3,7 @@ import { NAV, FOOTER_ONLY, href } from "@/lib/nav";
 import { categories } from "@/lib/catalog";
 import { CartLink } from "./Cart";
 import Logo from "./Logo";
+import GlazedPlate from "./GlazedPlate";
 
 /**
  * Header and footer.
@@ -126,16 +127,30 @@ export function Footer() {
         </div>
       </div>
 
+      {/* THE CLIENT'S COPYRIGHT STAYS IN THE CLIENT'S BAR. brand.md is explicit
+          that sweeping it onto the plate would make the studio's signature the
+          last word on their site, which is not what a signature is. */}
       <div className="wrap base">
         <span>
           &copy; {site.name}. {addressOneLine}.
         </span>
-        {/* THE STUDIO CREDIT. glaze/brand.md owns the real component and the real
-            donut mark; this is a concept build on a Glazed Web host, so it carries
-            the plain wording rather than the client-footer mark. Swap in the real
-            credit component from glaze/assets/glazed-credit/ before launch. */}
-        <span>Concept build by Glazed Web</span>
       </div>
+
+      {/*
+        THE STUDIO CREDIT, the real one.
+
+        This used to be the words "Concept build by Glazed Web" set as plain text
+        in the bar above, with a comment saying swap in the real component before
+        launch. That comment was the whole bug: brand.md exists because a session
+        once reasoned its way to a hand-drawn donut and shipped it to four live
+        footers while the real artwork sat in the repo. Plain text is the same
+        mistake with the volume turned down — the mark is the signature.
+
+        Last child of <footer> and OUTSIDE the .wrap, so it is full bleed.
+        "Concept build by" is brand.md's wording for a spec build that has not
+        been bought; it becomes "Double Dipped by" the day DeVine's signs.
+      */}
+      <GlazedPlate line="Concept build by" />
     </footer>
   );
 }

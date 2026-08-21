@@ -32,8 +32,7 @@ export default function Greening() {
           <h1>Living things, for rooms that need them.</h1>
           <p className="lede">
             House plants, dish gardens and wind chimes, {money(lo)} to {money(hi)}. Chosen and
-            potted here, with care notes that assume you are a normal person and not a
-            botanist.
+            potted here, with care notes written in plain language.
           </p>
         </div>
       </section>
@@ -89,9 +88,8 @@ export default function Greening() {
             <div>
               <h3>Also in the building</h3>
               <p>
-                The shop on Industrial Road is a multi-business building with interior plants,
-                locally crafted gifts and culinary items, plus an open workshop area and the
-                floral design studio. On the same corner, by appointment:
+                The shop shares its building with a few other businesses. On the same corner,
+                by appointment:
               </p>
               <ul style={{ marginTop: "calc(var(--u) * 1.5)" }}>
                 {site.neighbors.map((n) => (

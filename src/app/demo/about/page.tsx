@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Bloom from "@/components/Bloom";
-import { site, formatHours, addressOneLine } from "@/lib/site";
+import { site, formatHours } from "@/lib/site";
 import { href } from "@/lib/nav";
 
 export const metadata: Metadata = {
@@ -59,7 +59,7 @@ export default function About() {
           loading="lazy"
           decoding="async"
         />
-        <figcaption>800 Industrial Road, Marshall</figcaption>
+        <figcaption>On the shelves, this week</figcaption>
       </figure>
 
       <section className="section">
@@ -73,9 +73,9 @@ export default function About() {
               {site.address.city}, {site.address.state} {site.address.zip}
             </p>
             <p className="muted">
-              On {site.address.crossStreet}. {site.address.parking} Walk-in flower and plant
-              orders are welcome. The building also holds interior plants, locally crafted
-              gifts and culinary items, an open workshop area and the floral design studio.
+              On {site.address.crossStreet}. {site.address.parking} Walk-ins are welcome.
+              The building also holds interior plants, locally crafted gifts and culinary
+              items, an open workshop area and the floral design studio.
             </p>
             <p className="btnrow">
               <a className="btn btn--solid" href={site.phoneHref}>
@@ -160,9 +160,7 @@ export default function About() {
               </p>
             </div>
           </div>
-          <p className="muted small" style={{ marginTop: "calc(var(--u) * 6)", marginBottom: 0 }}>
-            {site.name}, {addressOneLine}.
-          </p>
+
         </div>
       </section>
     </>

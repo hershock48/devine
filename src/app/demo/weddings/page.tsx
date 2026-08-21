@@ -41,9 +41,8 @@ export default function Weddings() {
           <p className="kicker">Weddings &amp; events</p>
           <h1>Flowers that look like they came from somewhere.</h1>
           <p className="lede">
-            We grow and source many of our own botanicals, so your wedding flowers are
-            connected to this place and this season rather than flown in to match a
-            catalog photograph.
+            We grow and source many of our own botanicals, so your wedding flowers come
+            out of this place and this season.
           </p>
           <p className="btnrow">
             <a className="btn btn--solid" href="#inquire">
@@ -62,13 +61,12 @@ export default function Weddings() {
       <section className="quiet">
         <div className="wrap split split--wide-left" style={{ alignItems: "end" }}>
           <p className="pull">
-            A florist who grows some of it is a different conversation than a florist who
-            orders all of it.
+            A florist who grows some of it is a different conversation.
           </p>
           <p className="pull-note">
             It changes what we can say yes to, when we have to know by, and what happens
-            when a crop comes in early. We would rather tell you that in February than
-            surprise you with it in June.
+            when a crop comes in early. You hear all of that in February, while it is still
+            useful.
           </p>
         </div>
       </section>
@@ -106,8 +104,7 @@ export default function Weddings() {
               spontaneous weddings, so ask anyway.
             </p>
             <p className="muted small">
-              Nothing here is a commitment and there is no quote at the end of it. It is a
-              first message, and a person reads it.
+              No commitment, and no quote at the end of it. A person reads it.
             </p>
           </div>
 

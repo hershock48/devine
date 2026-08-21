@@ -124,7 +124,7 @@ export default function Workshops() {
             <div>
               <h3>Private groups</h3>
               <p>
-                Birthdays, showers, a team that needs to do something other than a restaurant.
+                Birthdays, showers, or a team that would like an evening with its hands busy.
                 Ask us what a group of your size would look like.
               </p>
             </div>

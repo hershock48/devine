@@ -40,8 +40,8 @@ export default function Shop() {
           <p className="kicker">The shop</p>
           <h1>Everything we make, ready to send.</h1>
           <p className="lede">
-            {products.length} arrangements, plants and gifts, designed in the shop on
-            Industrial Road. {site.delivery.sameDay}
+            Designed in the studio on Industrial Road, from whatever came in fresh that
+            morning.
           </p>
         </div>
       </section>
