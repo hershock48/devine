@@ -25,7 +25,27 @@ export const metadata: Metadata = {
  * WHEN THEY HAVE DATES: this list is driven from lib/site.ts, so adding one is a
  * single edit. That is the seam. Named in the README.
  */
-const upcoming: { title: string; when: string; detail: string }[] = [
+/*
+  THE SHAPE THE PROPOSAL PROMISES: "a workshop is a date, a price, a number of
+  seats and a button," and "when a date passes it takes itself off the page." The
+  fields are all here so filling one in is the whole job.
+
+  THE SELF-EXPIRY IS DELIBERATELY NOT WIRED YET, and the reason is in glaze.md's
+  failure log: `new Date()` in a statically generated page freezes at build time —
+  it printed "taking orders for 2027" on a page selling birds for October 2026. A
+  date filter on this page only tells the truth if the route renders per request
+  (`export const dynamic = "force-dynamic"`). Add that line in the same commit as
+  the first real date, never separately, or the page will hold expired workshops
+  with a green build and no error anywhere.
+*/
+const upcoming: {
+  title: string;
+  date: string; // ISO, e.g. "2026-10-14" — drives the self-expiry when wired
+  when: string; // as a person says it: "Tuesday October 14, 6pm"
+  price: string;
+  seats: number;
+  detail: string;
+}[] = [
   // Deliberately empty. Their site lists none, and inventing a workshop date would
   // put a customer in a car on a day nothing is happening.
 ];
@@ -88,9 +108,17 @@ export default function Workshops() {
                     <div style={{ padding: "calc(var(--u) * 2.6) 0" }}>
                       <span className="index-name" style={{ display: "block" }}>{e.title}</span>
                       <span className="index-meta" style={{ display: "block", marginTop: 8 }}>
-                        {e.when}
+                        {e.when} &middot; {e.price} &middot; {e.seats} seats
                       </span>
                       <p className="muted small" style={{ margin: "10px 0 0" }}>{e.detail}</p>
+                      <p style={{ margin: "14px 0 0" }}>
+                        <a
+                          className="btn"
+                          href={`mailto:${site.email}?subject=${encodeURIComponent(`Workshop: ${e.title}, ${e.when}`)}`}
+                        >
+                          Save me a seat
+                        </a>
+                      </p>
                     </div>
                   </li>
                 ))}

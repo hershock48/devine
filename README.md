@@ -21,7 +21,9 @@ Two things live here:
 | `src/components/ProductImage.tsx` | Decides photograph or generated art, per product. Nothing above it knows which. |
 | `src/lib/seo.ts` | `metadataBase`, the canonical host, and the `LocalBusiness` JSON-LD, all fed from `site.ts`. **`CANONICAL_HOST` is the pitch host today and must become their domain before the noindex comes off.** |
 | `src/app/sitemap.ts` | Derived from the nav and the catalog, so adding a product adds a URL. No `lastModified`, deliberately. |
-| `src/app/og-card/page.tsx` | The demo's link card as a real route, screenshotted by `tools/og.mjs` into `public/og.jpg`. Not linked, not in the sitemap. |
+| `src/app/og-card/page.tsx` | The demo's link card as a real route, screenshotted by `tools/og.mjs` into `public/og.jpg`. The photograph fills the frame; the type sits on a paper panel pinned to the iOS-safe centre 630. Not linked, not in the sitemap. |
+| `tools/og-products.mjs` | 1200x630 JPEG link cards for every photographed product, plus `src/lib/og-manifest.json`. Re-run when photographs land. Photographed products declare a COMPLETE OpenGraph block (never partial — Next replaces, not merges); Bloom products inherit the site card. |
+| `src/components/GreeningInquiry.tsx` | The business brief the proposal promises for Greening, field for field. Same `mailto:` honesty as the wedding form. |
 | `src/components/GlazedPlate.tsx`, `GlazedCredit.tsx` | Copied verbatim from `glaze/assets/glazed-credit/`. **Never rebuild these**, and never redraw the mark. |
 | `src/lib/order.ts` | `photoFirst()`. Any list that shows only SOME of a category leads with the photographed items; a full category page stays in price order. Becomes a no-op when the last photograph lands. |
 | `tools/shots.mjs` | Full-page screenshots at a given width, with the scroll sweep that makes lazy images actually load. |
@@ -102,6 +104,10 @@ Each one is visible in the code as `PLACEHOLDER` and must be closed before launc
       `globals.css` and re-run the auditor if they have brand colours.
 - [ ] **"Classic Red Dozen" is on sale** at $75 from $126.95, the only sale in the
       catalog. Confirm that is still intended before it ports over.
+- [ ] **Greening proof photos.** The proposal promises "two or three of the rooms
+      you already keep green, photographed, with the business's name on it if they
+      will let you use it." Those photographs and permissions can only come from the
+      owner; the page carries the inquiry form meanwhile.
 - [ ] **One edit to their own product copy, for the owner to veto.** Three
       descriptions (Bridget, Helene, Clementine) shipped "grey ceramic". House style
       is American spelling without exception, so they read "gray" here. Everything
@@ -202,6 +208,18 @@ unnoticed. Ticked means measured on the production build, not intended.
       an unstyled page. Use `load` plus a settle.
 - [x] Keyboard: focus visible on every interactive element, skip link first in tab
       order.
+- [x] Tap targets: every control measured, none under 24px in either dimension.
+      `.btn` keeps its hairline look and grows its hit area with an invisible
+      `::after` overlay to ~48px; footer links and nav links got real padding. The
+      one prior failure worth naming: the mobile nav was an `overflow-x: auto`
+      scroller with no affordance, which CLIPPED the last item at 390px and the last
+      two at 320px — invisible to the page-level overflow check because the clipping
+      happened inside the nav's own box. It wraps now and can neither scroll nor
+      clip.
+- [x] 404s: a styled not-found inside the demo chrome for dead product links (with
+      the shop and the phone as ways out), a styled root one for everything else,
+      and the route correctly returns status 404 — the auditor flags it, and a 404
+      page that returned 200 would be the actual bug.
 - [ ] **LCP under 2.5s and CLS under 0.1 on a throttled mobile profile.** JavaScript
       is under the bar (above). LCP and CLS have not been measured on a throttled
       profile.

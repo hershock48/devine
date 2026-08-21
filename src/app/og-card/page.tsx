@@ -6,24 +6,27 @@ import { products } from "@/lib/catalog";
  *
  * link-cards.md: "Render it from a real page rather than assembling it in an image
  * editor, so the card uses the site's own type, palette and artwork and cannot
- * drift from them." This is that throwaway route. tools/og.mjs screenshots it at
- * 1200x630 and writes public/og.jpg.
+ * drift from them." tools/og.mjs screenshots this at 1200x630 into public/og.jpg.
  *
- * THIS CARD IS THEIRS, NOT OURS. The two-card table in link-cards.md: the proposal
- * card at /pitch/devine/og.jpg carries Glazed Web's argument in Glazed Web's
- * colours and asks a question the owner cannot answer comfortably. This one wears
- * the client's brand entirely and says what the business is, because it is the
- * card that appears when the OWNER FORWARDS THE DEMO to someone.
+ * THE PHOTOGRAPH IS NOT DECORATION, IT IS THE POINT. The first version of this
+ * card was the mark and type on paper — handsome, and a contradiction of our own
+ * letter, whose finding two ends: "You are a florist. The photograph is the pitch,
+ * and right now it is the one thing that does not make the trip." A card we ship
+ * without a photograph would be that finding, made permanent, by us. So the
+ * photograph fills the frame and the type sits on a paper panel over it.
  *
- * THE CENTRE 630 IS THE ONLY PART GUARANTEED TO SURVIVE. Newer iOS crops link
- * previews toward square, so x 285-915 is the safe band and the outer 285px on
- * each side can simply vanish. Everything that has to be read is inside it, which
- * is why the composition is centred rather than the left-aligned layout the rest
- * of this site uses. Verified by cropping the finished file and looking at it.
+ * WHY A PANEL AND NOT TEXT OVER THE PHOTO. Two of link-cards.md's rules at once:
+ * the centre 630x630 (x 285-915) is the only region guaranteed to survive iOS's
+ * square crop, and "a headline over artwork is the single most common place a card
+ * fails" on contrast. A paper panel pinned to that exact band solves both: the
+ * text's ground is the site's own #FAF7F1 wherever the photograph is busy, and
+ * everything readable lives inside the safe zone by construction. The flowers
+ * bleed on both sides and are what you see first; the panel is what you read.
  *
- * Deliberately NOT in the sitemap and NOT linked from anywhere. It is a rendering
- * surface, not a page. Delete it and public/og.jpg together if the card is ever
- * replaced by a photograph.
+ * THIS CARD IS THEIRS, NOT OURS — the two-card table in link-cards.md. The
+ * proposal card asks Glazed Web's question; this one shows the client's flowers.
+ *
+ * Deliberately not linked, not in the sitemap. Delete with public/og.jpg together.
  */
 export const dynamic = "force-static";
 
@@ -31,79 +34,65 @@ export const metadata = { robots: { index: false, follow: false } };
 
 export default function OgCard() {
   return (
-    <div
-      style={{
-        width: 1200,
-        height: 630,
-        background: "var(--paper)",
-        color: "var(--ink)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        textAlign: "center",
-        /* The safe band is 285px in from each edge. Nothing readable outside it. */
-        padding: "0 300px",
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      {/* Their mark, the real file, not set in type. */}
+    <div style={{ width: 1200, height: 630, position: "relative", overflow: "hidden", background: "var(--paper)" }}>
+      {/* Their own arrangement, edge to edge. The crop favors the upper half of
+          the photograph, where the lisianthus are. */}
       <img
-        src="/img/brand/logo.webp"
-        width={1200}
-        height={744}
+        src="/img/shop/shop-4.webp"
+        width={1000}
+        height={1100}
         alt=""
-        style={{ width: 300, height: "auto", marginBottom: 34 }}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 26%" }}
       />
 
-      <p
-        style={{
-          font: "700 19px/1 var(--sans)",
-          letterSpacing: ".26em",
-          textTransform: "uppercase",
-          color: "var(--muted)",
-          margin: "0 0 22px",
-        }}
-      >
-        {site.town}
-      </p>
-
-      <h1
-        style={{
-          font: "400 62px/1.06 var(--serif)",
-          letterSpacing: "-0.02em",
-          margin: 0,
-          textWrap: "balance",
-        }}
-      >
-        Grown, gathered,
-        <br />
-        arranged by hand.
-      </h1>
-
-      <p
-        style={{
-          font: "400 25px/1.45 var(--sans)",
-          color: "var(--muted)",
-          margin: "26px 0 0",
-          maxWidth: 560,
-        }}
-      >
-        {products.length} arrangements, plants and gifts. Delivered across{" "}
-        {site.region}.
-      </p>
-
-      {/* A hairline at the foot, the site's own rule, for a bit of ground. */}
+      {/* The panel: pinned to the iOS-safe centre band, x 285-915. */}
       <div
         style={{
           position: "absolute",
-          left: 300,
-          right: 300,
-          bottom: 74,
-          borderTop: "1px solid var(--line)",
+          left: 285,
+          width: 630,
+          top: 96,
+          bottom: 96,
+          background: "var(--paper)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          padding: "0 54px",
         }}
-      />
+      >
+        <img
+          src="/img/brand/logo.webp"
+          width={1200}
+          height={744}
+          alt=""
+          style={{ width: 228, height: "auto", marginBottom: 26 }}
+        />
+        <h1
+          style={{
+            font: "400 47px/1.08 var(--serif)",
+            letterSpacing: "-0.02em",
+            margin: 0,
+            textWrap: "balance",
+          }}
+        >
+          Grown, gathered,
+          <br />
+          arranged by hand.
+        </h1>
+        <p
+          style={{
+            font: "700 15px/1 var(--sans)",
+            letterSpacing: ".22em",
+            textTransform: "uppercase",
+            color: "var(--muted)",
+            margin: "24px 0 0",
+          }}
+        >
+          {site.town} &middot; {products.length} designs
+        </p>
+      </div>
     </div>
   );
 }

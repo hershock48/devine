@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
 import { inCategory, priceRange, money } from "@/lib/catalog";
 import { site } from "@/lib/site";
+import GreeningInquiry from "@/components/GreeningInquiry";
 
 export const metadata: Metadata = {
   title: "Plants and greening",
@@ -75,14 +76,15 @@ export default function Greening() {
               gives up. Your staff do not have to remember, and nobody has to explain the dead
               ficus to a client.
             </p>
-            <p className="btnrow">
-              <a
-                className="btn btn--solid"
-                href={`mailto:${site.email}?subject=${encodeURIComponent("Corporate plant maintenance")}`}
-              >
-                Ask about a contract
-              </a>
-            </p>
+            {/*
+              THE FRONT DOOR THE PROPOSAL PROMISED. Section four's argument is that
+              Greening is recurring revenue with no way to ask for it, and it names
+              the exact fields a business brief needs. A mailto button was the same
+              missing door with new paint: it asks the office manager to compose the
+              brief themselves, which is the person the proposal says "was going to
+              think about calling you and then did not."
+            */}
+            <GreeningInquiry />
           </div>
           <div className="notes" style={{ gridTemplateColumns: "1fr" }}>
             <div>

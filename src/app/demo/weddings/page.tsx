@@ -135,8 +135,9 @@ export default function Weddings() {
                 Send inquiry
               </button>
               <p className="muted" style={{ fontSize: 13.5, marginTop: 14, marginBottom: 0 }}>
-                This opens your email with the details filled in. Prefer to talk?{" "}
-                <a href={site.phoneHref}>{site.phone}</a>.
+                This opens your email with the details filled in. The pictures you have
+                saved on your phone? Attach them right there before you send. Prefer to
+                talk? <a href={site.phoneHref}>{site.phone}</a>.
               </p>
             </form>
           </div>

@@ -28,8 +28,18 @@ import { href } from "@/lib/nav";
 export default function CartView() {
   const { items, subtotal, setQty, remove, count } = useCart();
   const [showDemoNote, setShowDemoNote] = useState(false);
+  /*
+    THE CARD MESSAGE IS WRITTEN HERE, NOT ON THE PHONE. The proposal's sympathy
+    section ends on exactly this: "a card message field that does not make them
+    phone a stranger to say it out loud." Someone ordering funeral flowers at 11pm
+    should type the hard sentence privately, once, and have it travel with the
+    order. Local state only: it flows into the order email below, and a half-typed
+    message is not something to persist anywhere without asking.
+  */
+  const [cardMessage, setCardMessage] = useState("");
 
   const orderSummary = items.map((i) => `${i.qty} x ${i.product.name} (${money(i.product.price)})`).join("\n");
+  const messageLine = cardMessage.trim() ? `Card message: ${cardMessage.trim()}` : "Card message:";
 
   return (
     <section className="section">
@@ -106,8 +116,21 @@ export default function CartView() {
               delivery fee, so this build does not invent one.
             </p>
 
+            <label style={{ display: "block", marginTop: 20 }}>
+              <span style={{ display: "block", fontSize: 14.5, fontWeight: 600, marginBottom: 5 }}>
+                Card message <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
+              </span>
+              <textarea
+                value={cardMessage}
+                onChange={(e) => setCardMessage(e.target.value)}
+                rows={3}
+                placeholder="Written on the card exactly as you type it, handwriting ours."
+                style={{ width: "100%", maxWidth: 560, padding: "10px 12px", font: "inherit", fontSize: 15.5, border: "1px solid var(--line)", borderRadius: 3, background: "var(--paper)", color: "var(--ink)" }}
+              />
+            </label>
+
             <p style={{ marginTop: 24 }}>
-              <button className="btn" type="button" onClick={() => setShowDemoNote(true)}>
+              <button className="btn btn--solid" type="button" onClick={() => setShowDemoNote(true)}>
                 Continue to checkout
               </button>
             </p>
@@ -130,7 +153,7 @@ export default function CartView() {
                   </a>{" "}
                   or{" "}
                   <a
-                    href={`mailto:${site.email}?subject=${encodeURIComponent("Flower order")}&body=${encodeURIComponent(`Hello,\n\nI would like to order:\n\n${orderSummary}\n\nSubtotal: ${money(subtotal)}\n\nMy name:\nDelivery address:\nDelivery date:\nCard message:\n`)}`}
+                    href={`mailto:${site.email}?subject=${encodeURIComponent("Flower order")}&body=${encodeURIComponent(`Hello,\n\nI would like to order:\n\n${orderSummary}\n\nSubtotal: ${money(subtotal)}\n\nMy name:\nDelivery address:\nDelivery date:\n${messageLine}\n`)}`}
                   >
                     email the shop
                   </a>

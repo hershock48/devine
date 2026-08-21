@@ -7,6 +7,7 @@ import { products, bySlug, catBySlug, inCategory, money } from "@/lib/catalog";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { photoFirst } from "@/lib/order";
+import ogManifest from "@/lib/og-manifest.json";
 
 type Params = { params: Promise<{ slug: string }> };
 
@@ -50,7 +51,36 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const raw = body ? `${stem} ${body}` : p.desc;
   const description = raw.length > 155 ? `${raw.slice(0, 152).trimEnd()}...` : raw;
 
-  return { title: `${p.name}, ${money(p.price)}`, description };
+  const title = `${p.name}, ${money(p.price)}`;
+
+  /*
+    THE PRODUCT'S OWN PHOTOGRAPH AS ITS LINK CARD, where one exists. The page a
+    customer actually texts is this one — "look at this one" — and the proposal
+    promises a real photograph on every page a customer might share.
+
+    THE BLOCK IS COMPLETE OR ABSENT, NEVER PARTIAL. link-cards.md: Next does not
+    deep-merge openGraph; a page defining a partial block replaces the layout's
+    wholesale and silently drops the image. So photographed products declare the
+    whole card and everything else declares nothing, inheriting the site card.
+    The JPEGs and the manifest come from tools/og-products.mjs; regenerate both
+    when photographs land.
+  */
+  if (!(ogManifest as string[]).includes(p.slug)) return { title, description };
+
+  const img = { url: `/og/product/${p.slug}.jpg`, width: 1200, height: 630, alt: `${p.name} by ${site.name}` };
+  return {
+    title,
+    description,
+    openGraph: {
+      type: "website",
+      siteName: site.name,
+      title: `${title} · ${site.name}`,
+      description,
+      url: "./",
+      images: [img],
+    },
+    twitter: { card: "summary_large_image", title: `${title} · ${site.name}`, description, images: [img.url] },
+  };
 }
 
 export default async function ProductPage({ params }: Params) {

@@ -57,6 +57,23 @@ export default function CelebrationOfLife() {
               Email the shop
             </a>
           </p>
+          {/*
+            THE KELLER LINE, KEPT, AND DEMOTED ON PURPOSE. The proposal promises
+            both halves in one sentence: "The Keller line stays, because it belongs
+            on that page. It stops being the heading." Their current site sets it AS
+            the h1, which is the finding; a build that dropped it would contradict
+            our own letter on the page the letter links to.
+
+            It closes the opening rather than interrupting it: heading, then the
+            practical paragraph and the two ways to reach a person, THEN the line —
+            because the visitor this page is written for needs the phone number
+            before they need the poetry, and the page's own comment says so.
+          */}
+          <p className="epigraph" style={{ marginTop: "calc(var(--u) * 6)" }}>
+            &ldquo;What we have once enjoyed deeply we can never lose. All that we love
+            deeply becomes a part of us.&rdquo;
+            <span>Helen Keller</span>
+          </p>
         </div>
       </section>
 
