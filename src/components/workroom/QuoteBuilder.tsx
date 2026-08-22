@@ -561,7 +561,11 @@ function PieceCard({
             type="button"
             aria-label={`Remove ${part.variety || `flower ${i + 1}`} from ${piece.name || "piece"}`}
             onClick={() => onChange({ ...piece, parts: piece.parts.filter((_, at) => at !== i) })}
-            style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}
+            /* marginLeft auto: on a phone this row wraps, and Remove used to
+               land hard-left on its own line mid-card — the "thrown on there"
+               look. Pushed to the right edge it reads as placed, and it lines
+               up with "Remove piece" below on every width. */
+            style={{ ...textButton, fontSize: 13.5, color: "var(--muted)", marginLeft: "auto" }}
           >
             Remove
           </button>

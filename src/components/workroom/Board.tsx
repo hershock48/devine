@@ -169,6 +169,10 @@ function Bucket({
       {title && (
         <h2
           style={{
+            /* Explicit sans: the global h2 is serif, and an uppercase serif
+               label with Cormorant's oldstyle figures — "TODAY (ɪ)" — read as
+               a glitch next to the sans labels everywhere else on the page. */
+            fontFamily: "var(--sans)",
             fontSize: 15,
             fontWeight: 700,
             letterSpacing: "0.08em",
