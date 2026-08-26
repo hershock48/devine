@@ -36,7 +36,16 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
-body{background:var(--paper);color:var(--body);font-family:var(--sans);font-size:16.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+/*
+  overflow-wrap is the 320px guard. hello@devinesflowersandbotanicals.com is a
+  38-character unbreakable token, and at 16.5px it needs ~299px against the 272px
+  the wrap leaves at 320, so it pushed scrollWidth to 323. Nothing rect-based ever
+  caught it: the address is a bare text node, text nodes are not elements, and the
+  paragraph's own border box stays at 272 while its line overflows. break-word only
+  fires when a single token cannot fit its line, so nothing else on the page moves.
+  It inherits, which is the point: this business's name makes long tokens routine.
+*/
+body{background:var(--paper);color:var(--body);font-family:var(--sans);font-size:16.5px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-wrap:break-word}
 .wrap{max-width:760px;margin:0 auto;padding:0 24px}
 h1,h2,h3,h4,.k,.btn,nav,th,.num,.chip{font-family:var(--sans)}
 .k{font-size:12px;font-weight:700;letter-spacing:.3em;text-transform:uppercase;color:var(--green-d)}
