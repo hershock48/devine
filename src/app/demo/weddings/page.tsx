@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import ProductCard from "@/components/ProductCard";
-import Bloom from "@/components/Bloom";
-import { inCategory } from "@/lib/catalog";
+import { inCategory, money } from "@/lib/catalog";
+import { href } from "@/lib/nav";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -71,26 +70,24 @@ export default function Weddings() {
         </div>
       </section>
 
+      {/*
+        A generated Bloom print used to sit beside this list as decoration.
+        Cut, same reasoning as the Visit page: generated art stands in for
+        products awaiting photographs, and a couple reading how their wedding
+        flowers get made should not be looking at fake ones while they do.
+        The measure below keeps the list readable at full width; a real
+        photograph of her wedding work takes the old spot the day it exists.
+      */}
       <section className="section">
-        <div className="wrap split split--wide-left" style={{ alignItems: "start" }}>
-          <div>
-            <p className="kicker">The process</p>
-            <h2>How it works</h2>
-            <ol className="steps" style={{ marginTop: "calc(var(--u) * 4)" }}>
-              {site.weddingProcess.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ol>
-            <p className="muted small" style={{ margin: 0 }}>{site.weddingFollowUp}</p>
-          </div>
-          <div style={{ maxWidth: 420, marginInline: "auto", width: "100%" }}>
-            <Bloom
-              slug="wedding-hero"
-              desc="white roses white spray roses baby's breath ivory ribbon greenery eucalyptus"
-              name="A DeVine's bridal bouquet"
-              detail
-            />
-          </div>
+        <div className="wrap" style={{ maxWidth: 720 }}>
+          <p className="kicker">The process</p>
+          <h2>How it works</h2>
+          <ol className="steps" style={{ marginTop: "calc(var(--u) * 4)" }}>
+            {site.weddingProcess.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ol>
+          <p className="muted small" style={{ margin: 0 }}>{site.weddingFollowUp}</p>
         </div>
       </section>
 
@@ -156,13 +153,26 @@ export default function Weddings() {
             useful for a courthouse morning, a last-minute groomsman, or a mother of the
             bride who was not counted.
           </p>
-          {/* Four across, once, on purpose: this category is exactly four items, so a
-              three-column grid would leave one of them alone on a second row. */}
-          <div className="grid grid--four">
+          {/*
+            These were four ProductCards, and every one rendered generated art
+            because no Wedding-category product has a photograph yet - a solid
+            wall of fake prints as the page's closing image. In the shop grids
+            a Bloom sits among twenty real photographs and reads as the
+            stand-in it is; four in a row with no real photo anywhere reads as
+            the product. So until the photographs land, this is the site's own
+            contents-page treatment: names and prices, each one tap from its
+            page. The card grid comes back with the photos.
+          */}
+          <ul className="index">
             {weddingItems.map((p) => (
-              <ProductCard key={p.slug} p={p} />
+              <li key={p.slug}>
+                <a href={href(`/product/${p.slug}`)}>
+                  <span className="index-name">{p.name}</span>
+                  <span className="index-meta">{money(p.price)}</span>
+                </a>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
     </>
