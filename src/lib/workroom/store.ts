@@ -29,7 +29,12 @@ import "server-only";
  * still true).
  */
 
-export type OrderStatus = "new" | "confirmed" | "made" | "done" | "canceled";
+/**
+ * "out" exists for DELIVERY orders only: made -> out (on the truck) -> done.
+ * A pickup goes made -> done when it leaves the counter; there is no van to
+ * track. The board enforces which button shows; the store just holds the word.
+ */
+export type OrderStatus = "new" | "confirmed" | "made" | "out" | "done" | "canceled";
 
 export type WorkroomLine = {
   /** Catalog slug when the line came from the shop's catalog; null for a custom item. */
@@ -296,6 +301,13 @@ export type SquareTokens = {
 type Store = {
   backend: "postgres" | "memory";
   createOrder(o: WorkroomOrder): Promise<void>;
+  /**
+   * Every order's contact facts, projected across the WHOLE history (not the
+   * board's 60-day window): the board derives "returning customer" from
+   * these instead of asking anyone to type it, and a customer's third order
+   * in a year should count even when the first two aged off the board.
+   */
+  listOrderContacts(): Promise<{ name: string; phone: string; email: string; createdAt: number }[]>;
   /** Every OPEN order regardless of age, plus closed ones from the last
       `days`. The first version filtered everything on createdAt and it was a
       real bug, not a maybe: weddings book up to six months out (site.ts's own
@@ -401,6 +413,11 @@ const memoryStore: Store = {
   async setOrderStatus(id, status) {
     const o = bag().orders.get(id);
     if (o) o.status = status;
+  },
+  async listOrderContacts() {
+    return [...bag().orders.values()]
+      .filter((o) => o.status !== "canceled")
+      .map((o) => ({ name: o.name, phone: o.phone, email: o.email, createdAt: o.createdAt }));
   },
   async addStemEvent(e) {
     bag().stems.set(e.id, e);
@@ -590,6 +607,21 @@ const postgresStore: Store = {
       `UPDATE workroom_orders SET status = $2, data = data || jsonb_build_object('status', $2::text) WHERE id = $1`,
       [id, status],
     );
+  },
+  async listOrderContacts() {
+    const pool = await pgPool();
+    // A projection, not rows: five thousand orders of contact facts is a few
+    // hundred KB; the full jsonb blobs would be megabytes of card messages.
+    const r = await pool.query(
+      `SELECT data->>'name' AS name, data->>'phone' AS phone, data->>'email' AS email, created_at
+       FROM workroom_orders WHERE status <> 'canceled' ORDER BY created_at DESC LIMIT 5000`,
+    );
+    return r.rows.map((row) => ({
+      name: (row.name as string) ?? "",
+      phone: (row.phone as string) ?? "",
+      email: (row.email as string) ?? "",
+      createdAt: Number(row.created_at),
+    }));
   },
   async addStemEvent(e) {
     const pool = await pgPool();

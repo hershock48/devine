@@ -103,8 +103,9 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
       for (const part of recipe.parts) row(part.variety).made += part.stems * qty;
     };
     for (const o of orders) {
-      // "made" and "done" only: a new order has not touched the cooler yet.
-      if (o.status !== "made" && o.status !== "done") continue;
+      // made, out, or done: the stems left the cooler when the arrangement
+      // was made. A new or confirmed order has not touched it yet.
+      if (o.status !== "made" && o.status !== "out" && o.status !== "done") continue;
       if (o.date < windowStart) continue;
       for (const l of o.lines) consume(l.slug, l.qty);
     }

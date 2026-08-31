@@ -12,10 +12,19 @@ import { field, labelText, money, radio, textButton, todayISO, MemoryWarning, Pi
  * and alive for weeks. So the board buckets on the REQUESTED date, not the
  * order's age, and polls gently.
  *
- * One button moves an order along its whole life: new -> confirmed -> made ->
- * done. "Confirmed" is the phone call that also takes payment, which is why a
- * phone-entered order is born there. Cancel is a small link, not a big button,
- * because it is the rare move.
+ * One button moves an order along its whole life, and the life differs by
+ * fulfillment (the owner's ask, 2026-08-31): a delivery goes new ->
+ * confirmed -> made -> OUT (on the van) -> done, because "made" and "on the
+ * truck" are different answers to a customer calling about their flowers; a
+ * pickup goes made -> done when it leaves the counter, no van to track.
+ * "Confirmed" is the phone call that also takes payment, which is why a
+ * phone-entered order is born there. Cancel is a small link, not a big
+ * button, because it is the rare move.
+ *
+ * "Returning customer" is DERIVED, never typed: same phone (or email) as any
+ * earlier non-canceled order across the whole history. A counter tool that
+ * asks the shop to remember whether someone is a regular gets lied to by
+ * accident; the order history already knows.
  */
 
 type Line = { slug: string | null; name: string; qty: number; each: number };
@@ -23,7 +32,7 @@ type Order = {
   id: string;
   number: string;
   source: "web" | "phone";
-  status: "new" | "confirmed" | "made" | "done" | "canceled";
+  status: "new" | "confirmed" | "made" | "out" | "done" | "canceled";
   name: string;
   phone: string;
   email: string;
@@ -41,15 +50,45 @@ type Order = {
   createdAt: number;
 };
 
-const NEXT: Record<string, { to: Order["status"]; label: string }> = {
-  new: { to: "confirmed", label: "Confirmed & paid" },
-  confirmed: { to: "made", label: "Made" },
-  made: { to: "done", label: "Out the door" },
+function nextMove(o: Order): { to: Order["status"]; label: string } | null {
+  switch (o.status) {
+    case "new":
+      return { to: "confirmed", label: "Confirmed & paid" };
+    case "confirmed":
+      return { to: "made", label: "Made" };
+    case "made":
+      return o.fulfillment === "delivery" ? { to: "out", label: "Out the door" } : { to: "done", label: "Picked up" };
+    case "out":
+      return { to: "done", label: "Delivered" };
+    default:
+      return null;
+  }
+}
+
+type Contact = { name: string; phone: string; email: string; createdAt: number };
+
+/** Last 10 digits, so 269-555-0101 and +1 (269) 555-0101 are one customer. */
+const phoneKey = (s: string) => {
+  const d = s.replace(/\D/g, "");
+  return d.length >= 7 ? d.slice(-10) : "";
 };
+
+function priorOrders(contacts: Contact[], phone: string, email: string, before: number): Contact[] {
+  const pk = phoneKey(phone);
+  const ek = email.trim().toLowerCase();
+  return contacts.filter(
+    (c) =>
+      c.createdAt < before &&
+      ((pk && phoneKey(c.phone) === pk) || (ek && c.email.trim().toLowerCase() === ek)),
+  );
+}
+
+const ordinal = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th"}`;
 
 export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [authed, setAuthed] = useState(initialAuthed);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [backend, setBackend] = useState("memory");
   const [adding, setAdding] = useState(false);
   const [showDone, setShowDone] = useState(false);
@@ -62,6 +101,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     }
     const d = await r.json();
     setOrders(d.orders ?? []);
+    setContacts(d.contacts ?? []);
     setBackend(d.backend ?? "memory");
     setAuthed(true);
   }, []);
@@ -87,7 +127,13 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const today = todayISO();
   const buckets = useMemo(() => {
     const open = orders.filter((o) => o.status !== "done" && o.status !== "canceled");
-    const byDate = (a: Order, b: Order) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt;
+    // Within a day, deliveries first: they own a van schedule and a hard
+    // deadline; pickups wait patiently in the cooler. Date stays primary,
+    // because a florist's whole question is "what has to exist by when".
+    const byDate = (a: Order, b: Order) =>
+      a.date.localeCompare(b.date) ||
+      (a.fulfillment === b.fulfillment ? 0 : a.fulfillment === "delivery" ? -1 : 1) ||
+      a.createdAt - b.createdAt;
     return {
       overdue: open.filter((o) => o.date < today).sort(byDate),
       today: open.filter((o) => o.date === today).sort(byDate),
@@ -121,6 +167,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
       {adding && (
         <PhoneOrderForm
+          contacts={contacts}
           onSaved={() => {
             setAdding(false);
             pull().catch(() => {});
@@ -128,9 +175,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         />
       )}
 
-      <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} onMove={move} />
-      <Bucket title="Today" orders={buckets.today} onMove={move} />
-      <Bucket title="Coming up" orders={buckets.upcoming} onMove={move} />
+      <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} />
+      <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} />
+      <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} />
 
       {buckets.today.length + buckets.overdue.length + buckets.upcoming.length === 0 && (
         <p className="lede" style={{ marginTop: 8 }}>
@@ -147,7 +194,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
           {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
         </button>
       </p>
-      {showDone && <Bucket title="" orders={buckets.closed} onMove={move} />}
+      {showDone && <Bucket title="" orders={buckets.closed} contacts={contacts} onMove={move} />}
     </>
   );
 }
@@ -156,11 +203,13 @@ function Bucket({
   title,
   tone,
   orders,
+  contacts,
   onMove,
 }: {
   title: string;
   tone?: "late";
   orders: Order[];
+  contacts: Contact[];
   onMove: (id: string, s: Order["status"]) => void;
 }) {
   if (orders.length === 0) return null;
@@ -184,26 +233,38 @@ function Bucket({
           {title} ({orders.length})
         </h2>
       )}
-      <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))" }}>
+      {/* min(310px, 100%): a bare 310px floor shoves the page sideways at a
+          320 viewport, and only when cards exist, which is why the empty-board
+          audit never saw it. */}
+      <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} onMove={onMove} />
+          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} />
         ))}
       </div>
     </section>
   );
 }
 
-function OrderCard({ o, onMove }: { o: Order; onMove: (id: string, s: Order["status"]) => void }) {
-  const next = NEXT[o.status];
+function OrderCard({ o, contacts, onMove }: { o: Order; contacts: Contact[]; onMove: (id: string, s: Order["status"]) => void }) {
+  const next = nextMove(o);
   const zipFlag = o.fulfillment === "delivery" && o.zip && !(site.deliveryZips as readonly string[]).includes(o.zip);
   const sympathy = o.occasion === "Sympathy or funeral";
+  const prior = priorOrders(contacts, o.phone, o.email, o.createdAt);
+  const statusWord =
+    o.status === "out" ? "en route" : o.status === "new" ? "needs the confirm call" : o.status;
 
   return (
     <article
       className="panel"
       style={{
         padding: 18,
-        borderLeft: sympathy ? "3px solid var(--ink)" : o.status === "new" ? "3px solid var(--rose-ink)" : "3px solid transparent",
+        borderLeft: sympathy
+          ? "3px solid var(--ink)"
+          : o.status === "new"
+            ? "3px solid var(--rose-ink)"
+            : o.status === "out"
+              ? "3px solid var(--green)"
+              : "3px solid transparent",
         opacity: o.status === "canceled" ? 0.55 : 1,
       }}
     >
@@ -214,10 +275,22 @@ function OrderCard({ o, onMove }: { o: Order; onMove: (id: string, s: Order["sta
         </span>
       </header>
 
+      {prior.length > 0 && (
+        <p style={{ margin: "2px 0 0", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--green)" }}>
+          Returning · their {ordinal(prior.length + 1)} order
+        </p>
+      )}
+
       <p style={{ margin: "6px 0", fontSize: 14.5 }}>
-        <strong>{o.date}</strong> · {o.fulfillment === "delivery" ? "deliver" : "pickup"}
+        <strong>{o.date}</strong>
+        {" · "}
+        {/* The one fact that changes the whole afternoon gets weight, not a
+            lowercase word lost mid-line: DELIVER means a van and a deadline. */}
+        <strong style={{ letterSpacing: "0.04em", color: o.fulfillment === "delivery" ? "var(--rose-ink)" : "var(--ink)" }}>
+          {o.fulfillment === "delivery" ? "DELIVER" : "PICKUP"}
+        </strong>
         {o.occasion ? ` · ${o.occasion}` : ""}
-        {o.status !== "new" && o.status !== "confirmed" ? ` · ${o.status}` : o.status === "new" ? " · needs the confirm call" : ""}
+        {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
       </p>
 
       {/* Built from the parts that exist: a phone order can be taken before
@@ -297,7 +370,7 @@ const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name)
 type DraftLine = { slug: string; custom: string; each: string; qty: number };
 const blankLine = (): DraftLine => ({ slug: "", custom: "", each: "", qty: 1 });
 
-function PhoneOrderForm({ onSaved }: { onSaved: () => void }) {
+function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: () => void }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">("delivery");
@@ -360,6 +433,19 @@ function PhoneOrderForm({ onSaved }: { onSaved: () => void }) {
           <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={field} />
         </label>
       </div>
+
+      {/* Recognized while they are still on the line, which is when knowing
+          matters: "good to hear from you again" is a different phone call. */}
+      {(() => {
+        const seen = priorOrders(contacts, phone, "", Infinity);
+        if (seen.length === 0) return null;
+        const latest = seen.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+        return (
+          <p role="status" style={{ margin: "-6px 0 0", fontSize: 14, fontWeight: 600, color: "var(--green)" }}>
+            Existing customer: {latest.name || "on file"} · {seen.length} past order{seen.length === 1 ? "" : "s"}
+          </p>
+        );
+      })()}
 
       <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
         <legend style={labelText}>Delivery or pickup</legend>

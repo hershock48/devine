@@ -11,12 +11,15 @@ import { bySlug } from "@/lib/catalog";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STATUSES: OrderStatus[] = ["new", "confirmed", "made", "done", "canceled"];
+const STATUSES: OrderStatus[] = ["new", "confirmed", "made", "out", "done", "canceled"];
 
 export async function GET() {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const store = getStore();
-  return NextResponse.json({ orders: await store.listOrders(60), backend: store.backend });
+  const [orders, contacts] = await Promise.all([store.listOrders(60), store.listOrderContacts()]);
+  // contacts spans the whole history, so "her third order this year" still
+  // counts after the first two age off the 60-day board.
+  return NextResponse.json({ orders, contacts, backend: store.backend });
 }
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -91,6 +94,14 @@ export async function PATCH(req: Request) {
   const id = typeof p.id === "string" ? p.id : "";
   const status = STATUSES.includes(p.status as OrderStatus) ? (p.status as OrderStatus) : null;
   if (!id || !status) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+  if (status === "out") {
+    // "out" means on the van. A pickup order cannot be en route; refusing
+    // here keeps a stray client from inventing a state the flow cannot leave.
+    const order = (await getStore().listOrders(60)).find((o) => o.id === id);
+    if (order && order.fulfillment !== "delivery") {
+      return NextResponse.json({ error: "A pickup order has no van to be out on." }, { status: 400 });
+    }
+  }
   await getStore().setOrderStatus(id, status);
   return NextResponse.json({ ok: true });
 }
