@@ -219,12 +219,12 @@ export function money(n: number): string {
   return n % 1 === 0 ? `$${n}` : `$${n.toFixed(2)}`;
 }
 
-/**
- * The six arrangements their own homepage features, in their order. Kept as a named
- * list rather than "the first six" so a catalog edit cannot silently rearrange the
- * front page.
- */
-export const featuredSlugs = ["helene", "maeve", "ginger", "gwendolyn", "harper-2", "della"];
-export const featured = featuredSlugs.map((s) => bySlug.get(s)!).filter(Boolean);
+/*
+  The homepage's featured six used to be a single list here (their own homepage
+  set: helene, maeve, ginger, gwendolyn, harper-2, della). It moved to
+  lib/seasons.ts on 2026-08-31, one curated list per season, because the front
+  page now turns with the calendar. That original set survives verbatim as the
+  fall list, which is what it always was: every description in it says autumn.
+*/
 
 void SUB_NOTE;

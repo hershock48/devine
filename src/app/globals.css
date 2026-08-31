@@ -78,6 +78,31 @@
   decoration; anything a hairline says is also said in words.
 */
 
+/*
+  THE SEASONAL ACCENTS (lib/seasons.ts). The demo layout stamps data-season on
+  its wrapper and these repoint the ONE accent token, so every hover, border and
+  accent in the demo turns with the year through the selectors that already
+  exist. Nothing outside the wrapper (workroom, proposal, agreement) changes.
+
+  Summer is the site's own rose on purpose: this build was designed in summer,
+  so the default look IS the summer look, and the token's name stays --rose-ink
+  even though three seasons repoint it, because renaming it would touch forty
+  files to say the same thing.
+
+  Contrast, computed (glaze/scripts territory: measured, not judged), every
+  accent on every ground it can land on, AA needs 4.5:
+    spring #6A4C86  paper 6.57  paper-2 6.02  paper-3 5.56
+    summer #8A3F56  paper 6.71  paper-2 6.16  paper-3 5.68  (the root token)
+    fall   #7C4222  paper 7.38  paper-2 6.77  paper-3 6.25
+    winter #33584B  paper 7.44  paper-2 6.83  paper-3 6.30
+  The solid-button hover pairing (--paper on accent) is the same ratio as the
+  accent on --paper, so every row above covers it. Failures: 0.
+*/
+[data-season="spring"] { --rose-ink: #6a4c86; }
+[data-season="summer"] { --rose-ink: #8a3f56; }
+[data-season="fall"] { --rose-ink: #7c4222; }
+[data-season="winter"] { --rose-ink: #33584b; }
+
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 
@@ -643,6 +668,53 @@ a:hover { color: var(--rose-ink); text-decoration-color: currentColor; }
   font-size: 15px;
 }
 .notice strong { color: var(--rose-ink); }
+
+/* ---- the seasonal engine's two surfaces (components/Season.tsx) ----------- */
+
+/* The holiday band: one quiet line under the header while a flower holiday is
+   in its window. Same materials as .notice (paper-2, accent strong) so it reads
+   as the site speaking, not a plugin. It sits in flow below the sticky header
+   rather than sticking itself; a banner that follows the visitor is a nag. */
+.season-band {
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--line);
+}
+.season-band .wrap {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 4px calc(var(--u) * 3);
+  padding: 11px var(--inset);
+  font-size: 14.5px;
+}
+.season-band p { margin: 0; }
+.season-band strong { color: var(--rose-ink); font-weight: 600; }
+.season-band a {
+  color: var(--ink);
+  text-decoration-color: var(--rose-ink);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+  /* The visible link is one short line of 14.5px text; the hit area is not.
+     Same overlay trick as .btn: standards.md wants ~48px targets grown
+     invisibly, never by inflating the design. */
+  position: relative;
+}
+.season-band a::after { content: ""; position: absolute; inset: -16px -10px; }
+
+/* The preview row in the footer: a sentence and seven small links. Muted on
+   paper-2 measures 5.24 (the table at the top); the links themselves are ink. */
+.season-preview {
+  margin: 0;
+  padding: calc(var(--u) * 2) 0 calc(var(--u) * 3);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 6px calc(var(--u) * 2);
+}
+.season-preview a[aria-current="true"] {
+  color: var(--rose-ink);
+  border-bottom-color: var(--rose-ink);
+  font-weight: 600;
+}
 
 /* ---- footer -------------------------------------------------------------- */
 /* Was a saturated green slab, which put the least floral thing on the page in the

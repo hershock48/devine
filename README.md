@@ -34,6 +34,9 @@ Two things live here:
 | `src/lib/intake.ts` | Order intake. Server-side pricing from the catalog (a client-supplied total is a number a customer chose), the shop's plain-text ticket, the customer's copy, and the SMTP send with its three honest states. The long comment at the top says why a failed send is told to the customer rather than swallowed, deliberately diverging from glaze.md's contact-form rule. |
 | `src/app/api/order/route.ts` | The one route with a side effect. 200 sent, 400 bad order, 503 mail unconfigured, 502 send failed. The cart is honest about each. |
 | `src/lib/occasions.ts` | One list, two importers: the form renders it, the intake validates against it. Alone because `intake.ts` is server-only and `CartView` is a client component. |
+| `src/lib/seasons.ts` | **The seasonal engine.** The demo turns with the calendar on its own: four premade seasons (accent color, hero copy, the homepage's featured six) and the flower holidays highlighted as each approaches (Valentine's, Easter, Mother's Day, Sweetest Day, Thanksgiving, Christmas). Every date is computed, never stored, on the shop's own timezone; the demo tree renders per request so the calendar can never freeze at build time. Seasonal copy and picks are ours, on the checklist for the owner to veto. |
+| `src/components/Season.tsx` | The engine's two surfaces: the holiday band under the header, and the footer's preview row (flip the demo through the whole year across a table). Both server components, zero client JavaScript. |
+| `src/app/api/season/route.ts` | Sets the preview cookie and bounces back to the page you were on. `?set=winter`, `?set=valentines`, `?set=today` to hand the calendar back the wheel. |
 | `.env.example` | The authority on what checkout needs to actually send. Five variables, set by Kevin in Vercel. While this is a pitch, `ORDER_TO` is Glazed's inbox, not the shop's; the flip is an env edit. |
 | `src/app/workroom/**` | **The shop's own tool, Phase 2.** An order board at `/workroom` (web orders land on it by themselves; phone orders get written up on it) and a stem tracker at `/workroom/stems`: purchases, shrink with reasons, per-product recipes, and a Monday-morning week report of bought / tossed / shrink % / revenue / stem cost / margin. Sits outside `/demo` because it is not part of the customer demo and does not move on launch day. |
 | `src/lib/workroom/store.ts` | Two storage backends behind one interface, ported from the pjs kitchen system: Postgres when `DATABASE_URL` is set (Neon free tier via Vercel, tables create themselves), in-memory otherwise — and the pages show a plain warning on memory, because a board that silently misses orders is worse than one that says why. |
@@ -135,6 +138,16 @@ Each one is visible in the code as `PLACEHOLDER` and must be closed before launc
       descriptions (Bridget, Helene, Clementine) shipped "grey ceramic". House style
       is American spelling without exception, so they read "gray" here. Everything
       else in `catalog.ts` is verbatim.
+- [ ] **The seasonal picks and copy, for the owner to veto.** `lib/seasons.ts`
+      chooses six featured pieces per season from her own descriptions and writes
+      four seasonal hero lines. She knows what actually sells in each season;
+      swapping a list is one edit. The fall list is her own homepage six, untouched.
+      Spring, summer and winter each lean on three photographed plants because
+      only 20 of 57 products have photographs; recompose those lists toward the
+      arrangements when the photos land.
+- [ ] **The four seasonal accent colors are ours**, chosen to sit inside the
+      placeholder palette above. If she supplies brand colors, re-derive all four
+      and re-run the contrast numbers in `globals.css`.
 
 ## The design system, in one paragraph
 

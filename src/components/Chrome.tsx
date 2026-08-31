@@ -4,6 +4,7 @@ import { categories } from "@/lib/catalog";
 import { CartLink } from "./Cart";
 import Logo from "./Logo";
 import GlazedPlate from "./GlazedPlate";
+import { SeasonPreview } from "./Season";
 
 /**
  * Header and footer.
@@ -152,6 +153,12 @@ export function Footer() {
             </li>
           </ul>
         </div>
+      </div>
+
+      {/* The seasonal engine's one visible control: preview the year without
+          waiting for it. See components/Season.tsx for why it is in the open. */}
+      <div className="wrap">
+        <SeasonPreview />
       </div>
 
       {/* THE CLIENT'S COPYRIGHT STAYS IN THE CLIENT'S BAR. brand.md is explicit

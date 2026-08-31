@@ -1,7 +1,9 @@
 import ProductCard from "@/components/ProductCard";
 import HeroTrace from "@/components/HeroTrace";
-import { featured, categories, inCategory, priceRange, money, products } from "@/lib/catalog";
+import { bySlug, categories, inCategory, priceRange, money, products } from "@/lib/catalog";
 import { site, formatHours } from "@/lib/site";
+import { currentSeasonal } from "@/lib/seasons";
+import { photoFirst } from "@/lib/order";
 import { href } from "@/lib/nav";
 
 /**
@@ -22,24 +24,34 @@ import { href } from "@/lib/nav";
  *
  * Someone visiting a florist is usually buying today, so the shop sits above the
  * story and the delivery question is answered before either.
+ *
+ * THE PAGE TURNS WITH THE YEAR (lib/seasons.ts): the kicker, the headline's
+ * second line, the lede's closing clause and the six featured pieces all come
+ * from the current season. The first lede sentence never changes, because it
+ * carries the business facts, and the hero photograph stays until there are
+ * seasonal photographs to swap in (the standing photo item on the checklist).
  */
-export default function Home() {
+export default async function Home() {
+  const { season } = await currentSeasonal();
+  // photoFirst: this grid is a sample, so her real photographs lead it. The
+  // seasonal lists are built half-photographed (see lib/seasons.ts); this puts
+  // that half in the front row.
+  const featured = photoFirst(season.featuredSlugs.map((s) => bySlug.get(s)!).filter(Boolean));
   return (
     <>
       {/* 1. THE PHOTOGRAPH FIRST, running off the right edge of the viewport. */}
       <section className="hero bleed">
         <div className="hero-grid">
           <div className="hero-copy">
-            <p className="kicker">Marshall, Michigan</p>
+            <p className="kicker">{season.kicker}</p>
             <h1>
               Grown, gathered,
               <br />
-              arranged by hand.
+              {season.headlineTail}
             </h1>
             <p className="lede">
               An independently owned, women operated flower and plant shop. We grow a good
-              share of what we arrange and source the rest close by, so what you send is
-              whatever the season is actually doing.
+              share of what we arrange and source the rest close by, {season.ledeTail}
             </p>
             <p className="btnrow">
               <a className="btn btn--solid" href={href("/shop")}>
@@ -86,7 +98,7 @@ export default function Home() {
         <div className="wrap">
           <div className="sec-head">
             <p className="kicker" style={{ margin: 0 }}>
-              This week from the studio
+              {season.featureKicker}
             </p>
             <a className="btn" href={href("/shop")}>
               All {products.length} designs

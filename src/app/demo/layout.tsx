@@ -1,9 +1,23 @@
 import type { Metadata } from "next";
 import { CartProvider } from "@/components/Cart";
 import { Header, Footer } from "@/components/Chrome";
+import { SeasonBand } from "@/components/Season";
 import { BreezeOnLoad } from "@/components/Logo";
 import { site } from "@/lib/site";
+import { currentSeasonal } from "@/lib/seasons";
 import { CANONICAL_HOST, OG_IMAGE, localBusinessJsonLd } from "@/lib/seo";
+
+/**
+ * PER REQUEST, DELIBERATELY. The demo turns with the calendar (lib/seasons.ts),
+ * and glaze.md's failure log is specific about what happens when a
+ * date-dependent page gets cached: new Date() froze at build time and printed
+ * "taking orders for 2027", and request-triggered revalidation lets a quiet
+ * site age indefinitely. So the whole demo tree renders per request. The cost
+ * is server rendering on routes that used to be static; the alternative is a
+ * site that is sometimes wrong about what season it is, which is the one thing
+ * this feature must never be.
+ */
+export const dynamic = "force-dynamic";
 
 /**
  * The concept site's chrome.
@@ -70,32 +84,44 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function DemoLayout({ children }: { children: React.ReactNode }) {
+export default async function DemoLayout({ children }: { children: React.ReactNode }) {
+  const { season, holiday } = await currentSeasonal();
   return (
     <CartProvider>
-      {/* First tab stop on every page. The header carries a logo, five nav items, a
-          delivery line, a phone number and a cart, so a keyboard user reaching the
-          actual page otherwise tabs through nine controls on every single route. */}
-      <a className="skip" href="#main">
-        Skip to content
-      </a>
-      <Header />
       {/*
-        LocalBusiness, from lib/site.ts rather than typed out, so it cannot drift
-        from what the pages print. launch.md asks for it on the homepage; it costs
-        nothing to carry on every route and means a crawler that lands anywhere
-        finds the shop's hours and address.
+        data-season is the seasonal palette's only hook: globals.css repoints the
+        one accent token under it, so every hover and accent in the demo turns
+        with the year while the workroom and the proposal, outside this wrapper,
+        never change. A div rather than an attribute on <body> because the root
+        layout is shared with both of those.
       */}
-      <script
-        type="application/ld+json"
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd()) }}
-      />
-      <main id="main">{children}</main>
-      <Footer />
-      {/* Arms the logo animation. Renders nothing; see components/Logo.tsx for why
-          the animation is opt-in rather than the default state. */}
-      <BreezeOnLoad />
+      <div data-season={season.slug}>
+        {/* First tab stop on every page. The header carries a logo, five nav items, a
+            delivery line, a phone number and a cart, so a keyboard user reaching the
+            actual page otherwise tabs through nine controls on every single route. */}
+        <a className="skip" href="#main">
+          Skip to content
+        </a>
+        <Header />
+        {/* The flower holidays, as they come. Renders nothing most of the year. */}
+        <SeasonBand holiday={holiday} />
+        {/*
+          LocalBusiness, from lib/site.ts rather than typed out, so it cannot drift
+          from what the pages print. launch.md asks for it on the homepage; it costs
+          nothing to carry on every route and means a crawler that lands anywhere
+          finds the shop's hours and address.
+        */}
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd()) }}
+        />
+        <main id="main">{children}</main>
+        <Footer />
+        {/* Arms the logo animation. Renders nothing; see components/Logo.tsx for why
+            the animation is opt-in rather than the default state. */}
+        <BreezeOnLoad />
+      </div>
     </CartProvider>
   );
 }
