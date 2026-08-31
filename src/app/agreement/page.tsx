@@ -30,10 +30,17 @@ export default function AgreementPage() {
       <h1>The agreement, in plain English.</h1>
       <p>
         Two documents make the whole deal, and both are on this page or one tap from it. The first
-        is the <a href={agreement.termsUrl}>Glazed Web Client Agreement v1.0</a>, the same published
-        terms every Glazed Web client gets: you own the site outright when the build fee is paid,
-        month to month after launch, thirty days&rsquo; notice, no penalty, Michigan law. There is
-        also a <a href={agreement.pdfUrl}>PDF copy</a> to keep. The second is the Exhibit A below,
+        is the{" "}
+        <a href={agreement.termsUrl} target="_blank" rel="noopener noreferrer">
+          Glazed Web Client Agreement v1.0
+        </a>
+        , the same published terms every Glazed Web client gets: you own the site outright when the
+        build fee is paid, month to month after launch, thirty days&rsquo; notice, no penalty,
+        Michigan law. There is also a{" "}
+        <a href={agreement.pdfUrl} target="_blank" rel="noopener noreferrer">
+          PDF copy
+        </a>{" "}
+        to keep. The second is the Exhibit A below,
         which fills in what gets built for you and what it costs. Accepting at the bottom accepts
         both together.
       </p>
