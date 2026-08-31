@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
-import { inCategory } from "@/lib/catalog";
+import { inCategory, money } from "@/lib/catalog";
 import { site, formatHours } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { photoFirst } from "@/lib/order";
@@ -113,11 +113,26 @@ export default function CelebrationOfLife() {
               All {arrangements.length}
             </a>
           </div>
-          <div className="grid">
+          {/*
+            These five were ProductCards, and every one drew generated art:
+            the whole Celebration of Life category is unphotographed, so a
+            grieving family choosing funeral flowers was looking at a wall of
+            clip art. Worse here than anywhere else on the site. Until the
+            photographs land, the site's contents-page treatment: names and
+            prices, each one tap from its full description. The plants grid
+            below keeps its cards, because photoFirst leads it with real
+            photographs. The card grid returns with the photos.
+          */}
+          <ul className="index">
             {arrangements.map((p) => (
-              <ProductCard key={p.slug} p={p} />
+              <li key={p.slug}>
+                <a href={href(`/product/${p.slug}`)}>
+                  <span className="index-name">{p.name}</span>
+                  <span className="index-meta">{money(p.price)}</span>
+                </a>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
 

@@ -208,9 +208,10 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
       harmless because every path on this host sends `noindex, nofollow`; the moment
       that comes off, every canonical and every sitemap entry would be advertising a
       copy of their site as the original. Do these two in this order, or not at all.
-- [ ] Change the credit line from "Concept build by" to "Double Dipped by" in
-      `components/Chrome.tsx`. The plate itself is already the real component with
-      the real mark; only the wording is spec-build wording.
+- [x] ~~Change the credit line to "Double Dipped by"~~ Done early, on Kevin's
+      2026-08-31 ruling retiring "Concept build by" account-wide (brand.md's
+      Retired list carries it). The default wording is the wording, spec build
+      or not.
 - [ ] Re-run `node glaze/scripts/plate.mjs "<footer bg>"` if the footer colour
       changes. `--gw-above` must match `.site-foot` exactly or a seam shows.
 - [ ] **Tell the owner the studio credit is in their footer.** `brand.md`: it belongs

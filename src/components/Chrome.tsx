@@ -155,10 +155,15 @@ export function Footer() {
         mistake with the volume turned down — the mark is the signature.
 
         Last child of <footer> and OUTSIDE the .wrap, so it is full bleed.
-        "Concept build by" is brand.md's wording for a spec build that has not
-        been bought; it becomes "Double Dipped by" the day DeVine's signs.
+
+        "Double Dipped by", the house default, on Kevin's standing order of
+        2026-08-31: "Concept build by" is RETIRED account-wide, spec builds
+        included. He had to say it three times before the wording stopped
+        coming back, because brand.md used to prescribe it for unsold builds
+        and sessions kept obeying the doc over him. The doc is fixed now too.
+        Do not reintroduce it here or anywhere.
       */}
-      <GlazedPlate line="Concept build by" />
+      <GlazedPlate line="Double Dipped by" />
     </footer>
   );
 }
