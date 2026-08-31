@@ -464,7 +464,7 @@ a:hover { color: var(--rose-ink); text-decoration-color: currentColor; }
   .split, .split--wide-right, .split--wide-left { grid-template-columns: 1fr; }
 }
 .cols-3 { display: grid; gap: calc(var(--u) * 4); grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
-.split > *, .cols-3 > *, .grid > * { min-width: 0; }
+.split > *, .cols-3 > *, .grid > *, .site-foot .cols > * { min-width: 0; }
 .split svg, .cols-3 svg { width: 100%; height: auto; }
 
 /* ---- the interior page opening -------------------------------------------

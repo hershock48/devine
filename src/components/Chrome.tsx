@@ -70,7 +70,15 @@ export function Footer() {
               <a href={site.phoneHref}>{site.phone}</a>
             </li>
             <li>
-              <a href={`mailto:${site.email}`}>{site.email}</a>
+              {/* The address is wider than a footer column and has no break
+                  opportunity, so it painted over the Hours column. min-width: 0
+                  on the columns (globals.css, the grouped rule) lets it wrap at
+                  all; the <wbr> puts the break before the @ instead of wherever
+                  break-word lands mid-word. */}
+              <a href={`mailto:${site.email}`}>
+                {site.email.split("@")[0]}
+                <wbr />@{site.email.split("@")[1]}
+              </a>
             </li>
           </ul>
         </div>
