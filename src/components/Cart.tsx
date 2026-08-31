@@ -140,7 +140,7 @@ export function CartLink({ href }: { href: string }) {
   );
 }
 
-export function AddToCart({ slug, name }: { slug: string; name: string }) {
+export function AddToCart({ slug, name, cartHref }: { slug: string; name: string; cartHref: string }) {
   const { add, lines } = useCart();
   const inCart = lines.find((l) => l.slug === slug)?.qty ?? 0;
   return (
@@ -148,9 +148,25 @@ export function AddToCart({ slug, name }: { slug: string; name: string }) {
       <button className="btn btn--solid" onClick={() => add(slug)} type="button">
         Order now
       </button>
-      {/* aria-live so the confirmation is announced, not just drawn */}
+      {/*
+        aria-live so the confirmation is announced, not just drawn, and it
+        carries the NEXT STEP. It used to end at "in your cart." with the
+        only road onward being the small Cart pill at the top of the page,
+        so on a phone an added item left the customer parked below the
+        fold. The moment of adding is the peak of buying intent; hand it a
+        door.
+      */}
       <p aria-live="polite" className="muted" style={{ margin: "10px 0 0", fontSize: 14.5, minHeight: "1.4em" }}>
-        {inCart > 0 ? `${inCart} × ${name} in your cart.` : " "}
+        {inCart > 0 ? (
+          <>
+            {inCart} × {name} in your cart.{" "}
+            <a href={cartHref} style={{ fontWeight: 600, whiteSpace: "nowrap" }}>
+              Go to checkout
+            </a>
+          </>
+        ) : (
+          " "
+        )}
       </p>
     </div>
   );

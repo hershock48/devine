@@ -150,7 +150,7 @@ export default async function ProductPage({ params }: Params) {
             )}
 
             <div style={{ margin: "28px 0" }}>
-              <AddToCart slug={p.slug} name={p.name} />
+              <AddToCart slug={p.slug} name={p.name} cartHref={href("/cart")} />
             </div>
 
             <div className="notes" style={{ gridTemplateColumns: "1fr" }}>

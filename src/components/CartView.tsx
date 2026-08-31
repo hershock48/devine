@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useCart } from "@/components/Cart";
 import ProductImage from "@/components/ProductImage";
-import { money } from "@/lib/catalog";
+import { bySlug, money } from "@/lib/catalog";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
@@ -59,8 +59,18 @@ type Outcome =
   | { state: "invalid"; message: string }
   | { state: "unreached"; reason: "unconfigured" | "send-failed" };
 
+/**
+ * The cart's add-on row. Three small things a flower buyer adds at the last
+ * moment in a real shop: the chocolates by the register, the tea, the plush.
+ * All from her own Gifts & Add Ons category, full names because the names
+ * are hers, text-only because none of the three has a photograph yet and a
+ * generated print does not belong at a checkout. A row disappears once its
+ * item is in the cart; the whole strip disappears when all three are.
+ */
+const ADD_ON_SLUGS = ["petite-box-of-chocolates", "bohemian-breakfast-tea", "lil-lovey"];
+
 export default function CartView() {
-  const { items, subtotal, setQty, remove, count, clear } = useCart();
+  const { items, subtotal, setQty, remove, count, clear, add, lines } = useCart();
   const [checkingOut, setCheckingOut] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ state: "idle" });
 
@@ -242,6 +252,33 @@ export default function CartView() {
                 </li>
               ))}
             </ul>
+
+            {(() => {
+              const extras = ADD_ON_SLUGS
+                .map((s) => bySlug.get(s))
+                .filter((p): p is NonNullable<typeof p> => !!p && !lines.some((l) => l.slug === p.slug));
+              if (extras.length === 0) return null;
+              return (
+                <div style={{ padding: "16px 0", borderBottom: "1px solid var(--line)" }}>
+                  <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--muted)" }}>
+                    Add a little something
+                  </p>
+                  {extras.map((p) => (
+                    <div key={p.slug} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "5px 0", fontSize: 15 }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>{p.name}</span>
+                      <span className="muted" style={{ whiteSpace: "nowrap" }}>{money(p.price)}</span>
+                      <button
+                        type="button"
+                        onClick={() => add(p.slug)}
+                        style={{ background: "none", border: 0, font: "inherit", fontSize: 14, fontWeight: 600, color: "var(--green)", cursor: "pointer", textDecoration: "underline", padding: "5px 0" }}
+                      >
+                        Add<span className="sr-only"> {p.name} to your order</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "22px 0", fontSize: 20 }}>
               <span style={{ fontFamily: "var(--serif)" }}>Subtotal</span>
