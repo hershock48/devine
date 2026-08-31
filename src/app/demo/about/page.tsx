@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Bloom from "@/components/Bloom";
 import { site, formatHours } from "@/lib/site";
 import { href } from "@/lib/nav";
 
@@ -29,38 +28,25 @@ export const metadata: Metadata = {
 export default function About() {
   return (
     <>
+      {/*
+        This head used to carry a generated Bloom print beside the headline,
+        and a shop-1 band (an out-of-focus dracaena macro) below it. Both cut:
+        generated art is a stand-in for products awaiting photographs, and
+        promoting it to decoration on the one page that is ABOUT the real
+        shop was the wrong instinct dressed up as a layout. A text head is
+        how greening, delivery and weddings already open, and it is better
+        company than a blurry leaf.
+      */}
       <section className="page-head">
-        <div className="wrap split split--wide-left">
-          <div>
-            <p className="kicker">Our shop &amp; team</p>
-            <h1>A calming space filled with the earth&rsquo;s blooms and foliage.</h1>
-            <p className="lede">
-              Independently owned, women operated, and staffed by people who grow a good
-              share of what they arrange. We source the rest locally as the seasons provide.
-            </p>
-          </div>
-          <div style={{ maxWidth: 380, marginInline: "auto", width: "100%" }}>
-            <Bloom
-              slug="about-shop"
-              desc="mixed greenery eucalyptus fern seasonal garden roses stock solidago cream green"
-              name="The DeVine's studio"
-              detail
-            />
-          </div>
+        <div className="wrap">
+          <p className="kicker">Our shop &amp; team</p>
+          <h1>A calming space filled with the earth&rsquo;s blooms and foliage.</h1>
+          <p className="lede">
+            Independently owned, women operated, and staffed by people who grow a good
+            share of what they arrange. We source the rest locally as the seasons provide.
+          </p>
         </div>
       </section>
-
-      <figure className="band bleed" style={{ margin: 0 }}>
-        <img
-          src="/img/shop/shop-1.webp"
-          width={1000}
-          height={500}
-          alt="A dracaena in the shop, seen close: striped green and cream leaves radiating from the crown"
-          loading="lazy"
-          decoding="async"
-        />
-        <figcaption>On the shelves, this week</figcaption>
-      </figure>
 
       <section className="section">
         <div className="wrap split" style={{ alignItems: "start" }}>
@@ -111,14 +97,29 @@ export default function About() {
             </p>
           </div>
           <div className="grid grid--four">
+            {/*
+              Four generated botanical prints used to stand in for portraits,
+              which turned "meet the team" into a wall of clip art. A
+              typographic monogram is still a placeholder, and it says so
+              below, but it reads as a decision instead of a leftover. The
+              real portraits drop straight into these tiles.
+            */}
             {site.team.map((m) => (
               <div key={m.name}>
-                <div style={{ overflow: "hidden", aspectRatio: "4 / 5", background: "var(--paper-2)" }}>
-                  <Bloom
-                    slug={`team-${m.name}`}
-                    desc="soft green foliage eucalyptus fern cream white"
-                    name={m.name}
-                  />
+                <div
+                  aria-hidden="true"
+                  style={{
+                    aspectRatio: "4 / 5",
+                    background: "var(--paper-2)",
+                    border: "1px solid var(--line)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <span style={{ fontFamily: "var(--serif)", fontSize: "clamp(44px, 5vw, 64px)", color: "var(--muted)", lineHeight: 1 }}>
+                    {m.name.charAt(0)}
+                  </span>
                 </div>
                 <h3 style={{ fontSize: 20, margin: "14px 0 3px" }}>{m.name}</h3>
                 <p className="muted small" style={{ margin: 0 }}>

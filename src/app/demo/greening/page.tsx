@@ -38,18 +38,15 @@ export default function Greening() {
         </div>
       </section>
 
-      <figure className="band bleed" style={{ margin: 0 }}>
-        <img
-          src="/img/shop/shop-2.webp"
-          width={1000}
-          height={500}
-          alt="House plants on the shelves at the shop, philodendron and mixed foliage"
-          loading="lazy"
-          decoding="async"
-        />
-        <figcaption>The greening shelves on Industrial Road</figcaption>
-      </figure>
-
+      {/*
+        A band used to sit here: shop-2, a leaf macro cropped to 2:1. At that
+        crop it read as a blurry green wall, and on a phone it was a full
+        screen of it (Kevin: "so ugly", and he was right). The thirteen real
+        plant photographs directly below are the page's imagery; a rhythm
+        break between a heading and the grid it introduces was never earning
+        its space. If a genuine wide shot of the greening shelves ever
+        arrives, this is where it goes.
+      */}
       <section className="section">
         <div className="wrap">
           <div className="sec-head">
