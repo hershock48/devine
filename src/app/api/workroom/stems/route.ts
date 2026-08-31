@@ -14,12 +14,14 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const store = getStore();
-  const [events, recipes, orders] = await Promise.all([
+  const [events, recipes, orders, varieties, squareSales] = await Promise.all([
     store.listStemEvents(90),
     store.listRecipes(),
     store.listOrders(90),
+    store.listVarieties(),
+    store.listSquareSales(90),
   ]);
-  return NextResponse.json({ events, recipes, orders, backend: store.backend });
+  return NextResponse.json({ events, recipes, orders, varieties, squareSales, backend: store.backend });
 }
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -46,8 +48,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Pick a shrink reason." }, { status: 400 });
   }
 
+  const store = getStore();
   const event: StemEvent = { id: newId("st"), kind, date, variety, stems, cost, reason, createdAt: Date.now() };
-  await getStore().addStemEvent(event);
+  await store.addStemEvent(event);
+  // A hand-logged purchase of a variety the master list has never seen adds
+  // it (prices blank), same as the weekly order does: the list is the one
+  // namespace, and it accretes from what actually happens.
+  if (kind === "purchase" && !(await store.listVarieties()).some((v) => v.name === variety)) {
+    await store.upsertVariety({
+      name: variety,
+      kind: "flower",
+      sellStem: null,
+      sellBunch: null,
+      stemsPerBunch: null,
+      createdAt: Date.now(),
+    });
+  }
   return NextResponse.json({ ok: true, event });
 }
 

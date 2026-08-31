@@ -192,6 +192,107 @@ export type SquareSale = {
   createdAt: number;
 };
 
+/**
+ * THE MASTER STEM LIST. Everything else hangs off it: recipes pick from it,
+ * the weekly order names against it, on-hand counts by it. Keyed on the
+ * normalizeVariety() name so "Rose" and "roses " can never become two rows.
+ *
+ * Sell prices are HER numbers, seeded from the two laminated lists behind
+ * the counter (research/weekly-order-and-price-lists.md). Null means she has
+ * not priced it, and every surface shows a blank rather than a guess.
+ * stemsPerBunch is null until the shop tells us, ONCE, and then bunch
+ * purchases convert to stems by themselves. Nothing here invents that
+ * number: a wrong stems-per-bunch silently mis-costs every recipe.
+ */
+export type Variety = {
+  name: string;
+  kind: "flower" | "green";
+  /** What she charges per stem, dollars. Null = not priced yet. */
+  sellStem: number | null;
+  /** What she charges per bunch, where her list has one. */
+  sellBunch: number | null;
+  stemsPerBunch: number | null;
+  createdAt: number;
+};
+
+/**
+ * The weekly flower order: the Kennicott Tuesday standing order, digitized.
+ * The real one mostly repeats week to week and gets edited in pen, so the
+ * screen starts a new order from the last one and the work is the delta.
+ * Receiving the truck turns every line into a purchase StemEvent in one tap;
+ * until then a draft costs nothing and touches nothing.
+ */
+export type WeeklyOrderLine = {
+  /** normalizeVariety() name. The shop's word, not the distributor's. */
+  variety: string;
+  qty: number;
+  unit: "bunch" | "stem";
+  /** Dollars per unit, from the prebook. */
+  unitPrice: number;
+  /** Required on bunch lines before the order can be received; snapshotted
+      here because the count can differ from the variety's usual one week. */
+  stemsPerBunch: number | null;
+  note: string;
+};
+
+export type WeeklyOrder = {
+  id: string;
+  distributor: string;
+  /** yyyy-mm-dd, the truck date. Purchases log on this day. */
+  deliveryDate: string;
+  status: "draft" | "received";
+  lines: WeeklyOrderLine[];
+  receivedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/**
+ * A plant on the par sheet. Live plants are not stems: they are counted
+ * whole, reordered to a standard number (her word for par), and carry a
+ * stable retail and wholesale cost on the same line, exactly like the
+ * printed sheet this replaces. `have` is the latest count; Need is always
+ * derived (par minus have), never stored, so it can never go stale.
+ */
+export type PlantItem = {
+  slug: string;
+  name: string;
+  retail: number | null;
+  cost: number | null;
+  par: number;
+  have: number | null;
+  /** yyyy-mm-dd of the latest count, "" before the first one. */
+  countedAt: string;
+  createdAt: number;
+};
+
+/**
+ * The owner's Square OAuth grant, stored whole as one document. One row,
+ * ever: this deployment serves one shop, and the id column exists only
+ * because every table here has a primary key, not because there is a second
+ * merchant coming.
+ *
+ * These are credentials, and the standing caution in glaze.md ("never put a
+ * credential in a file") is about files and commits, not about this: an
+ * OAuth token is issued at runtime, lives in the database, and is re-issued
+ * by reconnecting if lost. The database is the only place it can live,
+ * because serverless memory is per-lambda and a token that evaporates means
+ * every cold start silently loses the register link.
+ */
+export type SquareTokens = {
+  accessToken: string;
+  refreshToken: string;
+  /** ISO timestamp from Square. Access tokens live about 30 days; the
+      refresh token does not expire and mints new ones. */
+  expiresAt: string;
+  merchantId: string;
+  /** The location sync and payments target, picked at connect time from the
+      account's active locations. */
+  locationId: string;
+  locationName: string;
+  connectedAt: number;
+};
+
 type Store = {
   backend: "postgres" | "memory";
   createOrder(o: WorkroomOrder): Promise<void>;
@@ -219,6 +320,19 @@ type Store = {
   deleteQuote(id: string): Promise<void>;
   upsertSquareSale(s: SquareSale): Promise<void>;
   listSquareSales(days: number): Promise<SquareSale[]>;
+  upsertVariety(v: Variety): Promise<void>;
+  listVarieties(): Promise<Variety[]>;
+  deleteVariety(name: string): Promise<void>;
+  upsertWeeklyOrder(o: WeeklyOrder): Promise<void>;
+  /** Newest first. The screen only ever needs a handful. */
+  listWeeklyOrders(limit: number): Promise<WeeklyOrder[]>;
+  deleteWeeklyOrder(id: string): Promise<void>;
+  upsertPlantItem(p: PlantItem): Promise<void>;
+  listPlantItems(): Promise<PlantItem[]>;
+  deletePlantItem(slug: string): Promise<void>;
+  getSquareTokens(): Promise<SquareTokens | null>;
+  setSquareTokens(t: SquareTokens): Promise<void>;
+  clearSquareTokens(): Promise<void>;
 };
 
 export const SHRINK_REASONS = ["wilted", "damaged", "overbought", "event fell through", "other"] as const;
@@ -239,6 +353,10 @@ type Bag = {
   recipes: Map<string, Recipe>;
   quotes: Map<string, Quote>;
   squareSales: Map<string, SquareSale>;
+  varieties: Map<string, Variety>;
+  weeklyOrders: Map<string, WeeklyOrder>;
+  plants: Map<string, PlantItem>;
+  squareTokens: SquareTokens | null;
 };
 
 function bag(): Bag {
@@ -250,12 +368,21 @@ function bag(): Bag {
       recipes: new Map(),
       quotes: new Map(),
       squareSales: new Map(),
+      varieties: new Map(),
+      weeklyOrders: new Map(),
+      plants: new Map(),
+      squareTokens: null,
     };
   }
   // A bag created by an older module instance predates the newer maps.
-  if (!g.__devineWorkroom.quotes) g.__devineWorkroom.quotes = new Map();
-  if (!g.__devineWorkroom.squareSales) g.__devineWorkroom.squareSales = new Map();
-  return g.__devineWorkroom;
+  const b = g.__devineWorkroom;
+  if (!b.quotes) b.quotes = new Map();
+  if (!b.squareSales) b.squareSales = new Map();
+  if (!b.varieties) b.varieties = new Map();
+  if (!b.weeklyOrders) b.weeklyOrders = new Map();
+  if (!b.plants) b.plants = new Map();
+  if (b.squareTokens === undefined) b.squareTokens = null;
+  return b;
 }
 
 const cutoff = (days: number) => Date.now() - days * 86_400_000;
@@ -311,6 +438,44 @@ const memoryStore: Store = {
     return [...bag().squareSales.values()]
       .filter((s) => s.createdAt >= cutoff(days))
       .sort((a, b) => b.createdAt - a.createdAt);
+  },
+  async upsertVariety(v) {
+    bag().varieties.set(v.name, v);
+  },
+  async listVarieties() {
+    return [...bag().varieties.values()].sort((a, b) => a.name.localeCompare(b.name));
+  },
+  async deleteVariety(name) {
+    bag().varieties.delete(name);
+  },
+  async upsertWeeklyOrder(o) {
+    bag().weeklyOrders.set(o.id, o);
+  },
+  async listWeeklyOrders(limit) {
+    return [...bag().weeklyOrders.values()]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, limit);
+  },
+  async deleteWeeklyOrder(id) {
+    bag().weeklyOrders.delete(id);
+  },
+  async upsertPlantItem(p) {
+    bag().plants.set(p.slug, p);
+  },
+  async listPlantItems() {
+    return [...bag().plants.values()].sort((a, b) => a.name.localeCompare(b.name));
+  },
+  async deletePlantItem(slug) {
+    bag().plants.delete(slug);
+  },
+  async getSquareTokens() {
+    return bag().squareTokens;
+  },
+  async setSquareTokens(t) {
+    bag().squareTokens = t;
+  },
+  async clearSquareTokens() {
+    bag().squareTokens = null;
   },
 };
 
@@ -369,6 +534,23 @@ async function pgPool(): Promise<PgPool> {
       CREATE TABLE IF NOT EXISTS square_sales (
         id text PRIMARY KEY,
         created_at bigint NOT NULL,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS workroom_varieties (
+        name text PRIMARY KEY,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS workroom_weekly_orders (
+        id text PRIMARY KEY,
+        updated_at bigint NOT NULL,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS workroom_plants (
+        slug text PRIMARY KEY,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS square_oauth (
+        id text PRIMARY KEY,
         data jsonb NOT NULL
       );
     `).catch((err: unknown) => {
@@ -481,6 +663,77 @@ const postgresStore: Store = {
       [cutoff(days)],
     );
     return r.rows.map((row) => row.data as SquareSale);
+  },
+  async upsertVariety(v) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO workroom_varieties (name, data) VALUES ($1, $2)
+       ON CONFLICT (name) DO UPDATE SET data = $2`,
+      [v.name, JSON.stringify(v)],
+    );
+  },
+  async listVarieties() {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_varieties ORDER BY name ASC LIMIT 2000`);
+    return r.rows.map((row) => row.data as Variety);
+  },
+  async deleteVariety(name) {
+    const pool = await pgPool();
+    await pool.query(`DELETE FROM workroom_varieties WHERE name = $1`, [name]);
+  },
+  async upsertWeeklyOrder(o) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO workroom_weekly_orders (id, updated_at, data) VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO UPDATE SET updated_at = $2, data = $3`,
+      [o.id, o.updatedAt, JSON.stringify(o)],
+    );
+  },
+  async listWeeklyOrders(limit) {
+    const pool = await pgPool();
+    const r = await pool.query(
+      `SELECT data FROM workroom_weekly_orders ORDER BY updated_at DESC LIMIT $1`,
+      [Math.min(limit, 200)],
+    );
+    return r.rows.map((row) => row.data as WeeklyOrder);
+  },
+  async deleteWeeklyOrder(id) {
+    const pool = await pgPool();
+    await pool.query(`DELETE FROM workroom_weekly_orders WHERE id = $1`, [id]);
+  },
+  async upsertPlantItem(p) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO workroom_plants (slug, data) VALUES ($1, $2)
+       ON CONFLICT (slug) DO UPDATE SET data = $2`,
+      [p.slug, JSON.stringify(p)],
+    );
+  },
+  async listPlantItems() {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_plants ORDER BY data->>'name' ASC LIMIT 500`);
+    return r.rows.map((row) => row.data as PlantItem);
+  },
+  async deletePlantItem(slug) {
+    const pool = await pgPool();
+    await pool.query(`DELETE FROM workroom_plants WHERE slug = $1`, [slug]);
+  },
+  async getSquareTokens() {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM square_oauth WHERE id = 'owner'`);
+    return r.rows[0] ? (r.rows[0].data as SquareTokens) : null;
+  },
+  async setSquareTokens(t) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO square_oauth (id, data) VALUES ('owner', $1)
+       ON CONFLICT (id) DO UPDATE SET data = $1`,
+      [JSON.stringify(t)],
+    );
+  },
+  async clearSquareTokens() {
+    const pool = await pgPool();
+    await pool.query(`DELETE FROM square_oauth WHERE id = 'owner'`);
   },
 };
 

@@ -69,6 +69,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
   const [events, setEvents] = useState<StemEvent[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [masterList, setMasterList] = useState<string[]>([]);
   const [backend, setBackend] = useState("memory");
   const [anchor, setAnchor] = useState(todayISO());
 
@@ -82,6 +83,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
     setEvents(d.events ?? []);
     setRecipes(d.recipes ?? []);
     setOrders(d.orders ?? []);
+    setMasterList(((d.varieties ?? []) as { name: string }[]).map((v) => v.name));
     setBackend(d.backend ?? "memory");
     setAuthed(true);
   }, []);
@@ -110,9 +112,11 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
     return out;
   }, [events]);
 
+  // The master stem list first (the Inventory page's namespace), plus
+  // anything the ledgers mention that the list somehow does not.
   const knownVarieties = useMemo(
-    () => [...new Set(events.map((e) => e.variety))].sort(),
-    [events],
+    () => [...new Set([...masterList, ...events.map((e) => e.variety)])].sort(),
+    [masterList, events],
   );
   const recipeBySlug = useMemo(() => new Map(recipes.map((r) => [r.slug, r])), [recipes]);
 
@@ -298,10 +302,12 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
       </section>
 
       {/* ---------------- the ledgers ---------------- */}
-      <div style={{ display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", alignItems: "start" }}>
+      {/* min(300px, 100%): a bare 300px minimum overflows the wrap by 28px at
+          a 320 viewport (found by the width check; the wrap offers 272px). */}
+      <div style={{ display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", alignItems: "start" }}>
         <EventForm kind="purchase" varieties={knownVarieties} onSaved={pull} />
         <EventForm kind="shrink" varieties={knownVarieties} onSaved={pull} />
-        <RecipeForm recipes={recipeBySlug} costPerStem={costPerStem} onSaved={pull} />
+        <RecipeForm recipes={recipeBySlug} varieties={knownVarieties} costPerStem={costPerStem} onSaved={pull} />
       </div>
 
       <RecentEvents events={events} onDeleted={pull} />
@@ -410,10 +416,12 @@ function EventForm({ kind, varieties, onSaved }: { kind: "purchase" | "shrink"; 
 
 function RecipeForm({
   recipes,
+  varieties,
   costPerStem,
   onSaved,
 }: {
   recipes: Map<string, Recipe>;
+  varieties: string[];
   costPerStem: Map<string, number>;
   onSaved: () => void;
 }) {
@@ -507,8 +515,11 @@ function RecipeForm({
               />
             </div>
           ))}
+          {/* The whole master list, not just purchased varieties: a recipe
+              names what the product is made of, whether or not this quarter
+              happened to buy it yet. */}
           <datalist id="recipe-varieties">
-            {[...costPerStem.keys()].sort().map((v) => (
+            {varieties.map((v) => (
               <option key={v} value={v} />
             ))}
           </datalist>

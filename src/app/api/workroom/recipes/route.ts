@@ -32,6 +32,30 @@ export async function PUT(req: Request) {
     if (variety && Number.isFinite(stems) && stems >= 1 && stems <= 999) parts.push({ variety, stems });
   }
 
-  await getStore().upsertRecipe({ slug, parts });
+  const store = getStore();
+  /*
+    A recipe part must exist on the master stem list — the owner's ask,
+    verbatim: a recipe with "rose" in it should mean the rose in the stem
+    list. Enforced by REGISTERING rather than refusing: the part's variety is
+    added to the list (prices blank) if it is new, because a counter tool
+    that rejects a save over vocabulary teaches people to stop saving. The
+    normalization above already prevents Rose/roses splits; registration
+    makes the list the single namespace everything shares.
+  */
+  const known = new Set((await store.listVarieties()).map((v) => v.name));
+  for (const part of parts) {
+    if (known.has(part.variety)) continue;
+    known.add(part.variety);
+    await store.upsertVariety({
+      name: part.variety,
+      kind: "flower",
+      sellStem: null,
+      sellBunch: null,
+      stemsPerBunch: null,
+      createdAt: Date.now(),
+    });
+  }
+
+  await store.upsertRecipe({ slug, parts });
   return NextResponse.json({ ok: true });
 }

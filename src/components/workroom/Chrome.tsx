@@ -20,6 +20,9 @@ import { site } from "@/lib/site";
 const TABS = [
   { href: "/workroom", label: "Orders" },
   { href: "/workroom/stems", label: "Stems & shrink" },
+  { href: "/workroom/inventory", label: "Inventory" },
+  { href: "/workroom/weekly-order", label: "Weekly order" },
+  { href: "/workroom/plants", label: "Plants" },
   { href: "/workroom/quotes", label: "Quotes" },
 ];
 

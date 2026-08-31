@@ -47,6 +47,11 @@ Two things live here:
 | `src/app/api/square/webhook/route.ts` | Sales in. Square posts every payment; completed ones become `square_sales` rows with line items mapped back to catalog slugs by SKU. Signature-verified before parsing, no dev bypass. A sale rung as a custom amount lands with `slug: null`, visibly, because that habit is what starves the inventory numbers. |
 | `src/app/api/square/sync/route.ts` | POST runs the catalog push, GET reports integration status. Workroom-gated; the PIN also works as an `x-workroom-pin` header (throttled like login) so setup can be driven by curl. |
 | `src/app/api/square/sales/route.ts` | The ingested register sales, raw, for the workroom sales view to come. |
+| `src/lib/workroom/inventory-seed.ts` | **Her paper, as data.** The master stem list (~115 varieties with her selling prices, from the laminated lists) and the plant par sheet, transcribed from photos. Occluded values are null, never guessed; seeding is additive and idempotent, so re-seeding cannot overwrite her edits. |
+| `src/app/workroom/inventory/**` + `components/workroom/Inventory.tsx` | **The cooler's ledger, derived.** On hand = bought − tossed − made over a chosen window (short on purpose: flowers are perishable, so an all-time balance would be fiction). "Made" counts board orders marked made/done plus recipe-mapped Square sales; what could NOT be counted is named on the page. Also "what the cooler can build" per recipe, and the master stem list manager. |
+| `src/app/workroom/weekly-order/**` + `components/workroom/WeeklyOrderScreen.tsx` | **The Kennicott order, replacing the pen.** Starts each week from last week's lines; "The truck came" turns every line into a purchase in one tap, converting bunches by stems-per-bunch (asked once per variety, remembered, REQUIRED before receive — never guessed). Received orders are closed books: no edit, no delete. |
+| `src/app/workroom/plants/**` + `components/workroom/Plants.tsx` | **The plant par sheet.** Walk the shop, type Have, Need derives against the standard number and never gets stored, so it cannot go stale. The order summary is the Need column priced at her wholesale costs. |
+| `src/app/api/workroom/{varieties,weekly-orders,plants}/route.ts` | The API for the three screens above. Recipes and hand-logged purchases auto-register unknown varieties onto the master list rather than refusing the save — the list is the one namespace and it accretes from what actually happens. |
 | `next.config.ts` | The root rewrite and the noindex headers. |
 | `src/app/robots.ts` | Search engines out, social card scrapers in. |
 
@@ -247,6 +252,14 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
       decrement. If that is the register habit today, the habit is the first
       thing the integration has to change, and she should hear that before it
       surprises her in the numbers.
+- [ ] **Tap "Load her price lists" and "Load her par sheet" once** (Inventory and
+      Plants screens) after the database exists, then have the owner skim the
+      seeded prices: they were transcribed from angled photos of her laminated
+      lists and par sheet (research/weekly-order-and-price-lists.md), and a few
+      unreadable cells are deliberately blank for her to fill.
+- [ ] **Ask her the stems-per-bunch counts** for the varieties she buys by the
+      bunch. The weekly-order screen asks per variety the first time and
+      remembers, so this can also just happen naturally across two truck days.
 - [ ] **Rewrite the wedding model from her real spreadsheet.** She has agreed to
       send it; the provisional markup/labor model and the wedding template are
       stand-ins until it lands. Also ask whether she has a quote-validity policy
