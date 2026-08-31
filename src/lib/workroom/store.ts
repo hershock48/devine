@@ -162,6 +162,36 @@ export type Quote = {
   updatedAt: number;
 };
 
+/**
+ * A completed sale rung on the shop's Square register, delivered by webhook.
+ * One row per Square payment id, so a redelivered webhook overwrites rather
+ * than duplicates. Lines carry our catalog slug where the register item was
+ * one of ours (matched by SKU at ingest); null means an item we do not
+ * manage, which still counts as revenue but cannot decrement a recipe.
+ */
+export type SquareSaleLine = {
+  slug: string | null;
+  name: string;
+  qty: number;
+  eachCents: number;
+  totalCents: number;
+};
+
+export type SquareSale = {
+  /** Square's payment id. THE dedupe key: webhooks redeliver on any 5xx. */
+  id: string;
+  orderId: string;
+  locationId: string;
+  /** CARD, CASH, WALLET... Square's source_type, verbatim. Cash counts: the
+      stems left the cooler either way. */
+  source: string;
+  totalCents: number;
+  /** Square's own timestamp for the payment, ISO. */
+  paidAt: string;
+  lines: SquareSaleLine[];
+  createdAt: number;
+};
+
 type Store = {
   backend: "postgres" | "memory";
   createOrder(o: WorkroomOrder): Promise<void>;
@@ -187,6 +217,8 @@ type Store = {
       with a LIMIT that made quotes past the 500th unsaveable. */
   getQuote(id: string): Promise<Quote | null>;
   deleteQuote(id: string): Promise<void>;
+  upsertSquareSale(s: SquareSale): Promise<void>;
+  listSquareSales(days: number): Promise<SquareSale[]>;
 };
 
 export const SHRINK_REASONS = ["wilted", "damaged", "overbought", "event fell through", "other"] as const;
@@ -206,15 +238,23 @@ type Bag = {
   stems: Map<string, StemEvent>;
   recipes: Map<string, Recipe>;
   quotes: Map<string, Quote>;
+  squareSales: Map<string, SquareSale>;
 };
 
 function bag(): Bag {
   const g = globalThis as typeof globalThis & { __devineWorkroom?: Bag };
   if (!g.__devineWorkroom) {
-    g.__devineWorkroom = { orders: new Map(), stems: new Map(), recipes: new Map(), quotes: new Map() };
+    g.__devineWorkroom = {
+      orders: new Map(),
+      stems: new Map(),
+      recipes: new Map(),
+      quotes: new Map(),
+      squareSales: new Map(),
+    };
   }
-  // A bag created by an older module instance predates the quotes map.
+  // A bag created by an older module instance predates the newer maps.
   if (!g.__devineWorkroom.quotes) g.__devineWorkroom.quotes = new Map();
+  if (!g.__devineWorkroom.squareSales) g.__devineWorkroom.squareSales = new Map();
   return g.__devineWorkroom;
 }
 
@@ -263,6 +303,14 @@ const memoryStore: Store = {
   },
   async deleteQuote(id) {
     bag().quotes.delete(id);
+  },
+  async upsertSquareSale(s) {
+    bag().squareSales.set(s.id, s);
+  },
+  async listSquareSales(days) {
+    return [...bag().squareSales.values()]
+      .filter((s) => s.createdAt >= cutoff(days))
+      .sort((a, b) => b.createdAt - a.createdAt);
   },
 };
 
@@ -316,6 +364,11 @@ async function pgPool(): Promise<PgPool> {
       CREATE TABLE IF NOT EXISTS workroom_quotes (
         id text PRIMARY KEY,
         updated_at bigint NOT NULL,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS square_sales (
+        id text PRIMARY KEY,
+        created_at bigint NOT NULL,
         data jsonb NOT NULL
       );
     `).catch((err: unknown) => {
@@ -410,6 +463,24 @@ const postgresStore: Store = {
   async deleteQuote(id) {
     const pool = await pgPool();
     await pool.query(`DELETE FROM workroom_quotes WHERE id = $1`, [id]);
+  },
+  async upsertSquareSale(s) {
+    const pool = await pgPool();
+    // DO UPDATE, not DO NOTHING: Square redelivers on any non-2xx, and a
+    // later delivery can carry a corrected payment. Same id, newest wins.
+    await pool.query(
+      `INSERT INTO square_sales (id, created_at, data) VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO UPDATE SET data = $3`,
+      [s.id, s.createdAt, JSON.stringify(s)],
+    );
+  },
+  async listSquareSales(days) {
+    const pool = await pgPool();
+    const r = await pool.query(
+      `SELECT data FROM square_sales WHERE created_at >= $1 ORDER BY created_at DESC LIMIT 2000`,
+      [cutoff(days)],
+    );
+    return r.rows.map((row) => row.data as SquareSale);
   },
 };
 

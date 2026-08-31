@@ -42,6 +42,11 @@ Two things live here:
 | `src/components/workroom/FuneralPad.tsx` | **A different tool at the same URL**, because funerals are quoted on the spot with no spreadsheet. Price-first menu (one tap per piece per price point), the family's budget as the frame with a live gap, the service treated as a deadline rather than a date, ribbon wording and who each piece is from, and a last button that puts it straight on the board while the family is still standing there. |
 | `src/lib/workroom/quote-math.ts` | The quote arithmetic, alone in one file with no imports, so the list, both builders and the print can never disagree. **The model is provisional** and runs BOTH WAYS: forward (stems × markup + labor% + hardgoods) for weddings, and reverse (a set price solved back into a flower budget) for the funeral counter. Wedding deposit 50% per their published process. To be rewritten against her real wedding spreadsheet, and corrected against watching a real funeral quote. |
 | `src/lib/workroom/quote-templates.ts` | The starting piece lists, one per model, every piece editable and none carrying an invented stem count. Also provisional until her documents arrive. |
+| `src/lib/square/client.ts` | **The Square register link, Phase 3's first pipe.** Config and the fetch wrapper. No SDK, four small calls. Sandbox by default: `SQUARE_ENV` must literally say `production` before anything touches the shop's real register. |
+| `src/lib/square/sync.ts` | Catalog out: all 57 products pushed onto the register, keyed by writing each slug into the variation SKU, so no id mapping is ever stored. Items in her Square catalog that are not ours are counted as strays and never touched. |
+| `src/app/api/square/webhook/route.ts` | Sales in. Square posts every payment; completed ones become `square_sales` rows with line items mapped back to catalog slugs by SKU. Signature-verified before parsing, no dev bypass. A sale rung as a custom amount lands with `slug: null`, visibly, because that habit is what starves the inventory numbers. |
+| `src/app/api/square/sync/route.ts` | POST runs the catalog push, GET reports integration status. Workroom-gated; the PIN also works as an `x-workroom-pin` header (throttled like login) so setup can be driven by curl. |
+| `src/app/api/square/sales/route.ts` | The ingested register sales, raw, for the workroom sales view to come. |
 | `next.config.ts` | The root rewrite and the noindex headers. |
 | `src/app/robots.ts` | Search engines out, social card scrapers in. |
 
@@ -230,6 +235,18 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 - [ ] Ask the owner: delivery fee, order minimum, same-day cutoff. The checkout and
       the ticket currently say the subtotal is settled on the confirm call, which is
       honest but shouldn't be permanent.
+- [ ] **Create the Square sandbox app and set the four `SQUARE_*` variables**
+      (`.env.example` has the click path). Then prove the loop end to end IN THE
+      SANDBOX: POST `/api/square/sync` and see 57 items appear in the sandbox
+      Dashboard, ring a test payment on the sandbox, and see it arrive at
+      `/api/square/sales`. Production needs the OWNER's Square account (OAuth,
+      not her password), `SQUARE_ENV=production`, and a fresh webhook
+      subscription on the production toggle.
+- [ ] **Ask the owner how the counter is actually rung: catalog items or custom
+      amounts.** Custom amounts arrive as `slug: null` sales that no recipe can
+      decrement. If that is the register habit today, the habit is the first
+      thing the integration has to change, and she should hear that before it
+      surprises her in the numbers.
 - [ ] **Rewrite the wedding model from her real spreadsheet.** She has agreed to
       send it; the provisional markup/labor model and the wedding template are
       stand-ins until it lands. Also ask whether she has a quote-validity policy
