@@ -14,6 +14,7 @@ import GlazedPlate from "./GlazedPlate";
 
 export function Header() {
   return (
+    <>
     <header className="site-head">
       <div className="wrap bar">
         {/* THE REAL MARK, with the breeze. See components/Logo.tsx: the petal that
@@ -51,7 +52,25 @@ export function Header() {
           <CartLink href={href("/cart")} />
         </div>
       </div>
+
     </header>
+
+    {/*
+      THE SAME TWO FACTS, ON PHONES. Below 1020px the labelled head-info
+      blocks disappear for width, which quietly hid the delivery promise and
+      the tap-to-call number from the one audience the tel: comment above
+      says matters most. This strip restores both as a single quiet line.
+
+      In flow BELOW the sticky header, not inside it: the wrapped phone
+      header already stands ~104px tall, and a strip that followed the
+      visitor would hold a tenth of every screen for a line they need
+      once. The footer repeats both facts for anyone mid-page.
+    */}
+    <div className="head-strip">
+      <a href={href("/delivery")}>Same-day to {site.deliveryTowns.length} towns</a>
+      <a href={site.phoneHref}>{site.phone}</a>
+    </div>
+    </>
   );
 }
 

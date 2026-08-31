@@ -150,7 +150,10 @@ a:hover { color: var(--rose-ink); text-decoration-color: currentColor; }
 .section--loose { padding-block: calc(var(--u) * 16); }
 @media (max-width: 780px) {
   .section { padding-block: calc(var(--u) * 7); }
-  .section--loose { padding-block: calc(var(--u) * 9); }
+  /* Was u*9. On the homepage this section sits between the hero and the
+     product grid, and on a phone its air is scroll distance between intent
+     and product; 48px each side still reads as a pause. */
+  .section--loose { padding-block: calc(var(--u) * 6); }
 }
 
 /* The old h2 slot: a tracked micro-label, which is what the reference sites use
@@ -339,12 +342,34 @@ a:hover { color: var(--rose-ink); text-decoration-color: currentColor; }
   .hero-copy {
     order: 2;
     padding-inline: var(--inset);
-    padding-block: calc(var(--u) * 5) calc(var(--u) * 2);
+    padding-block: calc(var(--u) * 2) calc(var(--u) * 2);
     width: min(100% - (var(--inset) * 2), var(--wrap));
     margin-inline: auto;
   }
+  /* Body size here, not 19px: the 33-word lede runs six lines at 19px on a
+     390 screen, and those two extra lines were what held the shop button
+     under the fold. */
+  .hero-copy .lede { font-size: 17px; }
   .hero-art { order: 1; }
-  .hero-art img { min-height: 0; height: clamp(320px, 62vw, 520px); }
+  /*
+    SHORT ENOUGH THAT THE PAGE STILL SELLS ON SCREEN ONE. At 62vw minimum
+    320px, the photo plus the ~104px wrapped header left the headline half
+    a screen down and "Shop arrangements" below the fold of every phone —
+    measured at 390x844, the button's top sat past 900px of document. The
+    photo is the mood, not the offer; 52vw min 232px keeps it a real image
+    while the headline, the lede and the shop button all land inside the
+    first screen. Re-measure at 390x844 if you touch any of: this height,
+    the hero-copy padding above, the h1 clamp, or the header nav wrap.
+  */
+  .hero-art img { min-height: 0; height: clamp(232px, 52vw, 520px); }
+}
+@media (max-width: 640px) {
+  /* 40px, not the global 46px minimum: at 46 the line "arranged by hand."
+     needs ~370px against the 342 a 390 screen offers, so the headline ran
+     four lines; at 40 it runs three, and that line is the difference between
+     the shop button sitting on the first screen (bottom ~800 at 390x844,
+     measured) and under it (863). */
+  .hero-copy h1 { font-size: 40px; }
 }
 
 /* ---- product grid -------------------------------------------------------- */
@@ -766,6 +791,29 @@ main:has(> :last-child.band) + .site-foot { margin-top: 0; }
   .site-head .bar { gap: 18px; }
   .site-nav { gap: 18px; }
   .head-info { display: none; }
+}
+
+/* The phone-width replacement for the two head-info blocks (see Chrome.tsx).
+   One line, in flow below the sticky bar so it scrolls away after its job is
+   done. 12.5px text with 8px vertical padding is a ~34px row; each link's own
+   padding keeps its touch box past the 24px bar. */
+.head-strip { display: none; }
+@media (max-width: 1020px) {
+  .head-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    padding: 8px var(--inset);
+    background: var(--paper-2);
+    border-bottom: 1px solid var(--line);
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+  .head-strip a { text-decoration: none; color: var(--ink); padding: 7px 0; margin: -7px 0; white-space: nowrap; }
+  .head-strip a:hover { color: var(--rose-ink); }
+  /* the second link is the phone number: the one a thumb is hunting for */
+  .head-strip a + a { font-weight: 600; }
 }
 @media (max-width: 820px) {
   .site-head .bar { flex-wrap: wrap; gap: 12px; min-height: 0; }
