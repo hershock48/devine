@@ -38,8 +38,7 @@ export default function AgreementPage() {
         both together.
       </p>
       <p className="agr-note">
-        Written to be read without a lawyer, and short enough to actually read. If anything is
-        unclear, ask before accepting: kevin@glazedweb.com or a text.
+        If anything is unclear, ask before accepting: kevin@glazedweb.com or a text.
       </p>
 
       <h2>Exhibit A: scope</h2>
