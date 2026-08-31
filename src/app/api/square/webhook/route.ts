@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { bySlug } from "@/lib/catalog";
-import { square, squareConfig, type SquareConfig } from "@/lib/square/client";
+import { square, type SquareConfig } from "@/lib/square/client";
+import { resolveSquare } from "@/lib/square/oauth";
 import { getStore, type SquareSale, type SquareSaleLine } from "@/lib/workroom/store";
 
 /**
@@ -106,7 +107,7 @@ async function toLines(cfg: SquareConfig, orderId: string): Promise<SquareSaleLi
 }
 
 export async function POST(req: Request) {
-  const cfg = squareConfig();
+  const cfg = await resolveSquare();
   if (!cfg) return NextResponse.json({ error: "Square is not configured." }, { status: 503 });
 
   const raw = await req.text();
@@ -148,7 +149,7 @@ export async function POST(req: Request) {
 /** For a browser poke while wiring things up. Says whether the pieces exist. */
 export async function GET() {
   return NextResponse.json({
-    configured: !!squareConfig(),
+    configured: !!(await resolveSquare()),
     signatureKey: !!process.env.SQUARE_WEBHOOK_SIGNATURE_KEY,
   });
 }
