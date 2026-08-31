@@ -298,6 +298,29 @@ export type SquareTokens = {
   connectedAt: number;
 };
 
+/**
+ * A recorded acceptance of the client agreement, clickwrap style. THE EMAIL
+ * IS THE LEGAL RECORD, same as the glazedweb menu-order flow: both parties
+ * receive a copy carrying the version, the exhibit, the name typed, and the
+ * timestamp. This row is the queryable second copy, not the only copy, which
+ * is why acceptance still proceeds on the memory backend where an OAuth
+ * grant would refuse.
+ */
+export type AgreementAcceptance = {
+  id: string;
+  business: string;
+  name: string;
+  title: string;
+  email: string;
+  /** ISO, stamped by the server at acceptance. */
+  acceptedAt: string;
+  version: string;
+  exhibit: string;
+  ip: string;
+  userAgent: string;
+  createdAt: number;
+};
+
 type Store = {
   backend: "postgres" | "memory";
   createOrder(o: WorkroomOrder): Promise<void>;
@@ -345,6 +368,8 @@ type Store = {
   getSquareTokens(): Promise<SquareTokens | null>;
   setSquareTokens(t: SquareTokens): Promise<void>;
   clearSquareTokens(): Promise<void>;
+  addAgreementAcceptance(a: AgreementAcceptance): Promise<void>;
+  listAgreementAcceptances(): Promise<AgreementAcceptance[]>;
 };
 
 export const SHRINK_REASONS = ["wilted", "damaged", "overbought", "event fell through", "other"] as const;
@@ -369,6 +394,7 @@ type Bag = {
   weeklyOrders: Map<string, WeeklyOrder>;
   plants: Map<string, PlantItem>;
   squareTokens: SquareTokens | null;
+  acceptances: Map<string, AgreementAcceptance>;
 };
 
 function bag(): Bag {
@@ -384,6 +410,7 @@ function bag(): Bag {
       weeklyOrders: new Map(),
       plants: new Map(),
       squareTokens: null,
+      acceptances: new Map(),
     };
   }
   // A bag created by an older module instance predates the newer maps.
@@ -394,6 +421,7 @@ function bag(): Bag {
   if (!b.weeklyOrders) b.weeklyOrders = new Map();
   if (!b.plants) b.plants = new Map();
   if (b.squareTokens === undefined) b.squareTokens = null;
+  if (!b.acceptances) b.acceptances = new Map();
   return b;
 }
 
@@ -494,6 +522,12 @@ const memoryStore: Store = {
   async clearSquareTokens() {
     bag().squareTokens = null;
   },
+  async addAgreementAcceptance(a) {
+    bag().acceptances.set(a.id, a);
+  },
+  async listAgreementAcceptances() {
+    return [...bag().acceptances.values()].sort((a, b) => b.createdAt - a.createdAt);
+  },
 };
 
 /* ----------------------------- postgres ----------------------------- */
@@ -568,6 +602,11 @@ async function pgPool(): Promise<PgPool> {
       );
       CREATE TABLE IF NOT EXISTS square_oauth (
         id text PRIMARY KEY,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agreement_acceptances (
+        id text PRIMARY KEY,
+        created_at bigint NOT NULL,
         data jsonb NOT NULL
       );
     `).catch((err: unknown) => {
@@ -766,6 +805,19 @@ const postgresStore: Store = {
   async clearSquareTokens() {
     const pool = await pgPool();
     await pool.query(`DELETE FROM square_oauth WHERE id = 'owner'`);
+  },
+  async addAgreementAcceptance(a) {
+    const pool = await pgPool();
+    await pool.query(`INSERT INTO agreement_acceptances (id, created_at, data) VALUES ($1, $2, $3)`, [
+      a.id,
+      a.createdAt,
+      JSON.stringify(a),
+    ]);
+  },
+  async listAgreementAcceptances() {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM agreement_acceptances ORDER BY created_at DESC LIMIT 100`);
+    return r.rows.map((row) => row.data as AgreementAcceptance);
   },
 };
 
