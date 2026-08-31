@@ -37,9 +37,10 @@ count what you Have, Need = par minus have, order the Need column.
 
 Plus blank "Special Orders" lines.
 
-**PRICE MISMATCHES WITH THE WEBSITE CATALOG, ask the owner which is current**
-(the harvested WooCommerce prices in `src/lib/catalog.ts` run a few dollars
-HIGHER than this sheet on overlapping items):
+**PRICE MISMATCHES WITH THE WEBSITE CATALOG — RESOLVED: Kevin ruled
+2026-08-31 that this sheet is the most recent pricing, and `catalog.ts` was
+repriced to it the same day** (six items; see the comment block in
+catalog.ts). The original discrepancy, kept for the record:
 
 | Item | This sheet | catalog.ts (their site) |
 |---|---|---|

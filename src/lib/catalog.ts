@@ -56,6 +56,18 @@ export const categories: Category[] = [
 */
 const SUB_NOTE = ""; // substitution language lives in site.ts, shown once per product page
 
+/*
+  SIX PLANT PRICES DIVERGE FROM THE WOO HARVEST, deliberately. The owner's own
+  plant par sheet (research/weekly-order-and-price-lists.md, photographed
+  2026-08-31) prices several plants a few dollars below her website, and
+  Kevin's ruling that day was that the paper is the most recent pricing.
+  Repriced to the sheet: the three ceramic dish gardens (the sheet's 8"/10"/12"
+  are the site's Small/Medium/Large, confirmed by the dish sizes in their own
+  descriptions), both peace lilies, and the rustic box planter. The sheet also
+  carries a 10" Peace Lily at $85 that the website never sold; not added here
+  without her copy and a photo.
+*/
+
 export const products: Product[] = [
   // ---- Celebration of Life ----
   { slug: "natures-home", name: "Nature's Home", price: 95, cats: ["celebration-of-life"], img: "2026/08/IMG_0661-1-scaled.jpeg",
@@ -160,9 +172,9 @@ export const products: Product[] = [
     desc: "The energy of a garden in full bloom, in a bubble glass vase. Blue delphinium, Free Spirit roses, orange and yellow alstroemeria, blue hydrangea, orange lily, chamomile, pink rice flower and solidago." },
 
   // ---- Plants ----
-  { slug: "6-peace-lily", name: "6″ Peace Lily", price: 46.95, cats: ["plants"], img: "2024/08/6-inch-Peace-Lily.jpg",
+  { slug: "6-peace-lily", name: "6″ Peace Lily", price: 45.95, cats: ["plants"], img: "2024/08/6-inch-Peace-Lily.jpg",
     desc: "The peace lily, Spathiphyllum, blooms with stunning white flowers and is a symbol of calm and balance. Delivered in a woven basket or a tin container with a white satin bow. Prefers moist soil and low light." },
-  { slug: "small-ceramic-dish-garden", name: "Small Ceramic Dish Garden", price: 50.95, cats: ["plants"], img: "2026/02/IMG_0028-scaled.jpeg",
+  { slug: "small-ceramic-dish-garden", name: "Small Ceramic Dish Garden", price: 48.95, cats: ["plants"], img: "2026/02/IMG_0028-scaled.jpeg",
     desc: "A collection of plants grown together in an 8″ ceramic dish. Plants and dish may vary. Keep the soil moist, in bright diffused light." },
   { slug: "small-chime-stand", name: "30″ Wind Chime", price: 50.95, cats: ["plants"], img: "2024/07/Untitled-design-2.png",
     desc: "A full, classically beautiful sound, in three colors. If no color preference is noted on the order, black will be sent." },
@@ -176,15 +188,15 @@ export const products: Product[] = [
     desc: "A ceramic bowl abundantly filled with mixed succulents. The soil prefers to stay relatively dry, with occasional watering, in bright diffused light." },
   { slug: "cylinder-wind-chime", name: "Cylinder Wind Chime", price: 61, cats: ["plants"], img: "2024/07/Untitled-design-1.png",
     desc: "A single cylinder chime with a deep tone. For a garden, or the corner of a house, calling in the memory of someone or simply bringing awareness to the breeze. Five colors. If no preference is noted, black will be sent." },
-  { slug: "8-peace-lily", name: "8″ Peace Lily", price: 65.95, cats: ["plants"], img: "2024/07/8-inch-Peace-Lily.jpg",
+  { slug: "8-peace-lily", name: "8″ Peace Lily", price: 62.95, cats: ["plants"], img: "2024/07/8-inch-Peace-Lily.jpg",
     desc: "The peace lily, Spathiphyllum, blooms with stunning white flowers and is a symbol of calm and balance. Delivered in a woven basket or a tin container with a white satin bow. Prefers moist soil and low light." },
-  { slug: "rustic-box-planter", name: "Rustic Box Planter", price: 68.95, cats: ["plants"], img: "2024/07/Rustic-Box-.jpg",
+  { slug: "rustic-box-planter", name: "Rustic Box Planter", price: 65.95, cats: ["plants"], img: "2024/07/Rustic-Box-.jpg",
     desc: "Mixed house plants grown together in a rustic box planter. Plants and planter may vary." },
-  { slug: "medium-ceramic-dish-garden", name: "Medium Ceramic Dish Garden", price: 72.95, cats: ["plants"], img: "2024/07/Medium-Ceramic-Dish-Garden-.jpg",
+  { slug: "medium-ceramic-dish-garden", name: "Medium Ceramic Dish Garden", price: 68.95, cats: ["plants"], img: "2024/07/Medium-Ceramic-Dish-Garden-.jpg",
     desc: "A collection of plants grown together in a 10″ ceramic dish. Plants and dish may vary. Keep the soil moist, in bright diffused light." },
   { slug: "wing-and-a-prayer", name: "A Wing and A Prayer Dish Garden", price: 79.95, cats: ["plants"], img: "2024/07/IMG_0072-scaled.jpeg",
     desc: "An assortment of house plants in a basket, accented with a ceramic angel keepsake and a white satin bow. Keep the soil moist, in bright diffused light." },
-  { slug: "large-ceramic-dish-garden", name: "Large Ceramic Dish Garden", price: 94.95, cats: ["plants"], img: "2024/07/Large-Dish-Garden.jpg",
+  { slug: "large-ceramic-dish-garden", name: "Large Ceramic Dish Garden", price: 90.95, cats: ["plants"], img: "2024/07/Large-Dish-Garden.jpg",
     desc: "A collection of plants grown together in a 12″ ceramic dish. Plants and dish may vary. Keep the soil moist, in bright diffused light." },
 ];
 
