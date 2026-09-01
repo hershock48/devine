@@ -32,8 +32,9 @@ export const agreement = {
   monthly: 150,
   editAllowance: "2 hours per month",
   hourlyRate: 125,
-  /** Customer-paid, per online card order, shown as its own line at checkout,
-      retained by Glazed Web. Dormant until online card payment launches. */
+  /** Customer-paid, per REMOTE card payment (keyed phone orders now, online
+      checkout when enabled in writing), shown as its own line, retained by
+      Glazed Web. Never on cash or in-person register sales. */
   serviceFeeCents: 99,
 
   scope: [
