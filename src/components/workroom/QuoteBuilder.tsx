@@ -58,7 +58,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   const [authed, setAuthed] = useState(initialAuthed);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [missing, setMissing] = useState(false);
-  const [backend, setBackend] = useState("memory");
+  const [backend, setBackend] = useState<string | null>(null);
   const [stemPrices, setStemPrices] = useState<Record<string, number>>({});
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
   const [placed, setPlaced] = useState<string | null>(null);

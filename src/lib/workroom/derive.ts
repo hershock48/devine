@@ -101,6 +101,23 @@ export function shrinkTotals(tossed: TossLike[], costPerStem: Map<string, number
 }
 
 type RecipeLike = { parts: { variety: string; stems: number }[] };
+
+/**
+ * Stem cost of ONE unit of a recipe, or null when the recipe is missing or
+ * any part is unpriced: costed only when whole, never a partial sum passed
+ * off as complete. One rule for the Inventory page's recipe book, its
+ * margins, and the Dashboard's best-sellers table.
+ */
+export function recipeUnitCost(recipe: RecipeLike | undefined, costPerStem: Map<string, number>): number | null {
+  if (!recipe) return null;
+  let cost = 0;
+  for (const part of recipe.parts) {
+    const c = costPerStem.get(part.variety);
+    if (c == null) return null;
+    cost += c * part.stems;
+  }
+  return cost;
+}
 type OrderLike = { status: string; date: string; lines: { slug: string | null; qty: number }[] };
 type SaleLike = { workroomOrderId?: string; lines: { slug: string | null; qty: number }[] };
 

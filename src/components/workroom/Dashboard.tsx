@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MemoryWarning, PinGate, money, phoneKey, todayISO } from "@/components/workroom/ui";
-import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, mondayOf, saleInstantMs, shrinkTotals } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, mondayOf, recipeUnitCost, saleInstantMs, shrinkTotals } from "@/lib/workroom/derive";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
@@ -186,6 +186,15 @@ function windowLabel(range: Range, back: number, w: Win): string {
   return String(b.getFullYear());
 }
 
+/** The short basis that sits on every delta chip ("100 last week"), so a
+    tile reads without the caption (Kevin, 2026-09-01: "was 0" said nothing). */
+function basisLabel(range: Range, w: Win): string {
+  if (range === "day") return `last ${DAYS[w.begin.getDay()]}`;
+  if (range === "week") return "last week";
+  if (range === "month") return `in ${MONTHS[w.prevBegin.getMonth()].slice(0, 3)}`;
+  return `in ${w.prevBegin.getFullYear()}`;
+}
+
 function comparisonLabel(range: Range, w: Win): string {
   const tail = w.partial ? " to this point" : "";
   if (range === "day") return `Compared with last ${DAYS[w.begin.getDay()]}${tail}.`;
@@ -251,10 +260,10 @@ const note: React.CSSProperties = { margin: "10px 0 0", fontSize: 13.5, color: "
     prior value beside it so the baseline is on the tile (Kevin's rule: a
     figure without a baseline is trivia). Shape carries the sign too, never
     color alone. */
-function Delta({ cur, prev, badUp, fmt }: { cur: number; prev: number; badUp?: boolean; fmt?: (n: number) => string }) {
+function Delta({ cur, prev, basis, badUp, fmt }: { cur: number; prev: number; basis: string; badUp?: boolean; fmt?: (n: number) => string }) {
   const f = fmt ?? ((n: number) => String(n));
   if (prev <= 0) {
-    return <span style={{ fontSize: 13, color: "var(--muted)" }}>was {f(prev)}</span>;
+    return <span style={{ fontSize: 13, color: "var(--muted)" }}>{f(prev)} {basis}</span>;
   }
   const pct = Math.round(((cur - prev) / prev) * 100);
   const up = pct > 0;
@@ -267,7 +276,7 @@ function Delta({ cur, prev, badUp, fmt }: { cur: number; prev: number; badUp?: b
         {flat ? "" : up ? "▲ " : "▼ "}
         {flat ? "even" : `${Math.abs(pct) > 999 ? ">999" : Math.abs(pct)}%`}
       </span>
-      {" · "}{f(prev)}
+      {" · "}{f(prev)} {basis}
     </span>
   );
 }
@@ -305,7 +314,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   const [orders, setOrders] = useState<Order[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [backend, setBackend] = useState("memory");
+  const [backend, setBackend] = useState<string | null>(null);
   const [range, setRange] = useState<Range>("week");
   const [back, setBack] = useState(0);
   /** The local calendar day the windows hang from; flipped by the refresh
@@ -486,6 +495,40 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
           for (const l of s.lines) add(l.name, l.qty, l.totalCents);
         }
       }
+      /* margins, keyed by SLUG (three products share the name "Designer's
+         Choice"), costed through recipes at the blended stem cost. What
+         cannot be costed is counted, never guessed. Board lines carry a
+         slug; item-rung register lines carry the SKU's slug. */
+      const bySlug = new Map<string, { name: string; qty: number; cents: number }>();
+      const addSlug = (slug: string | null, name: string, qty: number, cents: number) => {
+        if (!slug) return;
+        const row = bySlug.get(slug) ?? { name, qty: 0, cents: 0 };
+        row.qty += qty;
+        row.cents += cents;
+        bySlug.set(slug, row);
+      };
+      for (const o of ordersIn) for (const l of o.lines) addSlug(l.slug, l.name, l.qty, Math.round(l.each * 100) * l.qty);
+      for (const { s, ms } of salesM) {
+        if (s.workroomOrderId || !inMs(ms)) continue;
+        for (const l of s.lines) addSlug(l.slug, l.name, l.qty, l.totalCents);
+      }
+      const unitCostCents = (slug: string): number | null => {
+        const recipe = recipeBySlug.get(slug);
+        if (!recipe || recipe.parts.length === 0) return null;
+        const cost = recipeUnitCost(recipe, costPerStem);
+        return cost == null ? null : Math.round(cost * 100);
+      };
+      let soldStemCents = 0;
+      let uncostedUnits = 0;
+      const margins: { slug: string; name: string; qty: number; cents: number; costCents: number | null; hasRecipe: boolean }[] = [];
+      for (const [slug, row] of bySlug) {
+        const unit = unitCostCents(slug);
+        if (unit == null) uncostedUnits += row.qty;
+        else soldStemCents += unit * row.qty;
+        margins.push({ slug, name: row.name, qty: row.qty, cents: row.cents, costCents: unit == null ? null : unit * row.qty, hasRecipe: recipeBySlug.has(slug) });
+      }
+      margins.sort((a, b) => b.cents - a.cents);
+
       const bestSellers = [...sold.entries()]
         .filter(([name]) => name && name !== "(unnamed)" && name !== "Order fee" && name !== "Service fee" && !name.startsWith("Delivery ("))
         .sort((a, b) => b[1].cents - a[1].cents)
@@ -522,6 +565,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         tossedStems: shrink.stems, tossedCost: shrink.cost, unpricedTossed: shrink.unpriced,
         topReasons: [...reasons.entries()].sort((a, b) => b[1] - a[1]),
         consumedStems: consumed.madeTotal, unreciped: consumed.unrecipedLines,
+        soldStemCents, uncostedUnits, margins: full ? margins.slice(0, 8) : [],
         shrinkPct: boughtStems > 0 ? Math.round((shrink.stems / boughtStems) * 100) : null,
       };
     };
@@ -562,6 +606,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   /* auto-fit, not auto-fill: a four-tile row should fill its band, not
      leave a phantom fifth column of air on a desktop. */
   const grid: React.CSSProperties = { display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))" };
+  const basis = basisLabel(range, win);
 
   const historyFloorMs = Date.now() - HISTORY_DAYS * 86_400_000;
   const beyondHistory = win.beginMs < historyFloorMs || win.prevBeginMs < historyFloorMs;
@@ -630,20 +675,20 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
             label="Taken"
             value={wholeDollars(takenCents)}
             hero
-            delta={<Delta cur={takenCents} prev={prevTakenCents} fmt={wholeDollars} />}
+            delta={<Delta basis={basis} cur={takenCents} prev={prevTakenCents} fmt={wholeDollars} />}
             sub={<>cash {wholeDollars(cur?.cashCents ?? 0)}{now.handMarkedCount > 0 ? <> · {now.handMarkedCount} by hand</> : null}</>}
           />
           <Tile
             label="Register sales"
             value={String(cur?.count ?? 0)}
             sub="rings on the Square link"
-            delta={<Delta cur={cur?.count ?? 0} prev={prv?.count ?? 0} />}
+            delta={<Delta basis={basis} cur={cur?.count ?? 0} prev={prv?.count ?? 0} />}
           />
           <Tile
             label="Average sale"
             value={avgCents === null ? "–" : centsDollars(avgCents)}
             sub="per register ring"
-            delta={<Delta cur={avgCents ?? 0} prev={prevAvgCents} fmt={centsDollars} />}
+            delta={<Delta basis={basis} cur={avgCents ?? 0} prev={prevAvgCents} fmt={centsDollars} />}
           />
           <Tile
             label="Owed right now"
@@ -756,16 +801,16 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
 
       <SectionHead label="Orders" href="/workroom" linkText="Open the board" />
       <div style={grid}>
-        <Tile label="New orders" value={String(now.ordersCount)} sub={`${now.web} web · ${now.phone} phone`} delta={<Delta cur={now.ordersCount} prev={prev.ordersCount} />} />
-        <Tile label="Ordered" value={wholeDollars(now.orderedCents)} sub="tickets written, paid or not" delta={<Delta cur={now.orderedCents} prev={prev.orderedCents} fmt={wholeDollars} />} />
-        <Tile label="Deliveries" value={String(now.delivery)} sub={`${now.pickup} pickup${now.pickup === 1 ? "" : "s"}`} delta={<Delta cur={now.delivery} prev={prev.delivery} />} />
+        <Tile label="New orders" value={String(now.ordersCount)} sub={`${now.web} web · ${now.phone} phone`} delta={<Delta basis={basis} cur={now.ordersCount} prev={prev.ordersCount} />} />
+        <Tile label="Ordered" value={wholeDollars(now.orderedCents)} sub="tickets written, paid or not" delta={<Delta basis={basis} cur={now.orderedCents} prev={prev.orderedCents} fmt={wholeDollars} />} />
+        <Tile label="Deliveries" value={String(now.delivery)} sub={`${now.pickup} pickup${now.pickup === 1 ? "" : "s"}`} delta={<Delta basis={basis} cur={now.delivery} prev={prev.delivery} />} />
         <Tile
           label="Returning"
           value={now.ordersCount ? `${Math.round((now.returning / now.ordersCount) * 100)}%` : "–"}
           sub={`${now.returning} of ${now.ordersCount} ordered before`}
           delta={
             prev.ordersCount > 0 ? (
-              <Delta
+              <Delta basis={basis}
                 cur={now.ordersCount ? Math.round((now.returning / now.ordersCount) * 100) : 0}
                 prev={Math.round((prev.returning / prev.ordersCount) * 100)}
                 fmt={(n) => `${n}%`}
@@ -800,17 +845,58 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         </div>
       )}
 
-      <SectionHead label="Stems" href="/workroom/stems" linkText="Open the stems page" />
+      <SectionHead label="Stems" href="/workroom/inventory" linkText="Open Inventory" />
       <div style={grid}>
-        <Tile label="Bought" value={String(now.boughtStems)} sub={`stems · ${money(now.boughtCost)} paid`} delta={<Delta cur={now.boughtStems} prev={prev.boughtStems} />} />
+        <Tile label="Bought" value={String(now.boughtStems)} sub={`stems · ${money(now.boughtCost)} paid`} delta={<Delta basis={basis} cur={now.boughtStems} prev={prev.boughtStems} />} />
         <Tile
           label="Tossed"
           value={money(now.tossedCost)}
           sub={`${now.tossedStems} stems${now.shrinkPct === null ? "" : ` · ${now.shrinkPct}% of bought`}`}
-          delta={<Delta cur={Math.round(now.tossedCost * 100)} prev={Math.round(prev.tossedCost * 100)} badUp fmt={(n) => money(n / 100)} />}
+          delta={<Delta basis={basis} cur={Math.round(now.tossedCost * 100)} prev={Math.round(prev.tossedCost * 100)} badUp fmt={(n) => money(n / 100)} />}
         />
-        <Tile label="Made into orders" value={String(now.consumedStems)} sub="stems, via recipes" delta={<Delta cur={now.consumedStems} prev={prev.consumedStems} />} />
+        <Tile label="Made into orders" value={String(now.consumedStems)} sub="stems, via recipes" delta={<Delta basis={basis} cur={now.consumedStems} prev={prev.consumedStems} />} />
+        <Tile
+          label="Stems in what sold"
+          value={centsDollars(now.soldStemCents)}
+          sub={now.uncostedUnits > 0 ? `${now.uncostedUnits} sold item${now.uncostedUnits === 1 ? "" : "s"} not costable yet` : "recipe-costed"}
+          delta={<Delta basis={basis} cur={now.soldStemCents} prev={prev.soldStemCents} badUp fmt={centsDollars} />}
+        />
       </div>
+      {/* The margins table, moved here from the Inventory page 2026-09-01
+          (Kevin: a week table on a data-entry page belongs on the
+          dashboard). Same window as everything above it. */}
+      {now.margins.length > 0 && (
+        <div className="panel" style={{ padding: "12px 16px", marginTop: 12 }}>
+          <div style={{ ...kicker, marginBottom: 4 }}>Margins on what sold</div>
+          <div tabIndex={0} role="region" aria-label="Margins on what sold" style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", minWidth: 460, borderCollapse: "collapse", fontSize: 14.5 }}>
+              <thead>
+                <tr>
+                  {["Product", "Sold", "Revenue", "Stem cost", "Margin"].map((h, i) => (
+                    <th key={h} style={{ ...kicker, fontSize: 12, textAlign: i === 0 ? "left" : "right", padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {now.margins.map((m) => {
+                  const cell: React.CSSProperties = { textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)", fontVariantNumeric: "tabular-nums" };
+                  return (
+                    <tr key={m.slug}>
+                      <td style={{ ...cell, textAlign: "left" }}>{m.name}</td>
+                      <td style={cell}>{m.qty}</td>
+                      <td style={cell}>{centsDollars(m.cents)}</td>
+                      <td style={cell}>{m.costCents == null ? (m.hasRecipe ? "cost unknown" : "no recipe") : centsDollars(m.costCents)}</td>
+                      <td style={cell}>{m.costCents == null || m.cents === 0 ? "" : `${Math.round(((m.cents - m.costCents) / m.cents) * 100)}%`}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {now.topReasons.length > 0 && (
         <p style={note}>Why tossed: {now.topReasons.map(([k, n]) => `${k} (${n})`).join(", ")}.</p>
       )}

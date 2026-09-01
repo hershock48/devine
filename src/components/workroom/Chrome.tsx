@@ -21,8 +21,10 @@ const TABS = [
   { href: "/workroom", label: "Orders" },
   { href: "/workroom/dashboard", label: "Dashboard" },
   // Stems and Inventory merged 2026-09-01 (one job, one tab); the header
-  // was filling up and the two screens shared every ledger.
-  { href: "/workroom/stems", label: "Stems" },
+  // was filling up and the two screens shared every ledger. Renamed
+  // Inventory the same day: the page holds the stem library, the cooler,
+  // buys, tosses and recipes, and "Stems" named only one of them.
+  { href: "/workroom/inventory", label: "Inventory" },
   // Plants folded into Weekly order 2026-09-01: same weekly buying motion
   // (walk, count, read the list to the supplier), one tab.
   { href: "/workroom/weekly-order", label: "Weekly order" },

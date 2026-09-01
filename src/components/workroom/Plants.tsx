@@ -101,7 +101,7 @@ export default function PlantsSection({ authed }: { authed: boolean }) {
       body: JSON.stringify({ seed: true }),
     });
     const d = await r.json().catch(() => null);
-    setStatus(r.ok ? `${d.added} plants loaded from her par sheet.` : d?.error || "Seeding failed.");
+    setStatus(r.ok ? `${d.added} plants loaded from the par sheet.` : d?.error || "Seeding failed.");
     pull();
   }
 
@@ -148,7 +148,7 @@ export default function PlantsSection({ authed }: { authed: boolean }) {
           <h2 style={{ fontSize: 22, margin: 0 }}>The plant par sheet</h2>
           {plants.length === 0 ? (
             <button className="btn btn--solid" type="button" onClick={seed}>
-              Load her par sheet
+              Load the par sheet
             </button>
           ) : (
             <label style={{ fontSize: 14.5, display: "flex", gap: 8, alignItems: "center" }}>

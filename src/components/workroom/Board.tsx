@@ -108,7 +108,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [authed, setAuthed] = useState(initialAuthed);
   const [orders, setOrders] = useState<Order[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [backend, setBackend] = useState("memory");
+  const [backend, setBackend] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [showDone, setShowDone] = useState(false);
   /** The find box: a caller says "order DV-0901-4226" or "it's under

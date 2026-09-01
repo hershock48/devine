@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { normalizeVariety } from "@/lib/workroom/derive";
 import PlantsSection from "@/components/workroom/Plants";
 
 /**
@@ -41,7 +42,7 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
   const [authed, setAuthed] = useState(initialAuthed);
   const [orders, setOrders] = useState<WeeklyOrder[]>([]);
   const [varieties, setVarieties] = useState<Variety[]>([]);
-  const [backend, setBackend] = useState("memory");
+  const [backend, setBackend] = useState<string | null>(null);
 
   const [id, setId] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState(todayISO());
@@ -49,6 +50,9 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
   const [lines, setLines] = useState<Line[]>([]);
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState(false);
+  /** Names the truck tried to receive that the stem library lacks; the
+      one-tap add clears them. */
+  const [unknown, setUnknown] = useState<string[]>([]);
 
   const pull = useCallback(async () => {
     const [ro, rv] = await Promise.all([
@@ -151,7 +155,39 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
     return d.order.id as string;
   }
 
+  /* THE LIBRARY IS THE ONE NAMESPACE (Kevin, 2026-09-01). A line naming a
+     variety the library lacks is refused here by name (the route refuses
+     too), with one tap to add it if it is genuinely new: a typo must never
+     become a phantom variety beside the real one. */
+  const library = useMemo(() => new Set(varieties.map((v) => v.name)), [varieties]);
+
+  async function addUnknown() {
+    setStatus("");
+    for (const name of unknown) {
+      const r = await fetch("/api/workroom/varieties", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, kind: "flower", sellStem: "", sellBunch: "", stemsPerBunch: "" }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => null);
+        setStatus(d?.error || "That did not save.");
+        return;
+      }
+    }
+    setStatus(`Added to the stem library: ${unknown.join(", ")}. Log the truck again.`);
+    setUnknown([]);
+    pull();
+  }
+
   async function receive() {
+    setUnknown([]);
+    const notListed = [...new Set(lines.map((l) => normalizeVariety(l.variety)).filter((v) => v && !library.has(v)))];
+    if (notListed.length > 0) {
+      setUnknown(notListed);
+      setStatus(`Not in the stem library: ${notListed.join(", ")}. Add ${notListed.length === 1 ? "it" : "them"}, or fix the spelling.`);
+      return;
+    }
     const missing = lines.filter((l) => l.variety.trim() && l.unit === "bunch" && !Number(l.stemsPerBunch));
     if (missing.length > 0) {
       setStatus(`Stems per bunch first, for: ${missing.map((l) => l.variety).join(", ")}. It is asked once and remembered.`);
@@ -350,8 +386,16 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
               The truck came — log it
             </button>
           </p>
-          <p aria-live="polite" style={{ margin: "10px 0 0", fontSize: 14, fontWeight: 600, color: status.includes("saved") || status.includes("logged") ? "var(--green)" : "var(--rose-ink)", minHeight: "1.3em" }}>
+          <p aria-live="polite" style={{ margin: "10px 0 0", fontSize: 14, fontWeight: 600, color: status.includes("saved") || status.includes("logged") || status.startsWith("Added") ? "var(--green)" : "var(--rose-ink)", minHeight: "1.3em" }}>
             {status}
+            {unknown.length > 0 && (
+              <>
+                {" "}
+                <button type="button" onClick={addUnknown} style={{ ...textButton, fontSize: 14, fontWeight: 700 }}>
+                  Add {unknown.length === 1 ? "it" : "them"} to the library
+                </button>
+              </>
+            )}
           </p>
         </section>
       )}

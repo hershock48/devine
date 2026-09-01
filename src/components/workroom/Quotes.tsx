@@ -24,7 +24,7 @@ const STATUS_COLOR: Record<Quote["status"], string> = {
 export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
   const [authed, setAuthed] = useState(initialAuthed);
   const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [backend, setBackend] = useState("memory");
+  const [backend, setBackend] = useState<string | null>(null);
   const [starting, setStarting] = useState<"wedding" | "funeral" | null>(null);
 
   const pull = useCallback(async () => {

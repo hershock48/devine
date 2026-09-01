@@ -1,10 +1,10 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+import Inventory from "@/components/workroom/Inventory";
+import { isWorkroomAuthed } from "@/lib/workroom/auth";
 
-/**
- * Inventory merged into the Stems page 2026-09-01 (one job, one tab: what
- * is in the cooler, what died, what it costs). The address survives because
- * a counter tab may still hold it.
- */
-export default function InventoryPage() {
-  redirect("/workroom/stems");
+export const metadata: Metadata = { title: "Inventory" };
+export const dynamic = "force-dynamic";
+
+export default async function InventoryPage() {
+  return <Inventory initialAuthed={await isWorkroomAuthed()} />;
 }

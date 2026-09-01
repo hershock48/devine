@@ -125,7 +125,7 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
   const [authed, setAuthed] = useState(initialAuthed);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [missing, setMissing] = useState(false);
-  const [backend, setBackend] = useState("memory");
+  const [backend, setBackend] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
   const [placed, setPlaced] = useState<string | null>(null);
   const [placeError, setPlaceError] = useState("");

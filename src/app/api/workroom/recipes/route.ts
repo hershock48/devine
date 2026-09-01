@@ -50,7 +50,7 @@ export async function PUT(req: Request) {
   if (unknown.length > 0) {
     return NextResponse.json(
       {
-        error: `Not on the stem list: ${unknown.join(", ")}. Add ${unknown.length === 1 ? "it" : "them"} to the list first, or fix the spelling.`,
+        error: `Not in the stem library: ${unknown.join(", ")}. Add ${unknown.length === 1 ? "it" : "them"} to the list first, or fix the spelling.`,
         unknown,
       },
       { status: 400 },

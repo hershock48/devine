@@ -70,7 +70,14 @@ export function todayISO(): string {
   return isoDate(new Date());
 }
 
-export function MemoryWarning({ backend }: { backend: string }) {
+/**
+ * Shown only once the server has SAID which backend it is on. Every screen
+ * starts its backend state at null; an early draft started it at "memory",
+ * so a connected production dashboard flashed "No database is connected"
+ * for the half second before its first fetch answered (Kevin saw it,
+ * 2026-09-01). Unknown renders nothing, not a warning.
+ */
+export function MemoryWarning({ backend }: { backend: string | null }) {
   if (backend !== "memory") return null;
   return (
     <p
@@ -89,6 +96,7 @@ export function MemoryWarning({ backend }: { backend: string }) {
     </p>
   );
 }
+
 
 /** The PIN gate. One field, big enough to tap with a thumb. */
 export function PinGate({ onAuthed }: { onAuthed: () => void }) {

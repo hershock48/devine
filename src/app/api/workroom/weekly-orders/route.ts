@@ -23,9 +23,13 @@ import {
  *     recipe that touches the variety. The screen asks; this route refuses.
  *   - receive works exactly once (draft -> received). A second tap answers
  *     409 instead of double-buying the same truck.
- *   - a variety the master list has never seen is added to it on receive
- *     (prices null), so the list accretes from real orders and the recipe
- *     screen can always offer what the cooler actually holds.
+ *   - every line's variety must already be on the master list. RETRACTION,
+ *     2026-09-01 (Kevin): receive used to register unknown names itself,
+ *     the last of the implicit-registration paths; a typo in a draft line
+ *     became a phantom list entry the moment the truck was logged. Now
+ *     nothing creates names implicitly anywhere: receive refuses by name,
+ *     BEFORE writing any purchase, and the screen offers the same one-tap
+ *     Add-it every other variety field carries.
  *   - a received line's spb is written back to the variety when the variety
  *     has none, so next week nobody is asked twice.
  */
@@ -120,6 +124,19 @@ export async function PUT(req: Request) {
   }
 
   const varieties = new Map((await store.listVarieties()).map((v) => [v.name, v]));
+  // Refuse BEFORE the first purchase is written, so a failed receive leaves
+  // the ledger untouched instead of half a truck logged.
+  const unknown = [...new Set(order.lines.map((l) => l.variety).filter((v) => !varieties.has(v)))];
+  if (unknown.length > 0) {
+    return NextResponse.json(
+      {
+        error: `Not in the stem library: ${unknown.join(", ")}. Add ${unknown.length === 1 ? "it" : "them"} to the library first, or fix the spelling.`,
+        unknown,
+      },
+      { status: 400 },
+    );
+  }
+
   for (const l of order.lines) {
     const stems = l.unit === "stem" ? l.qty : l.qty * (l.stemsPerBunch as number);
     const event: StemEvent = {
@@ -134,17 +151,8 @@ export async function PUT(req: Request) {
     };
     await store.addStemEvent(event);
 
-    const known = varieties.get(l.variety);
-    if (!known) {
-      await store.upsertVariety({
-        name: l.variety,
-        kind: "flower",
-        sellStem: null,
-        sellBunch: null,
-        stemsPerBunch: l.stemsPerBunch,
-        createdAt: Date.now(),
-      });
-    } else if (!known.stemsPerBunch && l.stemsPerBunch) {
+    const known = varieties.get(l.variety)!;
+    if (!known.stemsPerBunch && l.stemsPerBunch) {
       await store.upsertVariety({ ...known, stemsPerBunch: l.stemsPerBunch });
     }
   }

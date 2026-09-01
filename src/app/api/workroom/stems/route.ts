@@ -53,21 +53,24 @@ export async function POST(req: Request) {
   }
 
   const store = getStore();
+  /*
+    RETRACTION, 2026-09-01, second and final round (Kevin): a hand-logged
+    purchase used to auto-register a new variety, on the theory that facts
+    create names. His counter was the counter's reality: "rosesss" typed at
+    7am becomes a phantom list entry, and the toss of x roses can never be
+    matched if the names drift. The rule now: NOTHING creates names
+    implicitly. Every variety field references the stem list library, and a
+    genuinely new name is one deliberate tap (the Add-it button posts to the
+    varieties API) wherever you are.
+  */
+  if (!(await store.listVarieties()).some((v) => v.name === variety)) {
+    return NextResponse.json(
+      { error: `Not in the stem library: ${variety}. Add it to the library first, or fix the spelling.`, unknown: [variety] },
+      { status: 400 },
+    );
+  }
   const event: StemEvent = { id: newId("st"), kind, date, variety, stems, cost, reason, createdAt: Date.now() };
   await store.addStemEvent(event);
-  // A hand-logged purchase of a variety the master list has never seen adds
-  // it (prices blank), same as the weekly order does: the list is the one
-  // namespace, and it accretes from what actually happens.
-  if (kind === "purchase" && !(await store.listVarieties()).some((v) => v.name === variety)) {
-    await store.upsertVariety({
-      name: variety,
-      kind: "flower",
-      sellStem: null,
-      sellBunch: null,
-      stemsPerBunch: null,
-      createdAt: Date.now(),
-    });
-  }
   return NextResponse.json({ ok: true, event });
 }
 
