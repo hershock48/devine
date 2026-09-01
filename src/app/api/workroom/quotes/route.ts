@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, normalizeVariety, type Quote, type QuotePiece } from "@/lib/workroom/store";
 import { QUOTE_TEMPLATES, QUOTE_DEFAULTS } from "@/lib/workroom/quote-templates";
-import { HISTORY_DAYS, costPerStemMap } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, lastUnitCostMap } from "@/lib/workroom/derive";
 
 /**
  * Quotes. GET lists them, or with ?id= returns ONE quote plus the workroom's
@@ -22,13 +22,13 @@ export async function GET(req: Request) {
   const id = new URL(req.url).searchParams.get("id");
 
   if (id) {
-    // The blended average over the shared history (derive.ts): the SAME
-    // number the Stems page shows for the same variety, not a fourth copy
-    // of the arithmetic over a different window.
+    // The most recent invoice price per stem (derive.ts lot costing): a
+    // quote prices flowers that will be bought for the event, so the last
+    // price paid is the basis, not an average over a year of buys.
     const [quote, events] = await Promise.all([store.getQuote(id), store.listStemEvents(HISTORY_DAYS)]);
     if (!quote) return NextResponse.json({ error: "No such quote." }, { status: 404 });
     const stemPrices: Record<string, number> = {};
-    for (const [v, c] of costPerStemMap(events)) stemPrices[v] = Math.round(c * 100) / 100;
+    for (const [v, c] of lastUnitCostMap(events)) stemPrices[v] = Math.round(c * 100) / 100;
     return NextResponse.json({ quote, stemPrices, backend: store.backend });
   }
 

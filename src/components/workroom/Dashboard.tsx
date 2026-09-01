@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MemoryWarning, PinGate, money, phoneKey, todayISO } from "@/components/workroom/ui";
-import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, mondayOf, recipeUnitCost, saleInstantMs, shrinkTotals } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, consumption, isoDate, lotCosting, mondayOf, saleInstantMs, type SoldCost } from "@/lib/workroom/derive";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
@@ -45,7 +45,7 @@ import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, mondayOf, recipeUni
  * face).
  */
 
-type StemEvent = { id: string; kind: "purchase" | "shrink"; date: string; variety: string; stems: number; cost: number; reason: string };
+type StemEvent = { id: string; kind: "purchase" | "shrink"; date: string; variety: string; stems: number; cost: number; reason: string; createdAt: number };
 type Recipe = { slug: string; parts: { variety: string; stems: number }[] };
 type OrderPayment = { at: number; method: string; totalCents: number; feeCents: number };
 type OrderLine = { slug: string | null; name: string; qty: number; each: number };
@@ -422,9 +422,12 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   const view = useMemo(() => {
     const recipeBySlug = new Map(recipes.map((r) => [r.slug, r]));
 
-    // Blended cost per stem over the whole loaded history, the shared
-    // policy (derive.ts), so a toss prices the same here as on Stems.
-    const costPerStem = costPerStemMap(events);
+    // Lot costing over the whole loaded history (derive.ts): every toss and
+    // every made arrangement drew its stems from the oldest open buy, so a
+    // window only has to add up what its events already cost.
+    const lots = lotCosting({ events, orders, sales, recipeBySlug });
+    const soldByKey = new Map<string, SoldCost>();
+    for (const e of lots.sold) soldByKey.set(`${e.source}:${e.id}:${e.slug}`, e);
 
     // Each sale's instant, resolved once (Date.parse per row per window
     // scan was the hottest wasted work on this screen).
@@ -496,36 +499,46 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         }
       }
       /* margins, keyed by SLUG (three products share the name "Designer's
-         Choice"), costed through recipes at the blended stem cost. What
+         Choice"), costed by what their recipes drew from the lots. What
          cannot be costed is counted, never guessed. Board lines carry a
          slug; item-rung register lines carry the SKU's slug. */
-      const bySlug = new Map<string, { name: string; qty: number; cents: number }>();
-      const addSlug = (slug: string | null, name: string, qty: number, cents: number) => {
+      /* Each row's stem cost is what its lines DREW from the lots when they
+         were made (lot costing), looked up by order or sale id, so revenue
+         and cost describe the same tickets whatever day the making fell on.
+         A ticket not yet made has no cost yet, and the row says so. */
+      const bySlug = new Map<string, { name: string; qty: number; cents: number; costCents: number; madeQty: number; unpriced: number }>();
+      const addSlug = (source: "order" | "sale", id: string, slug: string | null, name: string, qty: number, cents: number) => {
         if (!slug) return;
-        const row = bySlug.get(slug) ?? { name, qty: 0, cents: 0 };
+        const row = bySlug.get(slug) ?? { name, qty: 0, cents: 0, costCents: 0, madeQty: 0, unpriced: 0 };
         row.qty += qty;
         row.cents += cents;
+        const drew = soldByKey.get(`${source}:${id}:${slug}`);
+        if (drew) {
+          row.costCents += Math.round(drew.cost * 100);
+          row.madeQty += drew.qty;
+          row.unpriced += drew.unpriced;
+        }
         bySlug.set(slug, row);
       };
-      for (const o of ordersIn) for (const l of o.lines) addSlug(l.slug, l.name, l.qty, Math.round(l.each * 100) * l.qty);
+      for (const o of ordersIn) for (const l of o.lines) addSlug("order", o.id, l.slug, l.name, l.qty, Math.round(l.each * 100) * l.qty);
       for (const { s, ms } of salesM) {
         if (s.workroomOrderId || !inMs(ms)) continue;
-        for (const l of s.lines) addSlug(l.slug, l.name, l.qty, l.totalCents);
+        for (const l of s.lines) addSlug("sale", s.id, l.slug, l.name, l.qty, l.totalCents);
       }
-      const unitCostCents = (slug: string): number | null => {
-        const recipe = recipeBySlug.get(slug);
-        if (!recipe || recipe.parts.length === 0) return null;
-        const cost = recipeUnitCost(recipe, costPerStem);
-        return cost == null ? null : Math.round(cost * 100);
-      };
       let soldStemCents = 0;
       let uncostedUnits = 0;
-      const margins: { slug: string; name: string; qty: number; cents: number; costCents: number | null; hasRecipe: boolean }[] = [];
+      let unpricedSold = 0;
+      const margins: { slug: string; name: string; qty: number; cents: number; costCents: number | null; why: "" | "no recipe" | "not made yet" | "cost unknown" }[] = [];
       for (const [slug, row] of bySlug) {
-        const unit = unitCostCents(slug);
-        if (unit == null) uncostedUnits += row.qty;
-        else soldStemCents += unit * row.qty;
-        margins.push({ slug, name: row.name, qty: row.qty, cents: row.cents, costCents: unit == null ? null : unit * row.qty, hasRecipe: recipeBySlug.has(slug) });
+        const hasRecipe = recipeBySlug.has(slug);
+        let why: "" | "no recipe" | "not made yet" | "cost unknown" = "";
+        if (!hasRecipe) why = "no recipe";
+        else if (row.madeQty === 0) why = "not made yet";
+        else if (row.costCents === 0 && row.unpriced > 0) why = "cost unknown";
+        if (why) uncostedUnits += row.qty;
+        else soldStemCents += row.costCents;
+        unpricedSold += row.unpriced;
+        margins.push({ slug, name: row.name, qty: row.qty, cents: row.cents, costCents: why ? null : row.costCents, why });
       }
       margins.sort((a, b) => b.cents - a.cents);
 
@@ -540,7 +553,17 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
       const boughtStems = bought.reduce((sum, e) => sum + e.stems, 0);
       const boughtCost = bought.reduce((sum, e) => sum + e.cost, 0);
       const tossed = eventsIn.filter((e) => e.kind === "shrink");
-      const shrink = shrinkTotals(tossed, costPerStem);
+      // Priced by the lots each toss drew from (derive.ts), never an average.
+      const shrink = { stems: 0, cost: 0, unpriced: 0 };
+      for (const e of tossed) {
+        shrink.stems += e.stems;
+        const drew = lots.shrink.get(e.id);
+        if (!drew) shrink.unpriced += e.stems;
+        else {
+          shrink.cost += drew.cost;
+          shrink.unpriced += drew.unpriced;
+        }
+      }
       const reasons = new Map<string, number>();
       if (full) for (const e of tossed) reasons.set(e.reason || "other", (reasons.get(e.reason || "other") ?? 0) + e.stems);
 
@@ -565,7 +588,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         tossedStems: shrink.stems, tossedCost: shrink.cost, unpricedTossed: shrink.unpriced,
         topReasons: [...reasons.entries()].sort((a, b) => b[1] - a[1]),
         consumedStems: consumed.madeTotal, unreciped: consumed.unrecipedLines,
-        soldStemCents, uncostedUnits, margins: full ? margins.slice(0, 8) : [],
+        soldStemCents, uncostedUnits, unpricedSold, margins: full ? margins.slice(0, 8) : [],
         shrinkPct: boughtStems > 0 ? Math.round((shrink.stems / boughtStems) * 100) : null,
       };
     };
@@ -887,7 +910,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
                       <td style={{ ...cell, textAlign: "left" }}>{m.name}</td>
                       <td style={cell}>{m.qty}</td>
                       <td style={cell}>{centsDollars(m.cents)}</td>
-                      <td style={cell}>{m.costCents == null ? (m.hasRecipe ? "cost unknown" : "no recipe") : centsDollars(m.costCents)}</td>
+                      <td style={cell}>{m.costCents == null ? m.why : centsDollars(m.costCents)}</td>
                       <td style={cell}>{m.costCents == null || m.cents === 0 ? "" : `${Math.round(((m.cents - m.costCents) / m.cents) * 100)}%`}</td>
                     </tr>
                   );
@@ -903,6 +926,11 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
       {now.unpricedTossed > 0 && (
         <p style={{ ...note, margin: "8px 0 0" }}>
           {now.unpricedTossed} tossed stem{now.unpricedTossed === 1 ? "" : "s"} had no purchase history to price {now.unpricedTossed === 1 ? "it" : "them"}; counted, not dollared.
+        </p>
+      )}
+      {now.unpricedSold > 0 && (
+        <p style={{ ...note, margin: "8px 0 0" }}>
+          {now.unpricedSold} stem{now.unpricedSold === 1 ? "" : "s"} in what sold had no buy on record to draw from; counted, not dollared.
         </p>
       )}
       {now.unreciped > 0 && (
@@ -932,8 +960,9 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
             add ticket lines to item-rung counter sales.
           </p>
           <p style={{ margin: "8px 0 0" }}>
-            Stems come from the stem log and recipes, consumed by finished orders and item-rung register sales; tossed stems are
-            priced at each variety&rsquo;s average purchase cost on record. Order and stem history reaches back {HISTORY_DAYS} days
+            Stems come from the stem log and recipes, consumed by finished orders and item-rung register sales. Every buy is a
+            lot; tosses and made arrangements draw from the oldest lot with stems left, so a tossed stem costs what its own
+            invoice said, and a sold arrangement costs what its recipe drew when it was made. Order and stem history reaches back {HISTORY_DAYS} days
             here, so a Year view early in January still shows last year whole; the register figures have no such limit when the
             Square link is live.
           </p>

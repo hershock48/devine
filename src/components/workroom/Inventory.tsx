@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { products } from "@/lib/catalog";
 import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, VarietyGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, normalizeVariety, recipeUnitCost, saleInstantMs } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, consumption, isoDate, lotCosting, normalizeVariety, recipeUnitCost, saleInstantMs } from "@/lib/workroom/derive";
 
 /**
  * INVENTORY: the flower ledger, whole. Stems & shrink and Inventory were
@@ -130,17 +130,21 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
     pull().catch(() => {});
   }, [authed, pull]);
 
-  /* The shared blended average over the loaded history (derive.ts), so a
-     toss prices the same here as on the Dashboard tile. */
-  const costPerStem = useMemo(() => costPerStemMap(events), [events]);
-
   const recipeBySlug = useMemo(() => new Map(recipes.map((r) => [r.slug, r])), [recipes]);
   const varietyByName = useMemo(() => new Map(varieties.map((v) => [v.name, v])), [varieties]);
   /** The library's names: the only thing any variety field may say. */
   const libraryNames = useMemo(() => varieties.map((v) => v.name).sort(), [varieties]);
 
-  /** Stem cost of ONE unit of a product (derive.ts: the one costing rule,
-      shared with the Dashboard), null when uncostable. */
+  /* Lot costing over the loaded history (derive.ts), the same walk the
+     Dashboard does, so a toss costs the same on both screens. Two prices
+     come out of it for this page: what the stems ON HAND cost (prices the
+     recipe book's "to make now"), and the LAST invoice price (the one-tap
+     fill on a new buy). */
+  const lots = useMemo(() => lotCosting({ events, orders, sales, recipeBySlug }), [events, orders, sales, recipeBySlug]);
+  const costPerStem = lots.currentUnitCost;
+
+  /** Stem cost of ONE unit of a product at today's on-hand prices
+      (derive.ts), null when any part has never been bought. */
   const recipeCost = useCallback((slug: string) => recipeUnitCost(recipeBySlug.get(slug), costPerStem), [recipeBySlug, costPerStem]);
 
   /* ---------------- the cooler (windowed ledger) ---------------- */
@@ -188,13 +192,12 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
     return { rows, unrecipedLines: consumed.unrecipedLines, customSales: consumed.customSales };
   }, [events, orders, sales, recipeBySlug, coolerStart]);
 
-  const onHand = useCallback(
-    (v: string) => {
-      const r = cooler.rows.get(v);
-      return r ? r.bought - r.tossed - r.made : 0;
-    },
-    [cooler],
-  );
+  /* On hand is the LOTS still open (derive.ts), whatever their age: the
+     window used to decide it (bought minus tossed minus made since day X),
+     which printed -15 the moment a buy fell outside the window while its
+     toss stayed in. The window still scopes the movement columns; the
+     Oldest column says how stale the open lots are. */
+  const onHand = useCallback((v: string) => lots.onHand.get(v)?.stems ?? 0, [lots]);
 
   const canMake = useMemo(() => {
     const out: { slug: string; n: number }[] = [];
@@ -220,7 +223,11 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
     return out.sort((a, b) => b.pct - a.pct).slice(0, 3);
   }, [cooler]);
 
-  const moved = useMemo(() => [...cooler.rows.keys()].sort(), [cooler]);
+  /** Rows: anything that moved in the window, plus anything still on hand. */
+  const moved = useMemo(
+    () => [...new Set([...cooler.rows.keys(), ...[...lots.onHand.entries()].filter(([, o]) => o.stems > 0).map(([v]) => v)])].sort(),
+    [cooler, lots],
+  );
 
   /* ---------------- recipes: coverage and the worth-writing list -------- */
 
@@ -305,8 +312,8 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
       {/* min(300px, 100%): a bare 300px minimum overflows the wrap by 28px at
           a 320 viewport (found by the width check; the wrap offers 272px). */}
       <div style={{ display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", alignItems: "start", marginBottom: 26 }}>
-        <EventForm kind="purchase" library={libraryNames} costPerStem={costPerStem} onSaved={pull} />
-        <EventForm kind="shrink" library={libraryNames} costPerStem={costPerStem} onSaved={pull} />
+        <EventForm kind="purchase" library={libraryNames} lastCost={lots.lastUnitCost} onSaved={pull} />
+        <EventForm kind="shrink" library={libraryNames} lastCost={lots.lastUnitCost} onSaved={pull} />
       </div>
 
       {/* ---------------- 3. the cooler ---------------- */}
@@ -326,8 +333,9 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
         }
       >
         <p className="muted" style={{ margin: "8px 0 0", fontSize: 14 }}>
-          Bought minus tossed minus made since {coolerStart}; ledger arithmetic, not a shelf count.
-          Stems older than the window count as gone.
+          Bought, tossed and made since {coolerStart}. On hand is every buy not yet tossed or made,
+          whatever its age; Oldest says how long the oldest of them has been in. Ledger arithmetic, not
+          a shelf count.
         </p>
         {(cooler.unrecipedLines > 0 || cooler.customSales > 0) && (
           <p className="muted" style={{ margin: "6px 0 0", fontSize: 14 }}>
@@ -363,19 +371,23 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
                   <th style={th}>Made</th>
                   <th style={th}>On hand</th>
                   <th style={th}>Cost/stem</th>
+                  <th style={th}>Oldest</th>
                   <th style={th}><span className="sr-only">Log a toss</span></th>
                 </tr>
               </thead>
               <tbody>
                 {moved.map((name) => {
-                  const r = cooler.rows.get(name)!;
-                  const hand = r.bought - r.tossed - r.made;
-                  /* Windowed on purpose, and NOT the shared blended average
-                     (derive.ts): this column answers "what did this
-                     window's buys cost per stem", while toss pricing and
-                     recipe costing everywhere use the long blended
-                     average. Two different questions, two numbers. */
-                  const cps = r.bought > 0 ? r.cost / r.bought : null;
+                  const r = cooler.rows.get(name) ?? { bought: 0, tossed: 0, made: 0, cost: 0, reasons: new Map<string, number>() };
+                  const hand = onHand(name);
+                  /* Cost/stem is what the stems ON HAND cost, blended over the
+                     open lots (derive.ts), falling back to the last invoice
+                     when nothing is left; the per-window average this column
+                     used to show retired with the blended policy, 2026-09-01.
+                     Oldest is the age of the oldest open lot: the stems that
+                     will die next. */
+                  const open = lots.onHand.get(name);
+                  const cps = costPerStem.get(name) ?? null;
+                  const age = open?.oldest ? Math.max(0, Math.round((Date.now() - new Date(open.oldest + "T12:00:00").getTime()) / 86_400_000)) : null;
                   return (
                     <CoolerRow
                       key={name}
@@ -383,6 +395,7 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
                       r={r}
                       hand={hand}
                       cps={cps}
+                      age={age}
                       td={td}
                       onSaved={pull}
                     />
@@ -586,6 +599,7 @@ function CoolerRow({
   r,
   hand,
   cps,
+  age,
   td,
   onSaved,
 }: {
@@ -593,6 +607,8 @@ function CoolerRow({
   r: { bought: number; tossed: number; made: number };
   hand: number;
   cps: number | null;
+  /** Days since the oldest open lot came in; null when nothing is on hand. */
+  age: number | null;
   td: React.CSSProperties;
   onSaved: () => void;
 }) {
@@ -631,6 +647,7 @@ function CoolerRow({
         <td style={td}>{r.made || ""}</td>
         <td style={{ ...td, fontWeight: 700, color: hand < 0 ? "var(--rose-ink)" : "var(--ink)" }}>{hand}</td>
         <td style={td}>{cps == null ? "" : money(cps)}</td>
+        <td style={{ ...td, color: age != null && age >= 7 ? "var(--rose-ink)" : "var(--muted)" }}>{age == null ? "" : `${age}d`}</td>
         <td style={{ ...td, whiteSpace: "nowrap" }}>
           <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...textButton, fontSize: 13.5, color: open ? "var(--muted)" : "var(--rose-ink)" }}>
             {open ? "Cancel" : "Toss"}
@@ -640,7 +657,7 @@ function CoolerRow({
       </tr>
       {open && (
         <tr>
-          <td colSpan={8} style={{ padding: "8px 8px 12px", borderBottom: "1px solid var(--line)", background: "var(--paper)" }}>
+          <td colSpan={9} style={{ padding: "8px 8px 12px", borderBottom: "1px solid var(--line)", background: "var(--paper)" }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 14.5, fontWeight: 600 }}>Tossing {name}, today:</span>
               <input
@@ -676,23 +693,26 @@ function CoolerRow({
  * unknown name is flagged while typing, refused on save (the server refuses
  * too), and one tap adds it to the library if it is genuinely new.
  *
- * "Paid, total" confused Kevin ("is the employee supposed to look back on
- * what we paid and multiply?"). It is the invoice total for this buy, the
- * one number the receipt has, and the page derives the per-stem cost from
- * it. The truck never needs this form (Weekly order prices its lines from
- * the prebook); it is for the odd buy. When the library has seen this
- * variety before, the form offers the average paid so far as one tap,
- * which fills the field in the open (a typed number, not a silent guess).
+ * THE COST FIELD IS THE P&L INPUT, in Kevin's words (2026-09-01): "what
+ * you paid the wholesaler for that buy, off the invoice". Every shrink
+ * dollar and every margin traces back to it, by lot (derive.ts). Nobody
+ * multiplies anything: the form shows the per-stem figure live. The truck
+ * never needs this form (Weekly order prices its lines from the prebook);
+ * it is for the odd buy. When the variety has been bought before, the form
+ * offers the LAST invoice price as one tap that fills the field in the
+ * open (a typed number, not a silent guess); the last buy is the best
+ * guess for a new one, an average over a year is not.
  */
 function EventForm({
   kind,
   library,
-  costPerStem,
+  lastCost,
   onSaved,
 }: {
   kind: "purchase" | "shrink";
   library: string[];
-  costPerStem: Map<string, number>;
+  /** Most recent invoice price per stem, per variety (derive.ts lots). */
+  lastCost: Map<string, number>;
   onSaved: () => void;
 }) {
   const [date, setDate] = useState(todayISO());
@@ -710,7 +730,7 @@ function EventForm({
   const stemsN = Number(stems);
   const costN = Number(cost);
   const perStem = kind === "purchase" && stemsN > 0 && costN > 0 ? costN / stemsN : null;
-  const usual = kind === "purchase" && name && !unknown ? costPerStem.get(name) ?? null : null;
+  const usual = kind === "purchase" && name && !unknown ? lastCost.get(name) ?? null : null;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -768,8 +788,8 @@ function EventForm({
         </label>
         {kind === "purchase" ? (
           <label>
-            <span style={labelText}>Invoice total</span>
-            <input inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} required placeholder="$ for the whole buy" style={field} />
+            <span style={labelText}>Paid the wholesaler, off the invoice</span>
+            <input inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} required placeholder="$ for this whole buy" style={field} />
           </label>
         ) : (
           <label>
@@ -798,7 +818,7 @@ function EventForm({
       )}
       {kind === "purchase" && perStem == null && usual != null && (
         <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-          Your buys of {name} have averaged {money(usual)} a stem.
+          Your last buy of {name} came to {money(usual)} a stem.
           {stemsN > 0 && (
             <>
               {" "}
