@@ -405,6 +405,19 @@ function OrderCard({
       )}
       {o.notes && <p style={{ margin: "6px 0", fontSize: 14.5, overflowWrap: "anywhere" }}>{o.notes}</p>}
 
+      {/* A new web order says its ask out loud. Kevin walked the customer
+          side, chose pay-on-call, and found the board answering with one
+          muted mid-line phrase and a button that just says Confirmed:
+          nothing told an employee to pick up the phone, or that money still
+          needs arranging. Web orders are the only ones born unspoken-to
+          (phone orders ARE the call), so the instruction belongs on exactly
+          these cards, in the attention color, next to the buttons. */}
+      {o.status === "new" && (
+        <p style={{ margin: "10px 0 0", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
+          New web order: call to confirm{o.payment ? "" : ", then take payment below or on pickup"}.
+        </p>
+      )}
+
       {/* The money corner. Canceled orders take no payment; finished unpaid
           ones still can, because "paid at pickup" happens after "picked up"
           more often than a process diagram admits. */}
