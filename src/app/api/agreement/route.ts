@@ -140,8 +140,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ state: "send-failed", record: text });
   }
 
-  // The client's copy is best-effort; her acceptance already stands either way.
-  transport
+  // The client's copy is best-effort (her acceptance already stands either
+  // way) but it is AWAITED, because fire-and-forget dies on serverless: the
+  // lambda freezes the moment the response returns, and the first live test
+  // proved it by delivering exactly one of the two emails. The await costs a
+  // second of latency; the catch keeps a failed copy from voiding anything.
+  await transport
     .sendMail({
       from: process.env.ORDER_FROM || user,
       to: email,

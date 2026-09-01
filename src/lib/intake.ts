@@ -264,9 +264,13 @@ export async function sendOrder(o: PricedOrder): Promise<SendResult> {
   }
 
   // The customer's receipt is best-effort, pjs style: a customer whose order is
-  // in the shop and whose receipt bounced has an order.
+  // in the shop and whose receipt bounced has an order. But it is AWAITED,
+  // because a fire-and-forget send dies on serverless: the lambda freezes the
+  // moment the response returns, and the agreement flow's first live test
+  // delivered exactly one of its two emails for exactly this reason. The
+  // catch keeps a bounced receipt from failing the order.
   if (o.email) {
-    transport
+    await transport
       .sendMail({
         from: process.env.ORDER_FROM || user,
         to: o.email,
