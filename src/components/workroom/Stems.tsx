@@ -375,12 +375,9 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
 
       <MemoryWarning backend={backend} />
 
-      {/* The point of the typing, in one sentence (Kevin's so-what rule,
-          then his too-wordy rule the same day). */}
-      <p className="lede" style={{ margin: "4px 0 18px" }}>
-        What the cooler holds, what got tossed and why, and the recipes that price it all. This
-        page feeds the Dashboard and the Quotes prefills.
-      </p>
+      {/* No lede, on purpose. The screen once introduced itself here; Kevin
+          cut it (2026-09-01): the sections are self-explanatory, and copy
+          about the page is glaze.md's own thing to cut. Do not re-add. */}
 
       {/* ---------------- the cooler ---------------- */}
       <section className="panel" style={{ marginBottom: 26 }}>
