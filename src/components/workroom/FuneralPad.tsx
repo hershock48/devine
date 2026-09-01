@@ -623,7 +623,7 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
             <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, display: "grid", gap: 8 }}>
               {placed ? (
                 <p style={{ margin: 0, fontSize: 14.5, color: "var(--green)", fontWeight: 600 }}>
-                  On the board as {placed}. <a href="/workroom">Open the board</a>.
+                  On the board as {placed}. <a href="/workroom/orders">Open the board</a>.
                 </p>
               ) : (
                 <>

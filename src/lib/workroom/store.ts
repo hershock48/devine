@@ -726,7 +726,7 @@ const postgresStore: Store = {
        WHERE status NOT IN ('done', 'canceled')
           OR (status = 'done' AND data->'payment' IS NULL)
           OR created_at >= $1
-       ORDER BY created_at ASC LIMIT 500`,
+       ORDER BY created_at ASC LIMIT 2000`,
       [cutoff(days)],
     );
     return r.rows.map((row) => row.data as WorkroomOrder);
@@ -795,7 +795,7 @@ const postgresStore: Store = {
   async listStemEvents(days) {
     const pool = await pgPool();
     const r = await pool.query(
-      `SELECT data FROM workroom_stems WHERE created_at >= $1 ORDER BY created_at ASC LIMIT 2000`,
+      `SELECT data FROM workroom_stems WHERE created_at >= $1 ORDER BY created_at ASC LIMIT 5000`,
       [cutoff(days)],
     );
     return r.rows.map((row) => row.data as StemEvent);
@@ -852,7 +852,7 @@ const postgresStore: Store = {
   async listSquareSales(days) {
     const pool = await pgPool();
     const r = await pool.query(
-      `SELECT data FROM square_sales WHERE created_at >= $1 ORDER BY created_at DESC LIMIT 2000`,
+      `SELECT data FROM square_sales WHERE created_at >= $1 ORDER BY created_at DESC LIMIT 5000`,
       [cutoff(days)],
     );
     return r.rows.map((row) => row.data as SquareSale);

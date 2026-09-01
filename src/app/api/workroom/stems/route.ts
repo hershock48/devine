@@ -11,15 +11,19 @@ import { getStore, newId, normalizeVariety, SHRINK_REASONS, type StemEvent } fro
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  // The tracker wants its quarter; the dashboard's year view asks for 400
+  // days so a January screen can still show last year whole. Clamped, so a
+  // typo cannot ask the database for a decade.
+  const days = Math.min(400, Math.max(7, Math.round(Number(new URL(req.url).searchParams.get("days"))) || 90));
   const store = getStore();
   const [events, recipes, orders, varieties, squareSales] = await Promise.all([
-    store.listStemEvents(90),
+    store.listStemEvents(days),
     store.listRecipes(),
-    store.listOrders(90),
+    store.listOrders(days),
     store.listVarieties(),
-    store.listSquareSales(90),
+    store.listSquareSales(days),
   ]);
   return NextResponse.json({ events, recipes, orders, varieties, squareSales, backend: store.backend });
 }

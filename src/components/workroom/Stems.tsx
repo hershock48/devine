@@ -209,8 +209,8 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
           go?" and the honest answer was three other tabs, silently. */}
       <p className="lede" style={{ margin: "4px 0 18px" }}>
         Everything logged here feeds three places: what the cooler holds on Inventory, the
-        prefilled flower costs on Quotes, and the shrink and made numbers on This week. Skip the
-        logging and those pages go quiet, not wrong.
+        prefilled flower costs on Quotes, and the shrink and made numbers on the Dashboard. Skip
+        the logging and those pages go quiet, not wrong.
       </p>
 
       {/* ---------------- the week ---------------- */}

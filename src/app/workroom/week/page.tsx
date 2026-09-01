@@ -1,10 +1,10 @@
-import type { Metadata } from "next";
-import Week from "@/components/workroom/Week";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "This week" };
-export const dynamic = "force-dynamic";
-
-export default async function WeekPage() {
-  return <Week initialAuthed={await isWorkroomAuthed()} />;
+/**
+ * "This week" grew into the dashboard and moved to the workroom's front
+ * door (2026-09-01). The address survives because a tab on the counter
+ * computer may still hold it.
+ */
+export default function WeekPage() {
+  redirect("/workroom");
 }

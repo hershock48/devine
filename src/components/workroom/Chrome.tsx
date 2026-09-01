@@ -18,8 +18,8 @@ import { site } from "@/lib/site";
  */
 
 const TABS = [
-  { href: "/workroom", label: "Orders" },
-  { href: "/workroom/week", label: "This week" },
+  { href: "/workroom", label: "Dashboard" },
+  { href: "/workroom/orders", label: "Orders" },
   { href: "/workroom/stems", label: "Stems & shrink" },
   { href: "/workroom/inventory", label: "Inventory" },
   { href: "/workroom/weekly-order", label: "Weekly order" },
@@ -32,8 +32,8 @@ export default function WorkroomChrome() {
 
   /* /workroom matches only itself; the others own their whole subtree, so a
      single quote at /workroom/quotes/<id> still lights the Quotes tab. The
-     boundary slash matters: a bare startsWith lit This week (/workroom/week)
-     on the Weekly order page (/workroom/weekly-order). */
+     boundary slash matters: a bare startsWith once lit the /workroom/week
+     tab on the Weekly order page (/workroom/weekly-order). */
   const isActive = (href: string) =>
     href === "/workroom" ? path === href : path === href || path.startsWith(href + "/");
 
@@ -46,7 +46,7 @@ export default function WorkroomChrome() {
     <header className="wr-chrome">
       <div className="wr-chrome-in">
         {/* The brand is the way home: everyone expects the top-left mark to
-            go somewhere, and here somewhere is the board (Kevin's ask). */}
+            go somewhere, and since 2026-09-01 somewhere is the dashboard. */}
         <a className="wr-brand" href="/workroom" style={{ textDecoration: "none", color: "inherit" }}>
           <span className="wr-shop">{site.shortName}</span>
           <span className="wr-word">Workroom</span>

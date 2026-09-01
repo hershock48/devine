@@ -13,10 +13,12 @@ export const dynamic = "force-dynamic";
 
 const STATUSES: OrderStatus[] = ["new", "confirmed", "made", "out", "done", "canceled"];
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  // The board reads its 60 days; the dashboard's year view asks for 400.
+  const days = Math.min(400, Math.max(1, Math.round(Number(new URL(req.url).searchParams.get("days"))) || 60));
   const store = getStore();
-  const [orders, contacts] = await Promise.all([store.listOrders(60), store.listOrderContacts()]);
+  const [orders, contacts] = await Promise.all([store.listOrders(days), store.listOrderContacts()]);
   // contacts spans the whole history, so "her third order this year" still
   // counts after the first two age off the 60-day board.
   return NextResponse.json({ orders, contacts, backend: store.backend });
