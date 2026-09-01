@@ -75,7 +75,6 @@ type Variety = {
 
 const REASONS = ["wilted", "damaged", "overbought", "event fell through", "other"];
 
-const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name));
 const productName = new Map(products.map((p) => [p.slug, p.name]));
 const productPrice = new Map(products.map((p) => [p.slug, p.price]));
 
@@ -84,6 +83,8 @@ const productPrice = new Map(products.map((p) => [p.slug, p.price]));
     count against recipe coverage. */
 const recipeEligible = products.filter((p) => p.cats.some((c) => c !== "gifts-add-ons"));
 const recipeEligibleSlugs = new Set(recipeEligible.map((p) => p.slug));
+/** The recipe picker's option list: eligible designs only, by name. */
+const sortedEligible = [...recipeEligible].sort((a, b) => a.name.localeCompare(b.name));
 
 /** Monday-to-Sunday week containing the given yyyy-mm-dd (the shared Monday
     anchor from derive.ts, so this page's week and the dashboard's Week range
@@ -579,12 +580,52 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
       </section>
 
       {/* ---------------- recipes ---------------- */}
+      {/* THE BOOK BEFORE THE PEN. The first version was a form with no read
+          view: the only way to see a recipe was to select its product in a
+          dropdown, and Kevin read the whole section as half done. He was
+          right. What exists is listed first, legibly; the editor follows. */}
       <section className="panel" style={{ marginBottom: 26 }}>
         <h2 style={{ fontSize: 22, margin: 0 }}>Recipes</h2>
         <p className="muted" style={{ margin: "8px 0 0", fontSize: 14 }}>
           Recipes cover {recipeCoverage.covered} of {recipeCoverage.total} designs (gift items need
           none). A recipe turns a sale into counted stems, a margin, and a prefilled quote.
         </p>
+
+        {recipes.length === 0 ? (
+          <p style={{ margin: "12px 0 0", fontSize: 14.5 }}>
+            None written yet. A recipe is the stem list inside one design: a dozen red roses might
+            be 12 roses + 4 eucalyptus.
+          </p>
+        ) : (
+          <div style={{ margin: "12px 0 0" }}>
+            {[...recipes]
+              .sort((a, b) => (productName.get(a.slug) ?? a.slug).localeCompare(productName.get(b.slug) ?? b.slug))
+              .map((r) => {
+                const name = productName.get(r.slug) ?? r.slug;
+                const price = productPrice.get(r.slug);
+                const cost = recipeCost(r.slug);
+                return (
+                  <div key={r.slug} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "6px 0", borderBottom: "1px solid var(--line)", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 600 }}>{name}</span>
+                    <span className="muted" style={{ flex: "1 1 200px", minWidth: 0 }}>
+                      {r.parts.map((p) => `${p.stems} ${p.variety}`).join(" + ") || "no parts yet"}
+                    </span>
+                    <span style={{ fontSize: 14, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                      {cost == null
+                        ? "cost unknown"
+                        : price != null && price > 0
+                          ? `${money(cost)} of ${money(price)} · ${Math.round(((price - cost) / price) * 100)}%`
+                          : money(cost)}
+                    </span>
+                    <button type="button" onClick={() => setPickSlug(r.slug)} style={{ ...textButton, fontSize: 13.5 }}>
+                      Edit<span className="sr-only"> the {name} recipe</span>
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+
         {recipeCoverage.missing.length > 0 && (
           <div style={{ margin: "12px 0 4px" }}>
             <p style={{ margin: "0 0 6px", fontSize: 14.5, fontWeight: 600 }}>
@@ -922,13 +963,29 @@ function RecipeForm({
     <form onSubmit={submit} style={{ display: "grid", gap: 12, maxWidth: 480 }}>
       <label>
         <span style={labelText}>Product</span>
+        {/* Recipe-eligible designs only (a chocolate box has no stems), and
+            written-versus-needed said in words: the first version offered
+            all 57 products and marked existing recipes with a bare dot. */}
         <select value={slug} onChange={(e) => pick(e.target.value)} required style={field}>
           <option value="">Choose one</option>
-          {sortedProducts.map((p) => (
-            <option key={p.slug} value={p.slug}>
-              {p.name} ({money(p.price)}){recipes.has(p.slug) ? " ·" : ""}
-            </option>
-          ))}
+          {sortedEligible.some((p) => !recipes.has(p.slug)) && (
+            <optgroup label="Needs a recipe">
+              {sortedEligible.filter((p) => !recipes.has(p.slug)).map((p) => (
+                <option key={p.slug} value={p.slug}>
+                  {p.name} ({money(p.price)})
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {sortedEligible.some((p) => recipes.has(p.slug)) && (
+            <optgroup label="Already written">
+              {sortedEligible.filter((p) => recipes.has(p.slug)).map((p) => (
+                <option key={p.slug} value={p.slug}>
+                  {p.name} ({money(p.price)})
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
       </label>
       {slug && (
