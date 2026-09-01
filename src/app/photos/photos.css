@@ -1,0 +1,147 @@
+/* The owner's photo drop. Same materials as the site (globals.css tokens),
+   agreement-page shape: one measured column, no site chrome, noindexed. */
+
+.ph {
+  max-width: 660px;
+  margin: 0 auto;
+  padding: 56px 24px 96px;
+}
+.ph-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--rose-ink);
+  margin: 0 0 14px;
+}
+.ph h1 {
+  font-size: clamp(36px, 7vw, 50px);
+  margin-bottom: 18px;
+  text-wrap: balance;
+}
+.ph .lede {
+  font-size: 17px;
+  color: var(--muted);
+  margin: 0 0 10px;
+  max-width: 58ch;
+}
+
+.ph-progress {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  border-block: 1px solid var(--line);
+  padding: 14px 0;
+  margin: 30px 0 4px;
+}
+.ph-progress b {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.ph-progress span {
+  font-size: 11.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.ph-warn {
+  background: var(--paper-2);
+  border-left: 3px solid var(--rose-ink);
+  padding: 12px 16px;
+  border-radius: 0 2px 2px 0;
+  font-size: 15px;
+  margin: 18px 0 0;
+}
+
+.ph-tier { margin-top: 42px; }
+.ph-tier h2 {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+.ph-tier > p { color: var(--muted); font-size: 15px; margin: 0 0 14px; max-width: 56ch; }
+.ph-tier ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.ph-tier li { border-bottom: 1px solid var(--line); padding: 12px 0; }
+
+.ph-row { display: flex; align-items: center; gap: 14px; }
+.ph-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--serif);
+  font-size: 20px;
+  line-height: 1.25;
+}
+li.done .ph-name { color: var(--muted); }
+.ph-price { flex: 0 0 auto; color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
+
+/* The tap target is the whole label; the input hides inside it. 12px of
+   vertical padding puts the touch box past 44px. */
+.ph-add {
+  flex: 0 0 auto;
+  position: relative;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  padding: 10px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ph-add:hover { background: var(--ink); color: var(--paper); }
+.ph-add.ph-busy { opacity: .55; cursor: wait; }
+.ph-add input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.ph-add:has(input:focus-visible) { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+.ph-state { flex: 0 0 auto; font-size: 14px; font-weight: 600; }
+.ph-in { color: var(--green); }
+
+.ph-note { margin: 6px 0 0; font-size: 13.5px; color: var(--muted); }
+.ph-retake {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  margin: -6px 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.ph-retake:hover { color: var(--rose-ink); }
+.ph-err { margin: 6px 0 0; font-size: 14px; color: var(--rose-ink); }
+
+.ph-aside {
+  margin-top: 44px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--rose-ink);
+  padding: 16px 20px;
+  border-radius: 0 2px 2px 0;
+  font-size: 15px;
+}
+.ph-aside p { margin: 0 0 10px; }
+.ph-aside p:last-child { margin: 0; }
+.ph-foot {
+  margin-top: 48px;
+  color: var(--muted);
+  font-size: 13.5px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}

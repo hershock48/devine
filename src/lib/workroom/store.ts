@@ -358,6 +358,24 @@ export type OrderContact = {
   zip: string;
 };
 
+/**
+ * One product photograph the owner submitted through /photos. The row is the
+ * PROGRESS LEDGER, not the photo: the image itself rides the email to Kevin
+ * (a database this small should not hold megabytes of JPEG), and this row is
+ * what lets the page show her a checkmark from any device. slug is the
+ * catalog slug the photo is for; resubmitting the same slug upserts, because
+ * a better second photo of Eliza should not read as two designs done.
+ */
+export type PhotoSubmission = {
+  /** The catalog slug: one row per design, latest submission wins. */
+  slug: string;
+  name: string;
+  filename: string;
+  /** Bytes of the JPEG as emailed, for the ledger only. */
+  bytes: number;
+  createdAt: number;
+};
+
 type Store = {
   backend: "postgres" | "memory";
   createOrder(o: WorkroomOrder): Promise<void>;
@@ -424,6 +442,8 @@ type Store = {
   clearSquareTokens(): Promise<void>;
   addAgreementAcceptance(a: AgreementAcceptance): Promise<void>;
   listAgreementAcceptances(): Promise<AgreementAcceptance[]>;
+  upsertPhotoSubmission(p: PhotoSubmission): Promise<void>;
+  listPhotoSubmissions(): Promise<PhotoSubmission[]>;
 };
 
 export const SHRINK_REASONS = ["wilted", "damaged", "overbought", "event fell through", "other"] as const;
@@ -449,6 +469,7 @@ type Bag = {
   plants: Map<string, PlantItem>;
   squareTokens: SquareTokens | null;
   acceptances: Map<string, AgreementAcceptance>;
+  photoSubs: Map<string, PhotoSubmission>;
 };
 
 function bag(): Bag {
@@ -465,6 +486,7 @@ function bag(): Bag {
       plants: new Map(),
       squareTokens: null,
       acceptances: new Map(),
+      photoSubs: new Map(),
     };
   }
   // A bag created by an older module instance predates the newer maps.
@@ -476,6 +498,7 @@ function bag(): Bag {
   if (!b.plants) b.plants = new Map();
   if (b.squareTokens === undefined) b.squareTokens = null;
   if (!b.acceptances) b.acceptances = new Map();
+  if (!b.photoSubs) b.photoSubs = new Map();
   return b;
 }
 
@@ -613,6 +636,12 @@ const memoryStore: Store = {
   async listAgreementAcceptances() {
     return [...bag().acceptances.values()].sort((a, b) => b.createdAt - a.createdAt);
   },
+  async upsertPhotoSubmission(p) {
+    bag().photoSubs.set(p.slug, p);
+  },
+  async listPhotoSubmissions() {
+    return [...bag().photoSubs.values()].sort((a, b) => b.createdAt - a.createdAt);
+  },
 };
 
 /* ----------------------------- postgres ----------------------------- */
@@ -691,6 +720,11 @@ async function pgPool(): Promise<PgPool> {
       );
       CREATE TABLE IF NOT EXISTS agreement_acceptances (
         id text PRIMARY KEY,
+        created_at bigint NOT NULL,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS photo_submissions (
+        slug text PRIMARY KEY,
         created_at bigint NOT NULL,
         data jsonb NOT NULL
       );
@@ -940,6 +974,19 @@ const postgresStore: Store = {
     const pool = await pgPool();
     const r = await pool.query(`SELECT data FROM agreement_acceptances ORDER BY created_at DESC LIMIT 100`);
     return r.rows.map((row) => row.data as AgreementAcceptance);
+  },
+  async upsertPhotoSubmission(p) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO photo_submissions (slug, created_at, data) VALUES ($1, $2, $3)
+       ON CONFLICT (slug) DO UPDATE SET created_at = $2, data = $3`,
+      [p.slug, p.createdAt, JSON.stringify(p)],
+    );
+  },
+  async listPhotoSubmissions() {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM photo_submissions ORDER BY created_at DESC LIMIT 200`);
+    return r.rows.map((row) => row.data as PhotoSubmission);
   },
 };
 
