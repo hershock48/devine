@@ -373,7 +373,11 @@ function OrderCard({
         <strong style={{ letterSpacing: "0.04em", color: o.fulfillment === "delivery" ? "var(--rose-ink)" : "var(--ink)" }}>
           {o.fulfillment === "delivery" ? "DELIVER" : "PICKUP"}
         </strong>
-        {o.occasion ? ` · ${o.occasion}` : ""}
+        {/* "Everyday" is her word for no-particular-occasion, so on the
+            board it is the absence of information and floats like a typo
+            (Kevin's read). Real occasions still show; Everyday stays on
+            the ticket email, where its Occasion: label explains it. */}
+        {o.occasion && o.occasion !== "Everyday" ? ` · ${o.occasion}` : ""}
         {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
       </p>
 
