@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, VarietyGate } from "@/components/workroom/ui";
-import { normalizeVariety } from "@/lib/workroom/derive";
+import { consumption, HISTORY_DAYS, isoDate, lotCosting, mondayOf, normalizeVariety, saleInstantMs } from "@/lib/workroom/derive";
 import PlantsSection from "@/components/workroom/Plants";
 
 /**
@@ -16,7 +16,9 @@ import PlantsSection from "@/components/workroom/Plants";
  * shop edits from there. "The truck came" is the payoff tap: every line
  * becomes a purchase in the cooler ledger, dated the truck date, priced
  * from the prebook, with bunches converted to stems by the stems-per-bunch
- * the shop taught it once.
+ * the shop taught it once. Beside each variety the sheet reads back what
+ * the cooler holds and what last week used, straight from the Inventory
+ * ledger, so the quantity typed next to them is a decision, not a guess.
  *
  * WHAT THIS PAGE DOES NOT DO: place the order. Nothing is transmitted to
  * Kennicott or anyone; she orders with her rep the way she always has,
@@ -35,6 +37,17 @@ type WeeklyOrder = {
   updatedAt: number;
 };
 type Variety = { name: string; stemsPerBunch: number | null };
+
+/* The cooler ledger, fetched only when the composer opens: the order sheet
+   answers "how much do I buy?" and the honest inputs to that are what is on
+   hand now and what last week actually used. Shapes are the structural
+   subsets derive.ts computes with, so these columns and the Inventory tab
+   can never disagree on a number. */
+type LedgerEvent = { id: string; kind: string; date: string; variety: string; stems: number; cost: number; createdAt: number };
+type LedgerOrder = { id: string; status: string; date: string; lines: { slug: string | null; qty: number }[] };
+type LedgerSale = { id: string; paidAt: string; createdAt: number; workroomOrderId?: string; lines: { slug: string | null; qty: number }[] };
+type LedgerRecipe = { slug: string; parts: { variety: string; stems: number }[] };
+type Ledger = { events: LedgerEvent[]; orders: LedgerOrder[]; sales: LedgerSale[]; recipes: LedgerRecipe[] };
 
 const blankLine = (): Line => ({ variety: "", qty: "1", unit: "bunch", unitPrice: "", stemsPerBunch: "", note: "" });
 
@@ -55,6 +68,7 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
   /** Lines whose variety was just added via the gate, so the confirmation
       stays visible after the library refresh clears the flag itself. */
   const [justAdded, setJustAdded] = useState<Record<number, string>>({});
+  const [ledger, setLedger] = useState<Ledger | null>(null);
 
   const pull = useCallback(async () => {
     const [ro, rv] = await Promise.all([
@@ -80,6 +94,56 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
 
   const spbByName = useMemo(() => new Map(varieties.map((v) => [v.name, v.stemsPerBunch])), [varieties]);
 
+  // Fetched fresh each time the composer opens (the openers reset it to
+  // null), so a truck logged five minutes ago is already in the on-hand
+  // column the next time the sheet is built.
+  useEffect(() => {
+    if (!open || !authed || ledger) return;
+    let dead = false;
+    fetch(`/api/workroom/stems?days=${HISTORY_DAYS}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (dead || !d) return;
+        setLedger({ events: d.events ?? [], orders: d.orders ?? [], sales: d.squareSales ?? [], recipes: d.recipes ?? [] });
+      })
+      .catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, [open, authed, ledger]);
+
+  /* On hand comes from the same FIFO lot walk Inventory's cooler table
+     runs; last week's use from the same consumption rule the dashboard
+     uses, over the last COMPLETE Monday-to-Sunday week, because a partial
+     week understates and a fake number is worse than none. */
+  const usage = useMemo(() => {
+    if (!ledger) return null;
+    const recipeBySlug = new Map<string, LedgerRecipe>(ledger.recipes.map((r) => [r.slug, r]));
+    const onHand = lotCosting({ events: ledger.events, orders: ledger.orders, sales: ledger.sales, recipeBySlug }).onHand;
+    const thisMon = mondayOf(new Date());
+    const prevMon = new Date(thisMon.getFullYear(), thisMon.getMonth(), thisMon.getDate() - 7);
+    const fromISO = isoDate(prevMon);
+    const toISO = isoDate(thisMon);
+    const fromMs = prevMon.getTime();
+    const toMs = thisMon.getTime();
+    const used = consumption({
+      orders: ledger.orders,
+      sales: ledger.sales,
+      recipeBySlug,
+      orderInWindow: (d) => d >= fromISO && d < toISO,
+      saleInWindow: (s) => {
+        const ms = saleInstantMs((s as LedgerSale).paidAt, (s as LedgerSale).createdAt);
+        return ms >= fromMs && ms < toMs;
+      },
+    }).made;
+    const tossed = new Map<string, number>();
+    for (const e of ledger.events) {
+      if (e.kind !== "shrink" || e.date < fromISO || e.date >= toISO) continue;
+      tossed.set(e.variety, (tossed.get(e.variety) ?? 0) + e.stems);
+    }
+    return { onHand, used, tossed };
+  }, [ledger]);
+
   function loadDraft(o: WeeklyOrder) {
     setId(o.id);
     setDeliveryDate(o.deliveryDate);
@@ -94,6 +158,7 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
         note: l.note,
       })),
     );
+    setLedger(null);
     setOpen(true);
     setStatus("");
   }
@@ -114,6 +179,7 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
           }))
         : [blankLine()],
     );
+    setLedger(null);
     setOpen(true);
     setStatus("");
   }
@@ -222,6 +288,9 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
   }
 
   const tiny: React.CSSProperties = { ...field, padding: "7px 8px", fontSize: 14.5 };
+  /* The two read columns whisper: muted, no borders, no inputs. They inform
+     the Qty beside them without competing with it. */
+  const infoCell: React.CSSProperties = { padding: "3px 8px", fontSize: 13.5, color: "var(--muted)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
 
   return (
     <>
@@ -277,12 +346,26 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
             </button>
           </div>
 
-          <div tabIndex={0} role="region" aria-label="Order lines" style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", minWidth: 700, borderCollapse: "collapse", fontSize: 14.5 }}>
+          {/* position:relative so the Remove buttons' sr-only spans anchor
+              inside this scroll box; absolute children of an unpositioned
+              wrapper escape it and stretch the whole page sideways (the
+              390px lesson, learned once already on the dashboard). */}
+          <div tabIndex={0} role="region" aria-label="Order lines" style={{ overflowX: "auto", position: "relative" }}>
+            <table style={{ width: "100%", minWidth: 840, borderCollapse: "collapse", fontSize: 14.5 }}>
               <thead>
                 <tr>
-                  {["Variety", "Qty", "Unit", "$ each", "Stems/bunch", "Note", ""].map((h) => (
-                    <th key={h || "rm"} style={{ textAlign: "left", padding: "4px 6px", fontSize: 12.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--muted)" }}>
+                  {["Variety", "On hand", "Last wk", "Qty", "Unit", "$ each", "Stems/bunch", "Note", ""].map((h) => (
+                    <th
+                      key={h || "rm"}
+                      title={
+                        h === "On hand"
+                          ? "Stems in the cooler right now, from the ledger"
+                          : h === "Last wk"
+                            ? "Stems used and tossed last week, Monday through Sunday"
+                            : undefined
+                      }
+                      style={{ textAlign: "left", padding: "4px 6px", fontSize: 12.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--muted)", whiteSpace: "nowrap" }}
+                    >
                       {h}
                     </th>
                   ))}
@@ -311,6 +394,26 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
                         onChange={(e) => setLineVariety(e.target.value)}
                         style={tiny}
                       />
+                    </td>
+                    <td style={infoCell}>
+                      {/* 0 is a finding ("you are out"); a dash is a variety the
+                          ledger has never seen. Blank only while loading. */}
+                      {usage && lineName ? (library.has(lineName) ? (usage.onHand.get(lineName)?.stems ?? 0) : "—") : ""}
+                    </td>
+                    <td style={infoCell}>
+                      {(() => {
+                        if (!usage || !lineName) return "";
+                        const u = usage.used.get(lineName) ?? 0;
+                        const t = usage.tossed.get(lineName) ?? 0;
+                        if (u === 0 && t === 0) return "—";
+                        return (
+                          <>
+                            {u > 0 && `${u} used`}
+                            {u > 0 && t > 0 && " · "}
+                            {t > 0 && <span style={{ color: "var(--rose-ink)" }}>{t} tossed</span>}
+                          </>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: 3 }}>
                       <input aria-label={`Line ${i + 1} quantity`} inputMode="numeric" value={l.qty} onChange={(e) => setLines((cur) => cur.map((x, at) => (at === i ? { ...x, qty: e.target.value } : x)))} style={{ ...tiny, width: 58, textAlign: "right" }} />
@@ -342,7 +445,7 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
                   </tr>
                   {flagged && (
                     <tr>
-                      <td colSpan={7} style={{ padding: "0 6px 6px" }}>
+                      <td colSpan={9} style={{ padding: "0 6px 6px" }}>
                         <VarietyGate
                           value={l.variety}
                           library={libraryNames}
