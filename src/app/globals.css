@@ -1287,6 +1287,23 @@ main:has(> :last-child.band) + .site-foot { margin-top: 0; }
      ink, because the plate is Glazed's ground, not the client's. */
   color: var(--gw-plate-ink);
   font-size: 12px;
+  /* THE SHIELD. The plate lives inside <footer class="site-foot">, and
+     `.site-foot a` (0-1-1) beats bare `.gw-credit` (0-1-0), so the credit
+     was rendering as the footer's inline-block link: flex lost, the donut
+     wrapped under the words (Kevin's photo, 2026-09-01), and hover would
+     have painted the rose underline on Glazed's chocolate. This rule
+     (0-2-0) restores the credit's own layout wherever the plate is
+     mounted. If the credit ever mis-renders on another site, look for that
+     site's own footer-link rule first. */
+  display: inline-flex;
+  padding: 0;
+  margin: 0;
+  border-bottom: 0;
+}
+.gw-plate .gw-credit:hover,
+.gw-plate .gw-credit:focus-visible {
+  color: var(--gw-plate-ink);
+  border-bottom: 0;
 }
 @media (max-width: 640px) {
   .gw-plate-drip { height: 34px; }
