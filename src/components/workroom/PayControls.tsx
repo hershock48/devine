@@ -176,7 +176,6 @@ export default function PayControls({
         }}
       >
         Paid · {payment.method === "other" ? "another way" : payment.method} · {dollars(payment.totalCents)}
-        {payment.feeCents > 0 ? " (incl. order fee)" : ""}
       </p>
     );
   }
