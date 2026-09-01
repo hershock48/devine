@@ -39,7 +39,14 @@ if (args.length === 0) {
 const IMG_RE = /\.(jpe?g|png|webp)$/i;
 const files = args.flatMap((a) => {
   const full = path.resolve(a);
-  if (statSync(full).isDirectory()) {
+  let st;
+  try {
+    st = statSync(full);
+  } catch {
+    console.error(`no such file or directory: ${a}`);
+    process.exit(1);
+  }
+  if (st.isDirectory()) {
     return readdirSync(full)
       .filter((f) => IMG_RE.test(f))
       .map((f) => path.join(full, f));
@@ -84,8 +91,10 @@ for (const file of files) {
 }
 
 if (done.length) {
-  // sort_keys=True in the python writer; keep the file diff-stable.
-  const sorted = Object.fromEntries(Object.entries(manifest).sort(([a], [b]) => a.localeCompare(b)));
+  // sort_keys=True in the python writer; keep the file diff-stable. Plain
+  // code-unit comparison, not localeCompare: locale collation varies by
+  // machine, and a manifest that reorders itself per contributor is churn.
+  const sorted = Object.fromEntries(Object.entries(manifest).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   writeFileSync(manifestPath, JSON.stringify(sorted, null, 1));
   execFileSync(process.execPath, [path.join(ROOT, "tools/og-products.mjs")], { cwd: ROOT, stdio: "inherit" });
 }

@@ -20,9 +20,8 @@ export const runtime = "nodejs";
  * tolerated: the photo reached a person, which is the part that matters.
  *
  * No PIN on this page, deliberately: it is for the owner, who has no login,
- * and the worst an abuser can do is email Kevin pictures. The throttle keeps
- * that boring: 40 posts per 10 minutes per IP covers her biggest batch and
- * starves a script.
+ * and the worst an abuser can do is email Kevin pictures. The throttle (see
+ * LIMIT below for the number and its reasoning) keeps that boring.
  */
 
 /*
@@ -139,7 +138,13 @@ export async function POST(req: Request) {
 
   const store = getStore();
   let submitted: string[] = [];
+  let firstTimeForSlug = false;
   try {
+    // Read BEFORE the upsert: whether this slug was already in makes the
+    // difference between "the batch just finished" and "a retake on a
+    // finished batch", and only the first may announce completion below.
+    const prior = (await store.listPhotoSubmissions()).map((s) => s.slug);
+    firstTimeForSlug = !prior.includes(slug);
     await store.upsertPhotoSubmission({
       slug,
       name: product.name,
@@ -148,7 +153,7 @@ export async function POST(req: Request) {
       thumb,
       createdAt: Date.now(),
     });
-    submitted = (await store.listPhotoSubmissions()).map((s) => s.slug);
+    submitted = firstTimeForSlug ? [...prior, slug] : prior;
   } catch (err) {
     // The photo is already in Kevin's inbox; a ledger miss only costs a
     // checkmark. Say so in the log, not to her.
@@ -156,12 +161,13 @@ export async function POST(req: Request) {
     submitted = [slug];
   }
 
-  // When the last needed design lands, Kevin gets one more email saying the
-  // list is finished, which is the "once it's completed it can be sent to me"
-  // part of the ask. Best-effort: the completion mail failing must not fail
+  // When the LAST needed design lands for the first time, Kevin gets one more
+  // email saying the list is finished — and only then: without the
+  // firstTimeForSlug gate, every retake on a finished list re-announced
+  // COMPLETE forever. Best-effort: the completion mail failing must not fail
   // the photo that triggered it.
   const remaining = [...neededSlugs()].filter((s) => !submitted.includes(s));
-  if (remaining.length === 0) {
+  if (remaining.length === 0 && firstTimeForSlug) {
     await transport
       .sendMail({
         from: process.env.ORDER_FROM || user,

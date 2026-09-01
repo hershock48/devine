@@ -48,10 +48,11 @@ export default async function PhotosPage() {
         site is Kevin&rsquo;s job, not yours.
       </p>
 
+      {/* Slugs only; the thumbnails come by fetch after mount (see the note
+          in PhotoDrop) so a finished list never weighs a megabyte of page. */}
       <PhotoDrop
         tiers={tiers}
         initialSubmitted={submitted.map((s) => s.slug)}
-        initialThumbs={Object.fromEntries(submitted.filter((s) => s.thumb).map((s) => [s.slug, s.thumb!]))}
         backend={store.backend}
         mailReady={mailReady}
       />

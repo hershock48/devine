@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * The owner's upload rows for /photos.
@@ -89,26 +89,49 @@ async function toJpegDataUrl(file: File): Promise<{ dataUrl: string; thumb?: str
 export default function PhotoDrop({
   tiers,
   initialSubmitted,
-  initialThumbs,
   backend,
   mailReady,
 }: {
   tiers: Tier[];
   initialSubmitted: string[];
-  initialThumbs: Record<string, string>;
   backend: string;
   mailReady: boolean;
 }) {
   const [submitted, setSubmitted] = useState<Set<string>>(() => new Set(initialSubmitted));
-  const [thumbs, setThumbs] = useState<Record<string, string>>(initialThumbs);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Set<string>>(() => new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  /*
+    THE THUMBS ARRIVE BY FETCH, NOT IN THE PAGE. The server component passes
+    only the submitted slugs: with all 34 done, embedding ~16KB-per-row data
+    URLs in the page would ship them twice (HTML and hydration payload), a
+    megabyte of page for a checklist. One request after mount fills them in,
+    and a request that fails costs previews, never checkmarks.
+  */
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/photos")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { submitted?: string[]; thumbs?: Record<string, string> } | null) => {
+        if (!alive || !data) return;
+        if (data.thumbs) setThumbs((t) => ({ ...data.thumbs, ...t }));
+        if (data.submitted) setSubmitted((s) => new Set([...s, ...data.submitted!]));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const total = tiers.reduce((n, t) => n + t.items.length, 0);
   const doneCount = tiers.reduce((n, t) => n + t.items.filter((i) => submitted.has(i.slug)).length, 0);
 
   async function send(item: Item, file: File) {
+    // The retake input is not disabled while sending (the label input is), so
+    // this is the guard against a double-fired second pick racing the first.
+    if (busy.has(item.slug)) return;
     setErrors((e) => ({ ...e, [item.slug]: "" }));
     setBusy((b) => new Set(b).add(item.slug));
     try {
@@ -219,14 +242,20 @@ export default function PhotoDrop({
                   </div>
                   {isDone && (
                     <p className="ph-note">
-                      Got it.{" "}
-                      <button
-                        type="button"
-                        className="ph-retake"
-                        onClick={() => inputs.current[item.slug]?.click()}
-                      >
-                        Send a better one
-                      </button>
+                      {isBusy ? (
+                        "Sending the new one…"
+                      ) : (
+                        <>
+                          Got it.{" "}
+                          <button
+                            type="button"
+                            className="ph-retake"
+                            onClick={() => inputs.current[item.slug]?.click()}
+                          >
+                            Send a better one
+                          </button>
+                        </>
+                      )}
                       <input
                         ref={(el) => {
                           inputs.current[item.slug] = el;
