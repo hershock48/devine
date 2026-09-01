@@ -18,9 +18,11 @@ import PayControls from "@/components/workroom/PayControls";
  * confirmed -> made -> OUT (on the van) -> done, because "made" and "on the
  * truck" are different answers to a customer calling about their flowers; a
  * pickup goes made -> done when it leaves the counter, no van to track.
- * "Confirmed" is the phone call that also takes payment, which is why a
- * phone-entered order is born there. Cancel is a small link, not a big
- * button, because it is the rare move.
+ * "Confirmed" is the phone call, and ONLY the phone call: payment has its
+ * own controls and badge since 2026-09-01, so the confirm button says
+ * nothing about money. A phone-entered order is born confirmed because the
+ * shop is already talking to the customer. Cancel is a small link, not a
+ * big button, because it is the rare move.
  *
  * "Returning customer" is DERIVED, never typed: same phone (or email) as any
  * earlier non-canceled order across the whole history. A counter tool that
@@ -55,7 +57,12 @@ type Order = {
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   switch (o.status) {
     case "new":
-      return { to: "confirmed", label: "Confirmed & paid" };
+      // "Confirmed", not "Confirmed & paid": the old label predates tracked
+      // payments and lied about money. Kevin, testing as an employee, near
+      // verbatim: "it said it was paid, but it doesn't register as paid."
+      // This button records the confirm call; the paid badge and the pay
+      // buttons are the only voices about money.
+      return { to: "confirmed", label: "Confirmed" };
     case "confirmed":
       return { to: "made", label: "Made" };
     case "made":

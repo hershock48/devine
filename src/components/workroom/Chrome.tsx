@@ -45,10 +45,12 @@ export default function WorkroomChrome() {
   return (
     <header className="wr-chrome">
       <div className="wr-chrome-in">
-        <div className="wr-brand">
+        {/* The brand is the way home: everyone expects the top-left mark to
+            go somewhere, and here somewhere is the board (Kevin's ask). */}
+        <a className="wr-brand" href="/workroom" style={{ textDecoration: "none", color: "inherit" }}>
           <span className="wr-shop">{site.shortName}</span>
           <span className="wr-word">Workroom</span>
-        </div>
+        </a>
 
         <nav className="wr-tabs" aria-label="Workroom">
           {TABS.map((t) => (
