@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   }
   const p = (raw ?? {}) as Record<string, unknown>;
   const id = typeof p.id === "string" ? p.id : "";
-  const method = p.method === "card" || p.method === "cash" ? p.method : null;
+  const method = p.method === "card" || p.method === "cash" || p.method === "manual" ? p.method : null;
   const sourceId = typeof p.sourceId === "string" ? p.sourceId : undefined;
 
   if (!id || !method) return NextResponse.json({ error: "Order id and method are required." }, { status: 400 });
@@ -44,6 +44,21 @@ export async function POST(req: Request) {
   if (order.status === "canceled") return NextResponse.json({ error: "That order is canceled." }, { status: 409 });
   if (order.payment) {
     return NextResponse.json({ error: `Already paid (${order.payment.method}).` }, { status: 409 });
+  }
+
+  // The by-hand mark: money already moved outside the board (a check, an
+  // account, an unlinked register ring). Records the fact and touches
+  // nothing else; deliberately works even with Square unconfigured.
+  if (method === "manual") {
+    const payment: OrderPayment = {
+      at: Date.now(),
+      method: "other",
+      squarePaymentId: "",
+      totalCents: Math.round(order.subtotal * 100),
+      feeCents: 0,
+    };
+    await store.setOrderPayment(order.id, payment);
+    return NextResponse.json({ ok: true, payment });
   }
 
   const cfg = await resolveSquare();

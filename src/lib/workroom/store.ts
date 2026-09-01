@@ -54,7 +54,10 @@ export type WorkroomLine = {
  */
 export type OrderPayment = {
   at: number;
-  method: "card" | "cash" | "register";
+  /** "other" is the by-hand mark for money that moved outside the board (a
+      check, an account, an unlinked register ring); its squarePaymentId is
+      empty because there is no Square payment to point at. */
+  method: "card" | "cash" | "register" | "other";
   squarePaymentId: string;
   totalCents: number;
   /** The customer-paid service fee included in totalCents; 0 on cash. */

@@ -151,11 +151,19 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       a.date.localeCompare(b.date) ||
       (a.fulfillment === b.fulfillment ? 0 : a.fulfillment === "delivery" ? -1 : 1) ||
       a.createdAt - b.createdAt;
+    // "Done but unpaid" is flowers out the door and money not collected: a
+    // receivable, not a finished order (Kevin's catch, 2026-09-01). It gets
+    // its own always-visible section instead of the collapsed pile, carries
+    // its pay buttons, and clears itself the moment money lands. Canceled
+    // orders are never owed; nothing was delivered.
     return {
       overdue: open.filter((o) => o.date < today).sort(byDate),
       today: open.filter((o) => o.date === today).sort(byDate),
       upcoming: open.filter((o) => o.date > today).sort(byDate),
-      closed: orders.filter((o) => o.status === "done" || o.status === "canceled").sort((a, b) => b.createdAt - a.createdAt),
+      owed: orders.filter((o) => o.status === "done" && !o.payment).sort(byDate),
+      closed: orders
+        .filter((o) => o.status === "canceled" || (o.status === "done" && !!o.payment))
+        .sort((a, b) => b.createdAt - a.createdAt),
     };
   }, [orders, today]);
 
@@ -195,6 +203,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} />
       <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} />
       <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} />
+      <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} />
 
       {buckets.today.length + buckets.overdue.length + buckets.upcoming.length === 0 && (
         <p className="lede" style={{ marginTop: 8 }}>

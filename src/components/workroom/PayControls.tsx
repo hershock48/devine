@@ -65,7 +65,7 @@ export default function PayControls({
   payment?: Payment | null;
   onPaid: () => void;
 }) {
-  const [mode, setMode] = useState<"idle" | "card" | "cash">("idle");
+  const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual">("idle");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fee, setFee] = useState(99);
@@ -115,7 +115,7 @@ export default function PayControls({
     };
   }, [mode]);
 
-  async function pay(method: "card" | "cash") {
+  async function pay(method: "card" | "cash" | "manual") {
     setBusy(true);
     setError("");
     try {
@@ -156,7 +156,7 @@ export default function PayControls({
           color: "var(--green)",
         }}
       >
-        Paid · {payment.method} · {dollars(payment.totalCents)}
+        Paid · {payment.method === "other" ? "another way" : payment.method} · {dollars(payment.totalCents)}
         {payment.feeCents > 0 ? " (incl. service fee)" : ""}
       </p>
     );
@@ -165,12 +165,34 @@ export default function PayControls({
   return (
     <div style={{ margin: "10px 0 0" }}>
       {mode === "idle" && (
-        <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center" }}>
+        <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           <button type="button" className="btn" onClick={() => setMode("card")}>
             Take card
           </button>
           <button type="button" onClick={() => setMode("cash")} style={{ ...textButton, fontSize: 14 }}>
             Record cash
+          </button>
+          {/* The escape hatch for money that moved outside the board (rung
+              at the register without the DV note, a check, an account
+              customer). Without it, orders paid off-system nag in the owed
+              section forever, which teaches staff to ignore the section. */}
+          <button type="button" onClick={() => setMode("manual")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+            Paid another way
+          </button>
+        </p>
+      )}
+
+      {mode === "manual" && (
+        <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14 }}>
+            Marks it paid without touching Square. For money that already moved: the register, a
+            check, an account.
+          </span>
+          <button type="button" className="btn btn--solid" disabled={busy} onClick={() => pay("manual")}>
+            {busy ? "Marking…" : "Mark paid"}
+          </button>
+          <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+            Never mind
           </button>
         </p>
       )}
