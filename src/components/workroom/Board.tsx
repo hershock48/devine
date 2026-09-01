@@ -74,14 +74,14 @@ type Contact = {
   createdAt: number;
   /** Present since the projection grew (2026-09-01); optional so a stale
       client against a fresh API, or vice versa, degrades to recognition
-      without autofill instead of breaking. */
+      without autofill instead of breaking. Who and where only: the lines
+      and the occasion are this call's business, not autofill's (Kevin's
+      ruling, same day). */
   fulfillment?: "delivery" | "pickup";
   recipient?: string;
   street?: string;
   town?: string;
   zip?: string;
-  occasion?: string;
-  lines?: Line[];
 };
 
 /** Last 10 digits, so 269-555-0101 and +1 (269) 555-0101 are one customer. */
@@ -490,11 +490,13 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       </div>
 
       {/* THE CUSTOMER BASE IS THE ORDER HISTORY, surfaced while typing: a
-          few characters of name or phone offer the matching customers, one
-          tap fills the whole form from their latest order, and the weekly
-          caller stops being retyped 52 times a year (Kevin's example, near
-          verbatim). No separate customer table to maintain or drift: the
-          orders already know everyone. */}
+          few characters of name or phone offer the matching customers, and
+          one tap fills WHO and WHERE from their latest order. Deliberately
+          not the lines or the occasion: an earlier same-day version filled
+          those too and Kevin cut it, because what they are ordering and why
+          is this call's business, and a prefilled Sympathy on a birthday
+          order is the kind of wrong that ships. No separate customer table
+          to maintain or drift: the orders already know everyone. */}
       {(() => {
         const q = name.trim().toLowerCase();
         const pq = phone.replace(/\D/g, "");
@@ -534,7 +536,6 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                   setStreet(c.street ?? "");
                   setTown(c.town ?? "");
                   setZip(c.zip ?? "");
-                  if (c.occasion && (occasions as readonly string[]).includes(c.occasion)) setOccasion(c.occasion);
                 }}
                 style={{
                   font: "inherit",
@@ -555,33 +556,12 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
         );
       })()}
 
-      {/* After a pick: their last order is one tap from being this one,
-          which is the entire weekly-caller workflow. */}
+      {/* After a pick, a quiet confirmation: the filled fields do the
+          talking, and the lines below start blank because this call's
+          order is its own. */}
       {picked && (
-        <p role="status" style={{ margin: "-6px 0 0", fontSize: 14, fontWeight: 600, color: "var(--green)", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-          <span>
-            Filled from {picked.name || "their file"}&rsquo;s last order
-            {picked.lines && picked.lines.length > 0
-              ? ` (${picked.lines.map((l) => `${l.qty} × ${l.name}`).join(", ")})`
-              : ""}
-          </span>
-          {picked.lines && picked.lines.length > 0 && (
-            <button
-              type="button"
-              onClick={() =>
-                setLines(
-                  picked.lines!.map((l) =>
-                    l.slug
-                      ? { slug: l.slug, custom: "", each: "", qty: l.qty }
-                      : { slug: "", custom: l.name, each: String(l.each), qty: l.qty },
-                  ),
-                )
-              }
-              style={{ ...textButton, fontSize: 13.5 }}
-            >
-              Use the same lines
-            </button>
-          )}
+        <p role="status" style={{ margin: "-6px 0 0", fontSize: 14, fontWeight: 600, color: "var(--green)" }}>
+          Filled from {picked.name || "their file"}&rsquo;s last order. What they want today is below.
         </p>
       )}
 
