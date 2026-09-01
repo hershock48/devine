@@ -23,8 +23,9 @@ const TABS = [
   // Stems and Inventory merged 2026-09-01 (one job, one tab); the header
   // was filling up and the two screens shared every ledger.
   { href: "/workroom/stems", label: "Stems" },
+  // Plants folded into Weekly order 2026-09-01: same weekly buying motion
+  // (walk, count, read the list to the supplier), one tab.
   { href: "/workroom/weekly-order", label: "Weekly order" },
-  { href: "/workroom/plants", label: "Plants" },
   { href: "/workroom/quotes", label: "Quotes" },
 ];
 

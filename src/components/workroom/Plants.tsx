@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { field, labelText, money, textButton, todayISO } from "@/components/workroom/ui";
 
 /**
  * The plant par sheet, working the way the printed one does: walk the shop,
@@ -9,6 +9,11 @@ import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate }
  * Need is never stored anywhere, only derived, so it cannot go stale; the
  * order summary at the bottom is the sheet's Need column ready to read to
  * the supplier.
+ *
+ * A SECTION, not a page, since 2026-09-01: plants are the same weekly
+ * buying motion as the flower order, so this lives on the Weekly order
+ * screen (Kevin's call while thinning the header). The screen owns the
+ * gate and the memory warning; this renders nothing until it is authed.
  */
 
 type PlantItem = {
@@ -21,10 +26,8 @@ type PlantItem = {
   countedAt: string;
 };
 
-export default function Plants({ initialAuthed }: { initialAuthed: boolean }) {
-  const [authed, setAuthed] = useState(initialAuthed);
+export default function PlantsSection({ authed }: { authed: boolean }) {
   const [plants, setPlants] = useState<PlantItem[]>([]);
-  const [backend, setBackend] = useState("memory");
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [date, setDate] = useState(todayISO());
   const [status, setStatus] = useState("");
@@ -33,14 +36,11 @@ export default function Plants({ initialAuthed }: { initialAuthed: boolean }) {
 
   const pull = useCallback(async () => {
     const r = await fetch("/api/workroom/plants", { cache: "no-store" });
-    if (r.status === 401) {
-      setAuthed(false);
-      return;
-    }
+    // A 401 here means the whole screen is locked; the host page's gate is
+    // already showing, so this section just stays empty.
+    if (!r.ok) return;
     const d = await r.json();
     setPlants(d.plants ?? []);
-    setBackend(d.backend ?? "memory");
-    setAuthed(true);
   }, []);
 
   useEffect(() => {
@@ -133,14 +133,7 @@ export default function Plants({ initialAuthed }: { initialAuthed: boolean }) {
     pull();
   }
 
-  if (!authed) {
-    return (
-      <>
-        <h1>Plants</h1>
-        <PinGate onAuthed={() => pull().catch(() => {})} />
-      </>
-    );
-  }
+  if (!authed) return null;
 
   const th: React.CSSProperties = { textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)", fontSize: 12.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--muted)" };
   const td: React.CSSProperties = { textAlign: "right", padding: "6px 8px", borderBottom: "1px solid var(--line)", fontVariantNumeric: "tabular-nums" };
@@ -150,12 +143,9 @@ export default function Plants({ initialAuthed }: { initialAuthed: boolean }) {
 
   return (
     <>
-      <h1>Plants</h1>
-      <MemoryWarning backend={backend} />
-
       <section className="panel" style={{ marginBottom: 26 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
-          <h2 style={{ fontSize: 22, margin: 0 }}>The par sheet</h2>
+          <h2 style={{ fontSize: 22, margin: 0 }}>The plant par sheet</h2>
           {plants.length === 0 ? (
             <button className="btn btn--solid" type="button" onClick={seed}>
               Load her par sheet
@@ -174,7 +164,10 @@ export default function Plants({ initialAuthed }: { initialAuthed: boolean }) {
 
         {plants.length > 0 && (
           <>
-            <div tabIndex={0} role="region" aria-label="Plant par sheet" style={{ overflowX: "auto", marginTop: 14 }}>
+            {/* position: relative so the sr-only spans inside (position:
+                absolute) stay clipped by this scroll wrapper instead of
+                stretching the document (the Stems page's 688px lesson). */}
+            <div tabIndex={0} role="region" aria-label="Plant par sheet" style={{ overflowX: "auto", marginTop: 14, position: "relative" }}>
               <table style={{ width: "100%", minWidth: 640, borderCollapse: "collapse", fontSize: 14.5 }}>
                 <thead>
                   <tr>
@@ -270,7 +263,7 @@ export default function Plants({ initialAuthed }: { initialAuthed: boolean }) {
 
       {needs.length > 0 && (
         <section className="panel" style={{ marginBottom: 26 }}>
-          <h2 style={{ fontSize: 20, margin: "0 0 8px" }}>The order</h2>
+          <h2 style={{ fontSize: 20, margin: "0 0 8px" }}>The plant order</h2>
           <p className="muted" style={{ margin: "0 0 10px", fontSize: 14 }}>
             {needs.some((x) => x.p.cost != null)
               ? `The Need column, ready to read to the supplier: about ${money(

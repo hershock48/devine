@@ -1,10 +1,10 @@
-import type { Metadata } from "next";
-import Plants from "@/components/workroom/Plants";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Plants" };
-export const dynamic = "force-dynamic";
-
-export default async function PlantsPage() {
-  return <Plants initialAuthed={await isWorkroomAuthed()} />;
+/**
+ * The plant par sheet moved onto the Weekly order page 2026-09-01 (same
+ * weekly buying motion, one tab). The address survives because a counter
+ * tab may still hold it.
+ */
+export default function PlantsPage() {
+  redirect("/workroom/weekly-order");
 }

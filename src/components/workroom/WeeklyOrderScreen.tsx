@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import PlantsSection from "@/components/workroom/Plants";
 
 /**
- * The weekly flower order, replacing the printed prebook and the pen.
+ * The weekly buying page: the flower order, and the plant par sheet below
+ * it (its own section since 2026-09-01; same weekly motion, and the header
+ * was full).
  *
  * The real Kennicott order mostly repeats week to week; the work is the
  * delta (this week: cross out white lilies, write "blk org yellow"). So the
@@ -13,6 +16,11 @@ import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate }
  * becomes a purchase in the cooler ledger, dated the truck date, priced
  * from the prebook, with bunches converted to stems by the stems-per-bunch
  * the shop taught it once.
+ *
+ * WHAT THIS PAGE DOES NOT DO: place the order. Nothing is transmitted to
+ * Kennicott or anyone; she orders with her rep the way she always has,
+ * reading from this sheet. It is the prebook and the receiving log, and
+ * the lede says so, because Kevin himself had to ask.
  */
 
 type Line = { variety: string; qty: string; unit: "bunch" | "stem"; unitPrice: string; stemsPerBunch: string; note: string };
@@ -199,6 +207,11 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
     <>
       <h1>Weekly order</h1>
       <MemoryWarning backend={backend} />
+      <p className="lede" style={{ margin: "4px 0 18px" }}>
+        The prebook and the receiving log, for flowers and for plants. Build the list, read it to
+        the rep the way you always order, and when the truck comes one tap logs every line into the
+        cooler ledger.
+      </p>
 
       {!open && (
         <section className="panel" style={{ marginBottom: 26 }}>
@@ -369,6 +382,9 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
           </ul>
         </section>
       )}
+
+      <hr className="rule" />
+      <PlantsSection authed={authed} />
     </>
   );
 }
