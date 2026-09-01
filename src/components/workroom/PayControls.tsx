@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { textButton } from "@/components/workroom/ui";
+import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
 
 /**
  * The money corner of an order card: a PAID badge once settled, otherwise
@@ -19,43 +20,7 @@ import { textButton } from "@/components/workroom/ui";
 
 type Payment = { at: number; method: string; totalCents: number; feeCents: number };
 
-declare global {
-  interface Window {
-    Square?: {
-      payments: (appId: string, locationId: string) => Promise<{
-        card: () => Promise<{
-          attach: (sel: string | HTMLElement) => Promise<void>;
-          tokenize: () => Promise<{ status: string; token?: string; errors?: { message?: string }[] }>;
-          destroy: () => Promise<void>;
-        }>;
-      }>;
-    };
-  }
-}
-
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
-
-function loadSdk(env: string): Promise<void> {
-  if (window.Square) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    // squarecdn.com, NOT squareup.com: the first live test failed on a
-    // from-memory hostname that does not resolve. Both of these answered
-    // 200 when checked 2026-09-01; they are the documented SDK homes.
-    const src =
-      env === "production" ? "https://web.squarecdn.com/v1/square.js" : "https://sandbox.web.squarecdn.com/v1/square.js";
-    const existing = document.querySelector(`script[src="${src}"]`);
-    if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => reject(new Error("Square's script did not load.")));
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = src;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("Square's script did not load."));
-    document.head.appendChild(s);
-  });
-}
 
 export default function PayControls({
   orderId,
@@ -77,7 +42,7 @@ export default function PayControls({
       into "The card field is not ready yet.", which is the code scolding
       the user for its own loading time. */
   const [ready, setReady] = useState(false);
-  const cardRef = useRef<Awaited<ReturnType<Awaited<ReturnType<NonNullable<Window["Square"]>["payments"]>>["card"]>> | null>(null);
+  const cardRef = useRef<SquareCard | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
 
   const cardTotal = Math.round(subtotal * 100) + fee;
@@ -110,7 +75,7 @@ export default function PayControls({
           throw new Error(cfgJson.error || "Card entry is unavailable.");
         }
         if (typeof cfgJson.feeCents === "number") setFee(cfgJson.feeCents);
-        await loadSdk(cfgJson.env ?? "sandbox");
+        await loadSquareSdk(cfgJson.env ?? "sandbox");
         if (dead || !window.Square) return;
         const payments = await window.Square.payments(cfgJson.applicationId, cfgJson.locationId);
         const card = await payments.card();

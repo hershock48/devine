@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/components/Cart";
 import ProductImage from "@/components/ProductImage";
 import { bySlug, money } from "@/lib/catalog";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
+import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
 
 /**
  * THE CART, AND A CHECKOUT THAT SENDS SOMEWHERE.
@@ -32,6 +33,15 @@ import { occasions } from "@/lib/occasions";
  * number in front of a customer that the shop never agreed to. The ticket and
  * the confirmation both say the subtotal is settled on the confirm call. Both
  * facts stay on the README checklist as questions for the owner.
+ *
+ * CARD PAYMENT (2026-09-01), behind the CHECKOUT_CARDS switch and PICKUP
+ * ONLY: a pickup subtotal IS the total, so it can be charged honestly; a
+ * delivery total still depends on the unanswered delivery-fee question, and
+ * charging a number that a fee might later change would be this checkout
+ * lying. When the switch is off, or Square is unconnected, none of this
+ * renders and the flow above is exactly what it was. The fee is shown as
+ * its own Order fee line before the button quotes the total; the server
+ * recomputes everything and the browser's numbers decide nothing.
  */
 
 const field: React.CSSProperties = {
@@ -55,9 +65,11 @@ const labelText: React.CSSProperties = {
 type Outcome =
   | { state: "idle" }
   | { state: "sending" }
-  | { state: "sent"; number: string }
+  | { state: "sent"; number: string; paid?: { totalCents: number; feeCents: number; receiptUrl?: string } }
   | { state: "invalid"; message: string }
   | { state: "unreached"; reason: "unconfigured" | "send-failed" };
+
+type CardConfig = { cards: boolean; applicationId?: string; locationId?: string; env?: string; feeCents?: number };
 
 /**
  * The cart's add-on row. Three small things a flower buyer adds at the last
@@ -93,6 +105,66 @@ export default function CartView() {
   const [occasion, setOccasion] = useState("");
   const [notes, setNotes] = useState("");
 
+  /* Card payment plumbing. cfg.cards is false until the CHECKOUT_CARDS
+     switch is on AND Square is connected, and everything below renders
+     nothing while it is. */
+  const [cfg, setCfg] = useState<CardConfig>({ cards: false });
+  const [payMethod, setPayMethod] = useState<"call" | "card">("call");
+  const [cardReady, setCardReady] = useState(false);
+  const cardRef = useRef<SquareCard | null>(null);
+  const holderRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    fetch("/api/checkout/config", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: CardConfig) => setCfg(j?.cards ? j : { cards: false }))
+      .catch(() => setCfg({ cards: false }));
+  }, []);
+
+  // Card payment is pickup-only; switching to delivery mid-checkout falls
+  // back to the call, quietly and correctly.
+  useEffect(() => {
+    if (fulfillment === "delivery" && payMethod === "card") setPayMethod("call");
+  }, [fulfillment, payMethod]);
+
+  // Mount Square's field only while the card option is chosen; tear it
+  // down when it is not, same lifecycle as the workroom's pane.
+  useEffect(() => {
+    if (payMethod !== "card" || !cfg.cards || !cfg.applicationId || !cfg.locationId) return;
+    let dead = false;
+    setCardReady(false);
+    (async () => {
+      try {
+        await loadSquareSdk(cfg.env ?? "sandbox");
+        if (dead || !window.Square) return;
+        const payments = await window.Square.payments(cfg.applicationId!, cfg.locationId!);
+        const card = await payments.card();
+        if (dead || !holderRef.current) {
+          await card.destroy().catch(() => {});
+          return;
+        }
+        await card.attach(holderRef.current);
+        cardRef.current = card;
+        if (!dead) setCardReady(true);
+      } catch {
+        if (!dead) {
+          // The honest fallback is the flow that always works.
+          setPayMethod("call");
+          setOutcome({ state: "invalid", message: "Card entry did not open; you can place the order and pay on the confirming call." });
+        }
+      }
+    })();
+    return () => {
+      dead = true;
+      cardRef.current?.destroy().catch(() => {});
+      cardRef.current = null;
+      setCardReady(false);
+    };
+  }, [payMethod, cfg]);
+
+  const feeCents = cfg.feeCents ?? 99;
+  const cardTotalCents = Math.round(subtotal * 100) + feeCents;
+
   // Client date, not build date: a statically frozen "today" once sold birds for
   // the wrong year (glaze.md failure log). This runs per visit, in the browser.
   const today = new Date().toISOString().slice(0, 10);
@@ -103,6 +175,23 @@ export default function CartView() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setOutcome({ state: "sending" });
+
+    // Tokenize first when paying by card: no token, no POST, and the
+    // message names what to fix. The card number itself never leaves
+    // Square's iframe.
+    let cardPayload: { sourceId: string } | undefined;
+    if (payMethod === "card") {
+      try {
+        if (!cardRef.current) throw new Error("The card field is not ready yet.");
+        const t = await cardRef.current.tokenize();
+        if (t.status !== "OK" || !t.token) throw new Error(t.errors?.[0]?.message || "The card did not go through. Check the number.");
+        cardPayload = { sourceId: t.token };
+      } catch (err) {
+        setOutcome({ state: "invalid", message: err instanceof Error ? err.message : "The card did not go through." });
+        return;
+      }
+    }
+
     const payload = {
       lines: items.map((i) => ({ slug: i.product.slug, qty: i.qty })),
       name, phone, email, fulfillment,
@@ -111,6 +200,7 @@ export default function CartView() {
       town: delivering ? town : "",
       zip: delivering ? zip.trim() : "",
       date, occasion, cardMessage, notes,
+      card: cardPayload,
     };
     try {
       const res = await fetch("/api/order", {
@@ -120,9 +210,9 @@ export default function CartView() {
       });
       const body = await res.json().catch(() => null);
       if (res.ok && body?.ok) {
-        setOutcome({ state: "sent", number: body.number });
+        setOutcome({ state: "sent", number: body.number, paid: body.paid });
         clear();
-      } else if (res.status === 400) {
+      } else if (res.status === 400 || res.status === 402) {
         setOutcome({ state: "invalid", message: body?.error || "Something in the order needs another look." });
       } else {
         setOutcome({ state: "unreached", reason: body?.reason === "unconfigured" ? "unconfigured" : "send-failed" });
@@ -158,11 +248,28 @@ export default function CartView() {
           <p className="lede" style={{ marginTop: 12 }}>
             Order <strong>{outcome.number}</strong> is with the shop.
           </p>
-          <p style={{ maxWidth: "58ch" }}>
-            We&rsquo;ll call you at <strong>{phone}</strong> to confirm the details and take
-            payment. Nothing has been charged online.
-            {email.trim() ? " A copy of the order is on its way to your email." : ""}
-          </p>
+          {outcome.paid ? (
+            <p style={{ maxWidth: "58ch" }}>
+              Paid: <strong>{money(outcome.paid.totalCents / 100)}</strong> by card, order fee
+              included. We&rsquo;ll have it ready for pickup on <strong>{date}</strong>.
+              {email.trim() ? " Your receipt and a copy of the order are on their way to your email." : ""}
+              {outcome.paid.receiptUrl ? (
+                <>
+                  {" "}
+                  <a href={outcome.paid.receiptUrl} target="_blank" rel="noopener noreferrer">
+                    Card receipt
+                  </a>
+                  .
+                </>
+              ) : null}
+            </p>
+          ) : (
+            <p style={{ maxWidth: "58ch" }}>
+              We&rsquo;ll call you at <strong>{phone}</strong> to confirm the details and take
+              payment. Nothing has been charged online.
+              {email.trim() ? " A copy of the order is on its way to your email." : ""}
+            </p>
+          )}
           <p style={{ marginTop: 24 }}>
             <a className="btn" href={href("/shop")}>Back to the shop</a>
           </p>
@@ -285,8 +392,9 @@ export default function CartView() {
               <strong>{money(subtotal)}</strong>
             </div>
             <p className="muted" style={{ fontSize: 14.5, marginTop: -8 }}>
-              No payment is taken online. We call to confirm every order, arrange delivery,
-              and take payment then.
+              {cfg.cards
+                ? "Pickup orders can be paid by card at checkout. Deliveries are confirmed by phone first, payment taken then."
+                : "No payment is taken online. We call to confirm every order, arrange delivery, and take payment then."}
             </p>
 
             <label style={{ display: "block", marginTop: 20 }}>
@@ -426,14 +534,73 @@ export default function CartView() {
                     </span>
                     <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={field} />
                   </label>
+
+                  {/* Payment choice: only when the switch is on, and only
+                      for pickups (the delivery total still depends on the
+                      owner's unanswered delivery-fee question). */}
+                  {cfg.cards && !delivering && (
+                    <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+                      <legend style={labelText}>Payment</legend>
+                      <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
+                        {(["card", "call"] as const).map((m) => (
+                          <label key={m} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15.5, padding: "4px 0" }}>
+                            <input
+                              type="radio"
+                              name="paymethod"
+                              checked={payMethod === m}
+                              onChange={() => setPayMethod(m)}
+                              style={{ width: 20, height: 20, accentColor: "var(--green)" }}
+                            />
+                            {m === "card" ? "Pay now by card" : "Pay when we call to confirm"}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  )}
+                  {cfg.cards && delivering && (
+                    <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }}>
+                      Deliveries are confirmed by phone first and paid then; card at checkout is
+                      available for pickup orders.
+                    </p>
+                  )}
+
+                  {payMethod === "card" && !delivering && (
+                    <div style={{ border: "1px solid var(--line)", borderRadius: 3, padding: 14, background: "var(--paper-2)" }}>
+                      <ul style={{ listStyle: "none", padding: 0, margin: "0 0 10px", fontSize: 15 }}>
+                        <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <span>Subtotal</span>
+                          <span>{money(subtotal)}</span>
+                        </li>
+                        <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <span>Order fee</span>
+                          <span>{money(feeCents / 100)}</span>
+                        </li>
+                        <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
+                          <span>Total</span>
+                          <span>{money(cardTotalCents / 100)}</span>
+                        </li>
+                      </ul>
+                      <div ref={holderRef} />
+                    </div>
+                  )}
                 </div>
 
                 <p style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-                  <button className="btn btn--solid" type="submit" disabled={outcome.state === "sending"}>
-                    {outcome.state === "sending" ? "Sending…" : "Send the order"}
+                  <button
+                    className="btn btn--solid"
+                    type="submit"
+                    disabled={outcome.state === "sending" || (payMethod === "card" && !delivering && !cardReady)}
+                  >
+                    {outcome.state === "sending"
+                      ? payMethod === "card" ? "Charging…" : "Sending…"
+                      : payMethod === "card" && !delivering
+                        ? cardReady ? `Pay ${money(cardTotalCents / 100)} and place the order` : "Opening card field…"
+                        : "Send the order"}
                   </button>
                   <span className="muted" style={{ fontSize: 14.5 }}>
-                    Nothing is charged online.
+                    {payMethod === "card" && !delivering
+                      ? "Charged once, when you tap the button."
+                      : "Nothing is charged online."}
                   </span>
                 </p>
 

@@ -155,7 +155,11 @@ function orderNumber(): string {
  * where, when, what, the message, in that order, nothing decorative. Plain text
  * so it prints from any mail client onto any printer in the building.
  */
-export function shopTicket(o: PricedOrder): string {
+/** Set when the order was paid online by card at checkout; both email
+    copies change their money sentences accordingly. */
+export type PaidOnline = { totalCents: number; feeCents: number };
+
+export function shopTicket(o: PricedOrder, paid?: PaidOnline): string {
   const lines = o.lines.map((l) => `  ${l.qty} x ${l.name}   ${money(l.each)} each   ${money(l.line)}`);
   const where =
     o.fulfillment === "delivery"
@@ -179,12 +183,16 @@ export function shopTicket(o: PricedOrder): string {
     "",
     ...lines,
     "",
-    `Subtotal ${money(o.subtotal)} (no tax or delivery on this figure; settled on the confirm call)`,
+    paid
+      ? `Subtotal ${money(o.subtotal)} + ${money(paid.feeCents / 100)} order fee = ${money(paid.totalCents / 100)} PAID`
+      : `Subtotal ${money(o.subtotal)} (no tax or delivery on this figure; settled on the confirm call)`,
     "",
     `Card message: ${o.cardMessage || "(none)"}`,
     o.notes ? `Notes: ${o.notes}` : null,
     "",
-    "No payment has been taken. Call the customer to confirm and take payment.",
+    paid
+      ? `PAID ONLINE BY CARD: ${money(paid.totalCents / 100)}. Nothing to collect; just make it.`
+      : "No payment has been taken. Call the customer to confirm and take payment.",
   ]
     .filter((l): l is string => l !== null)
     .join("\n");
@@ -203,20 +211,24 @@ function deliveryAreaLine(o: PricedOrder): string | null {
 }
 
 /** The customer's copy. Says what happens next, promises nothing it cannot keep. */
-function customerCopy(o: PricedOrder): string {
+function customerCopy(o: PricedOrder, paid?: PaidOnline): string {
   return [
     `Thank you, ${o.name}. We have your order.`,
     "",
     `Order ${o.number}`,
     ...o.lines.map((l) => `  ${l.qty} x ${l.name}   ${money(l.line)}`),
     `Subtotal ${money(o.subtotal)}`,
+    paid ? `Order fee ${money(paid.feeCents / 100)}` : null,
+    paid ? `Paid by card ${money(paid.totalCents / 100)}` : null,
     "",
     o.fulfillment === "delivery"
       ? `Requested for delivery on ${o.date} to ${o.recipient || o.name}, ${o.street}, ${o.town}.`
       : `Requested for pickup on ${o.date} at ${addressOneLine}.`,
     o.cardMessage ? `Card message: ${o.cardMessage}` : null,
     "",
-    "No payment has been taken online. We will call you at " + o.phone + " to confirm the details and take payment.",
+    paid
+      ? "Your card has been charged; this email is your record. Questions, changes, anything at all: call us."
+      : "No payment has been taken online. We will call you at " + o.phone + " to confirm the details and take payment.",
     "",
     `${site.name}`,
     `${site.phone}`,
@@ -227,7 +239,7 @@ function customerCopy(o: PricedOrder): string {
 
 export type SendResult = "sent" | "unconfigured" | "send-failed";
 
-export async function sendOrder(o: PricedOrder): Promise<SendResult> {
+export async function sendOrder(o: PricedOrder, paid?: PaidOnline): Promise<SendResult> {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
@@ -235,7 +247,7 @@ export async function sendOrder(o: PricedOrder): Promise<SendResult> {
 
   // Nothing is lost even in the best case: the log always carries the whole
   // ticket, so an inbox mishap after a 200 is recoverable from Vercel's logs.
-  console.log(`[devine] order ${o.number}:\n` + shopTicket(o));
+  console.log(`[devine] order ${o.number}:\n` + shopTicket(o, paid));
 
   if (!host || !user || !pass || !to) {
     console.log(`[devine] order ${o.number} NOT emailed: SMTP_HOST/SMTP_USER/SMTP_PASS/ORDER_TO incomplete.`);
@@ -255,8 +267,8 @@ export async function sendOrder(o: PricedOrder): Promise<SendResult> {
       from: process.env.ORDER_FROM || user,
       to,
       replyTo: o.email || undefined, // shop hits reply, reaches the customer
-      subject: `Order ${o.number}: ${o.fulfillment} ${o.date}, ${o.name}`,
-      text: shopTicket(o),
+      subject: `${paid ? "PAID order" : "Order"} ${o.number}: ${o.fulfillment} ${o.date}, ${o.name}`,
+      text: shopTicket(o, paid),
     });
   } catch (err) {
     console.error(`[devine] order ${o.number} send FAILED:`, err);
@@ -276,7 +288,7 @@ export async function sendOrder(o: PricedOrder): Promise<SendResult> {
         to: o.email,
         replyTo: to,
         subject: `Your ${site.shortName} order ${o.number}`,
-        text: customerCopy(o),
+        text: customerCopy(o, paid),
       })
       .catch((err) => console.error(`[devine] order ${o.number} confirmation not sent:`, err));
   }
