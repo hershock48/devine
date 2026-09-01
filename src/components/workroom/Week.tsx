@@ -189,7 +189,7 @@ export default function Week({ initialAuthed }: { initialAuthed: boolean }) {
       for (const o of ordersIn) for (const l of o.lines) add(l.name, l.qty, Math.round(l.each * 100) * l.qty);
       for (const s of counter) for (const l of s.lines) add(l.name, l.qty, l.totalCents);
       const bestSellers = [...sold.entries()]
-        .filter(([name]) => name && name !== "(unnamed)" && name !== "Order fee" && name !== "Service fee")
+        .filter(([name]) => name && name !== "(unnamed)" && name !== "Order fee" && name !== "Service fee" && !name.startsWith("Delivery ("))
         .sort((a, b) => b[1].cents - a[1].cents)
         .slice(0, 5);
 

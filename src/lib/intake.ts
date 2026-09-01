@@ -156,8 +156,9 @@ function orderNumber(): string {
  * so it prints from any mail client onto any printer in the building.
  */
 /** Set when the order was paid online by card at checkout; both email
-    copies change their money sentences accordingly. */
-export type PaidOnline = { totalCents: number; feeCents: number };
+    copies change their money sentences accordingly. deliveryCents is 0
+    for pickups. */
+export type PaidOnline = { totalCents: number; feeCents: number; deliveryCents?: number };
 
 export function shopTicket(o: PricedOrder, paid?: PaidOnline): string {
   const lines = o.lines.map((l) => `  ${l.qty} x ${l.name}   ${money(l.each)} each   ${money(l.line)}`);
@@ -184,7 +185,7 @@ export function shopTicket(o: PricedOrder, paid?: PaidOnline): string {
     ...lines,
     "",
     paid
-      ? `Subtotal ${money(o.subtotal)} + ${money(paid.feeCents / 100)} order fee = ${money(paid.totalCents / 100)} PAID`
+      ? `Subtotal ${money(o.subtotal)}${paid.deliveryCents ? ` + ${money(paid.deliveryCents / 100)} delivery` : ""} + ${money(paid.feeCents / 100)} order fee = ${money(paid.totalCents / 100)} PAID`
       : `Subtotal ${money(o.subtotal)} (no tax or delivery on this figure; settled on the confirm call)`,
     "",
     `Card message: ${o.cardMessage || "(none)"}`,
@@ -218,6 +219,7 @@ function customerCopy(o: PricedOrder, paid?: PaidOnline): string {
     `Order ${o.number}`,
     ...o.lines.map((l) => `  ${l.qty} x ${l.name}   ${money(l.line)}`),
     `Subtotal ${money(o.subtotal)}`,
+    paid && paid.deliveryCents ? `Delivery ${money(paid.deliveryCents / 100)}` : null,
     paid ? `Order fee ${money(paid.feeCents / 100)}` : null,
     paid ? `Paid by card ${money(paid.totalCents / 100)}` : null,
     "",

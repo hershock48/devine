@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { priceOrder, sendOrder, type PaidOnline, type PricedOrder } from "@/lib/intake";
+import { site } from "@/lib/site";
 import { resolveSquare } from "@/lib/square/oauth";
 import { chargeBoardOrder } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/workroom/store";
@@ -82,24 +83,52 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
   if (process.env.CHECKOUT_CARDS?.trim() !== "on") {
     return NextResponse.json({ ok: false, error: "Card payment is not available online yet." }, { status: 400 });
   }
-  if (order.fulfillment !== "pickup") {
-    return NextResponse.json(
-      { ok: false, error: "Card payment online is for pickup orders; deliveries are confirmed and paid by phone." },
-      { status: 400 },
-    );
+
+  /*
+    DELIVERY CAN PAY BY CARD since 2026-09-01: the owner confirmed her
+    per-zip fee sheet and minimums, which dissolved the reason this was
+    pickup-only (an unpriceable delivery meant an unchargeable total).
+    Two honest gates remain, both with the pay-on-call flow as the out:
+    a zip off her sheet cannot be priced, and the flowers subtotal must
+    clear her minimum ($45 Marshall / $55 outside, the stricter
+    fee-excluded reading; see site.ts).
+  */
+  let deliveryFee = 0;
+  if (order.fulfillment === "delivery") {
+    const fee = site.deliveryFees[order.zip];
+    if (fee === undefined) {
+      return NextResponse.json(
+        { ok: false, error: "We can only price delivery to zips on our list, so card payment is off for this one. Send the order and we will sort delivery on the confirming call." },
+        { status: 400 },
+      );
+    }
+    const inMarshall = order.zip === site.marshallZip;
+    const min = inMarshall ? site.deliveryMinimums.marshall : site.deliveryMinimums.outside;
+    if (order.subtotal < min) {
+      return NextResponse.json(
+        { ok: false, error: `Delivery orders start at $${min} in flowers ${inMarshall ? "in Marshall" : "outside Marshall"}. Add a little more, or send the order unpaid and we will talk it through on the confirming call.` },
+        { status: 400 },
+      );
+    }
+    deliveryFee = fee;
   }
+
   const cfg = await resolveSquare();
   if (!cfg) {
     return NextResponse.json({ ok: false, error: "Card payment is not available right now; the order was not placed. You can order and pay on the confirming call instead." }, { status: 503 });
   }
 
   const id = newId("wr");
+  const chargeLines = [
+    ...order.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
+    ...(deliveryFee > 0 ? [{ name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }] : []),
+  ];
   let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
   try {
     charged = await chargeBoardOrder(cfg, {
       workroomOrderId: id,
       orderNumber: order.number,
-      lines: order.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
+      lines: chargeLines,
       method: "card",
       sourceId,
     });
@@ -118,14 +147,26 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
     totalCents: charged.totalCents,
     feeCents: charged.feeCents,
   };
-  const paid: PaidOnline = { totalCents: charged.totalCents, feeCents: charged.feeCents };
+  const paid: PaidOnline = {
+    totalCents: charged.totalCents,
+    feeCents: charged.feeCents,
+    deliveryCents: Math.round(deliveryFee * 100),
+  };
 
   // Money moved; from here everything is recorded loudly and nothing can
   // fail the response. The Square sale itself (reference id attached) is
   // the deepest backstop: even a total storage-and-mail outage leaves a
   // findable, refundable payment tied to this order number.
   try {
-    await getStore().createOrder({ ...toWorkroomOrder(order, "confirmed", payment), id });
+    // The board ticket carries the delivery line too, and its subtotal is
+    // the whole order value (flowers + delivery), so the ticket's rows and
+    // its Subtotal agree with what the card was charged.
+    const wr = { ...toWorkroomOrder(order, "confirmed", payment), id };
+    if (deliveryFee > 0) {
+      wr.lines = [...wr.lines, { slug: null, name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }];
+      wr.subtotal = Math.round((wr.subtotal + deliveryFee) * 100) / 100;
+    }
+    await getStore().createOrder(wr);
   } catch (err) {
     console.error(`[devine] CRITICAL: paid order ${order.number} (payment ${charged.paymentId}) not written to the board:`, err);
   }

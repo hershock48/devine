@@ -73,15 +73,30 @@ export const site = {
   ],
 
   /**
-   * DELIVERY TERMS: their site publishes NO fee, NO order minimum and NO same-day
-   * cutoff. We are not inventing any of the three. Their only timing language is
-   * "same-day delivery whenever possible" and the hedge is deliberate, so it is
-   * quoted rather than upgraded into a promise.
+   * DELIVERY FEES AND MINIMUMS, confirmed by the owner 2026-09-01: her
+   * laminated IRIS zip sheet, photographed at the shop and confirmed back
+   * through Kevin (provenance and the transcription caveats in
+   * research/delivery-fees.md). 49068 is Marshall itself, the cheapest run.
+   *
+   * THE MINIMUM IS ENFORCED AGAINST THE FLOWERS SUBTOTAL, fee on top. The
+   * sheet does not say which way; this is the stricter reading, so her
+   * correction can only ever loosen checkout, never surprise-tighten it.
+   * The question sits on her list. The same-day CUTOFF remains genuinely
+   * unanswered and stays a placeholder.
    */
+  deliveryFees: {
+    "48813": 32, "49011": 25, "49014": 20, "49015": 20, "49016": 20,
+    "49017": 20, "49021": 24, "49029": 24, "49033": 16.95, "49034": 32,
+    "49036": 32, "49037": 25, "49051": 25, "49068": 8.95, "49076": 20,
+    "49092": 20, "49094": 24, "49201": 32, "49202": 32, "49203": 32,
+    "49224": 20, "49245": 24, "49252": 32, "49284": 24,
+  } as Record<string, number>,
+  marshallZip: "49068",
+  /** Flowers subtotal a delivery order starts at (see the note above). */
+  deliveryMinimums: { marshall: 45, outside: 55 },
+
   delivery: {
     sameDay: "Same-day delivery whenever possible.",
-    fee: null as string | null, // PLACEHOLDER: ask the owner
-    minimum: null as string | null, // PLACEHOLDER: ask the owner
     cutoff: null as string | null, // PLACEHOLDER: ask the owner
     hospitalNote: "Please include the patient's full name and room information when ordering.",
     funeralNote: "Our team coordinates delivery timing directly with the service location.",

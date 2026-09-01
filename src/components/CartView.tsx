@@ -121,11 +121,24 @@ export default function CartView() {
       .catch(() => setCfg({ cards: false }));
   }, []);
 
-  // Card payment is pickup-only; switching to delivery mid-checkout falls
-  // back to the call, quietly and correctly.
+  const delivering0 = fulfillment === "delivery";
+  const zipTrim = zip.trim();
+  const deliveryFee = delivering0 ? site.deliveryFees[zipTrim] : undefined;
+  const deliveryMin = delivering0
+    ? zipTrim === site.marshallZip
+      ? site.deliveryMinimums.marshall
+      : site.deliveryMinimums.outside
+    : 0;
+  const belowMin = delivering0 && deliveryFee !== undefined && subtotal < deliveryMin;
+  /** Card payment is offered for pickups always, and for deliveries with a
+      priceable zip that clears the minimum (owner's confirmed sheet). */
+  const cardAllowed = cfg.cards && (!delivering0 || (deliveryFee !== undefined && !belowMin));
+
+  // If the choice stops being available mid-checkout (zip edited, items
+  // removed below the minimum), fall back to the call, quietly.
   useEffect(() => {
-    if (fulfillment === "delivery" && payMethod === "card") setPayMethod("call");
-  }, [fulfillment, payMethod]);
+    if (payMethod === "card" && !cardAllowed) setPayMethod("call");
+  }, [payMethod, cardAllowed]);
 
   // Mount Square's field only while the card option is chosen; tear it
   // down when it is not, same lifecycle as the workroom's pane.
@@ -163,7 +176,8 @@ export default function CartView() {
   }, [payMethod, cfg]);
 
   const feeCents = cfg.feeCents ?? 99;
-  const cardTotalCents = Math.round(subtotal * 100) + feeCents;
+  const deliveryCents = deliveryFee !== undefined ? Math.round(deliveryFee * 100) : 0;
+  const cardTotalCents = Math.round(subtotal * 100) + (delivering0 ? deliveryCents : 0) + feeCents;
 
   // Client date, not build date: a statically frozen "today" once sold birds for
   // the wrong year (glaze.md failure log). This runs per visit, in the browser.
@@ -255,6 +269,11 @@ export default function CartView() {
                 <>
                   It&rsquo;s wanted <strong>today</strong>, so we&rsquo;ll call you to confirm
                   timing.
+                </>
+              ) : delivering ? (
+                <>
+                  We&rsquo;ll deliver on <strong>{date}</strong>. If anything about timing needs
+                  a word, we&rsquo;ll call you.
                 </>
               ) : (
                 <>
@@ -403,7 +422,7 @@ export default function CartView() {
             </div>
             <p className="muted" style={{ fontSize: 14.5, marginTop: -8 }}>
               {cfg.cards
-                ? "Pickup orders can be paid by card at checkout. Deliveries are confirmed by phone first, payment taken then."
+                ? "Pay by card at checkout, or send the order and pay when we call to confirm. Delivery is priced by zip at checkout."
                 : "No payment is taken online. We call to confirm every order, arrange delivery, and take payment then."}
             </p>
 
@@ -505,6 +524,13 @@ export default function CartView() {
                           first on <a href={site.phoneHref}>{site.phone}</a>.
                         </p>
                       )}
+                      {/* The fee is a fact now (the owner's own zip sheet), so a
+                          priceable delivery says its price the moment the zip does. */}
+                      {deliveryFee !== undefined && (
+                        <p style={{ fontSize: 14.5, margin: "-6px 0 0", fontWeight: 600 }} aria-live="polite">
+                          Delivery to {zipTrim}: {money(deliveryFee)}.
+                        </p>
+                      )}
                     </>
                   )}
 
@@ -545,10 +571,11 @@ export default function CartView() {
                     <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={field} />
                   </label>
 
-                  {/* Payment choice: only when the switch is on, and only
-                      for pickups (the delivery total still depends on the
-                      owner's unanswered delivery-fee question). */}
-                  {cfg.cards && !delivering && (
+                  {/* Payment choice: pickups always; deliveries once the
+                      zip prices them and the flowers clear the owner's
+                      minimum. The unavailable states say why, and the
+                      pay-on-call flow is always the out. */}
+                  {cardAllowed && (
                     <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
                       <legend style={labelText}>Payment</legend>
                       <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
@@ -567,20 +594,34 @@ export default function CartView() {
                       </div>
                     </fieldset>
                   )}
-                  {cfg.cards && delivering && (
+                  {cfg.cards && delivering && deliveryFee === undefined && (
                     <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }}>
-                      Deliveries are confirmed by phone first and paid then; card at checkout is
-                      available for pickup orders.
+                      A zip on our delivery list prices the delivery and opens card payment;
+                      otherwise send the order and we&rsquo;ll sort it on the confirming call.
+                    </p>
+                  )}
+                  {cfg.cards && belowMin && (
+                    <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }}>
+                      Delivery orders start at {money(deliveryMin)} in flowers{" "}
+                      {zipTrim === site.marshallZip ? "in Marshall" : "outside Marshall"}. Add a
+                      little more to pay by card now, or send it and we&rsquo;ll talk it through
+                      on the call.
                     </p>
                   )}
 
-                  {payMethod === "card" && !delivering && (
+                  {payMethod === "card" && cardAllowed && (
                     <div style={{ border: "1px solid var(--line)", borderRadius: 3, padding: 14, background: "var(--paper-2)" }}>
                       <ul style={{ listStyle: "none", padding: 0, margin: "0 0 10px", fontSize: 15 }}>
                         <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                           <span>Subtotal</span>
                           <span>{money(subtotal)}</span>
                         </li>
+                        {delivering && deliveryFee !== undefined && (
+                          <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                            <span>Delivery ({zipTrim})</span>
+                            <span>{money(deliveryFee)}</span>
+                          </li>
+                        )}
                         <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                           <span>Order fee</span>
                           <span>{money(feeCents / 100)}</span>
@@ -599,16 +640,16 @@ export default function CartView() {
                   <button
                     className="btn btn--solid"
                     type="submit"
-                    disabled={outcome.state === "sending" || (payMethod === "card" && !delivering && !cardReady)}
+                    disabled={outcome.state === "sending" || (payMethod === "card" && cardAllowed && !cardReady)}
                   >
                     {outcome.state === "sending"
                       ? payMethod === "card" ? "Charging…" : "Sending…"
-                      : payMethod === "card" && !delivering
+                      : payMethod === "card" && cardAllowed
                         ? cardReady ? `Pay ${money(cardTotalCents / 100)} and place the order` : "Opening card field…"
                         : "Send the order"}
                   </button>
                   <span className="muted" style={{ fontSize: 14.5 }}>
-                    {payMethod === "card" && !delivering
+                    {payMethod === "card" && cardAllowed
                       ? "Charged once, when you tap the button."
                       : "Nothing is charged online."}
                   </span>
