@@ -53,7 +53,10 @@ export async function POST(req: Request) {
   const name = str(p.name, 120);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(str(p.date, 10)) ? str(p.date, 10) : "";
   if (!name || !date || lines.length === 0) {
-    return NextResponse.json({ error: "A phone order needs a name, a date and at least one line." }, { status: 400 });
+    return NextResponse.json(
+      { error: "A phone order needs a name, a date, and at least one item (pick a product or type a custom one with a price)." },
+      { status: 400 },
+    );
   }
 
   const now = Date.now();

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { products, type Product } from "@/lib/catalog";
@@ -238,7 +238,7 @@ function Bucket({
         <h2
           style={{
             /* Explicit sans: the global h2 is serif, and an uppercase serif
-               label with Cormorant's oldstyle figures — "TODAY (ɪ)" — read as
+               label with Cormorant's oldstyle figures â€” "TODAY (Éª)" â€” read as
                a glitch next to the sans labels everywhere else on the page. */
             fontFamily: "var(--sans)",
             fontSize: 15,
@@ -300,42 +300,42 @@ function OrderCard({
       <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
         <strong style={{ fontSize: 17 }}>{o.name}</strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
-          {o.number} · {o.source}
+          {o.number} Â· {o.source}
         </span>
       </header>
 
       {prior.length > 0 && (
         <p style={{ margin: "2px 0 0", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--green)" }}>
-          Returning · their {ordinal(prior.length + 1)} order
+          Returning Â· their {ordinal(prior.length + 1)} order
         </p>
       )}
 
       <p style={{ margin: "6px 0", fontSize: 14.5 }}>
         <strong>{o.date}</strong>
-        {" · "}
+        {" Â· "}
         {/* The one fact that changes the whole afternoon gets weight, not a
             lowercase word lost mid-line: DELIVER means a van and a deadline. */}
         <strong style={{ letterSpacing: "0.04em", color: o.fulfillment === "delivery" ? "var(--rose-ink)" : "var(--ink)" }}>
           {o.fulfillment === "delivery" ? "DELIVER" : "PICKUP"}
         </strong>
-        {o.occasion ? ` · ${o.occasion}` : ""}
-        {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
+        {o.occasion ? ` Â· ${o.occasion}` : ""}
+        {o.status !== "confirmed" ? ` Â· ${statusWord}` : ""}
       </p>
 
       {/* Built from the parts that exist: a phone order can be taken before
-          the address is known, and "Smoke Test · ," is not an address. A named
-          recipient with no street is a real case too, not a missing one — a
+          the address is known, and "Smoke Test Â· ," is not an address. A named
+          recipient with no street is a real case too, not a missing one â€” a
           funeral quote sends flowers to "Kempf Funeral Home" and the driver
           knows where that is. */}
       {o.fulfillment === "delivery" && (
         <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>
           {(() => {
             const where = [o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-            if (where) return `${o.recipient || o.name} · ${where}`;
+            if (where) return `${o.recipient || o.name} Â· ${where}`;
             return o.recipient || "No delivery address yet";
           })()}
           {zipFlag && (
-            <strong style={{ color: "var(--rose-ink)" }}> · off the delivery list</strong>
+            <strong style={{ color: "var(--rose-ink)" }}> Â· off the delivery list</strong>
           )}
         </p>
       )}
@@ -344,7 +344,7 @@ function OrderCard({
         {o.lines.map((l, i) => (
           <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <span>
-              {l.qty} × {l.name}
+              {l.qty} Ã— {l.name}
             </span>
             <span style={{ whiteSpace: "nowrap" }}>{money(l.each * l.qty)}</span>
           </li>
@@ -398,7 +398,7 @@ function OrderCard({
 /**
  * The counter's order pad. Catalog lines price themselves from the catalog
  * (same rule as the web checkout); custom lines take a typed price, because
- * half of what a florist sells — a casket spray, a one-off vase — has no
+ * half of what a florist sells â€” a casket spray, a one-off vase â€” has no
  * catalog entry.
  */
 const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name));
@@ -581,7 +581,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                   cursor: "pointer",
                 }}
               >
-                {c.name || "On file"} · {c.phone || c.email} · {count} order{count === 1 ? "" : "s"}
+                {c.name || "On file"} Â· {c.phone || c.email} Â· {count} order{count === 1 ? "" : "s"}
               </button>
             ))}
           </div>
@@ -656,7 +656,11 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
           grid track inherits it and every row stretches past a 390px phone.
           With them, the select shrinks and clips its text instead. */}
       <div style={{ minWidth: 0 }}>
-        <span style={labelText}>Lines</span>
+        {/* "Items", not "Lines": a session shipped order-ticket jargon and
+            Kevin could not parse the validation error, which means her staff
+            cannot either. The code keeps calling them lines; the shop never
+            sees the code. */}
+        <span style={labelText}>Items</span>
         <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
           {lines.map((l, i) => {
             const p = productBySlug(l.slug);
@@ -666,12 +670,12 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                  shoving the page sideways. */
               <div key={i} style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
                 <select
-                  aria-label={`Line ${i + 1} product`}
+                  aria-label={`Item ${i + 1} product`}
                   value={l.slug}
                   onChange={(e) => setLine(i, { slug: e.target.value })}
                   style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
                 >
-                  <option value="">Custom item…</option>
+                  <option value="">Custom itemâ€¦</option>
                   {sortedProducts.map((sp) => (
                     <option key={sp.slug} value={sp.slug}>
                       {sp.name} ({money(sp.price)})
@@ -684,7 +688,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                   </span>
                 ) : (
                   <input
-                    aria-label={`Line ${i + 1} custom item`}
+                    aria-label={`Item ${i + 1} custom item`}
                     placeholder="What it is"
                     value={l.custom}
                     onChange={(e) => setLine(i, { custom: e.target.value })}
@@ -693,7 +697,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                 )}
                 {!l.slug && (
                   <input
-                    aria-label={`Line ${i + 1} price`}
+                    aria-label={`Item ${i + 1} price`}
                     placeholder="$"
                     inputMode="decimal"
                     value={l.each}
@@ -702,7 +706,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                   />
                 )}
                 <input
-                  aria-label={`Line ${i + 1} quantity`}
+                  aria-label={`Item ${i + 1} quantity`}
                   type="number"
                   min={1}
                   max={99}
@@ -716,7 +720,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
         </div>
         <p style={{ margin: "8px 0 0" }}>
           <button type="button" onClick={() => setLines((cur) => [...cur, blankLine()])} style={textButton}>
-            Another line
+            Another item
           </button>
         </p>
       </div>
