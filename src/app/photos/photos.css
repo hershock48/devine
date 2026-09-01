@@ -73,6 +73,14 @@
 .ph-tier li { border-bottom: 1px solid var(--line); padding: 12px 0; }
 
 .ph-row { display: flex; align-items: center; gap: 14px; }
+.ph-thumb {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+}
 .ph-name {
   flex: 1 1 auto;
   min-width: 0;
@@ -80,7 +88,14 @@
   font-size: 20px;
   line-height: 1.25;
 }
+.ph-name a {
+  color: inherit;
+  text-decoration-color: var(--line);
+  text-underline-offset: 4px;
+}
+.ph-name a:hover { color: var(--rose-ink); text-decoration-color: currentColor; }
 li.done .ph-name { color: var(--muted); }
+li.done .ph-name a { color: inherit; }
 .ph-price { flex: 0 0 auto; color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
 
 /* The tap target is the whole label; the input hides inside it. 12px of

@@ -51,6 +51,7 @@ export default async function PhotosPage() {
       <PhotoDrop
         tiers={tiers}
         initialSubmitted={submitted.map((s) => s.slug)}
+        initialThumbs={Object.fromEntries(submitted.filter((s) => s.thumb).map((s) => [s.slug, s.thumb!]))}
         backend={store.backend}
         mailReady={mailReady}
       />

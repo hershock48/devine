@@ -378,6 +378,13 @@ export type PhotoSubmission = {
   filename: string;
   /** Bytes of the JPEG as emailed, for the ledger only. */
   bytes: number;
+  /**
+   * A ~200px JPEG data URL of what was sent, capped small at the API. The one
+   * exception to "the row is the ledger, not the photo": without it she can
+   * never see WHICH shot is attached to a design, so a wrong-photo mistake is
+   * invisible until Kevin opens the email. 34 rows x ~15KB is nothing.
+   */
+  thumb?: string;
   createdAt: number;
 };
 

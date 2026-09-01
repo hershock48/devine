@@ -58,6 +58,7 @@ export async function GET() {
     backend: store.backend,
     mailReady: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
     submitted: subs.map((s) => s.slug),
+    thumbs: Object.fromEntries(subs.filter((s) => s.thumb).map((s) => [s.slug, s.thumb])),
   });
 }
 
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Too many uploads at once. Give it ten minutes and try again." }, { status: 429 });
   }
 
-  let body: { slug?: unknown; filename?: unknown; dataUrl?: unknown };
+  let body: { slug?: unknown; filename?: unknown; dataUrl?: unknown; thumb?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -93,6 +94,13 @@ export async function POST(req: Request) {
   const jpeg = Buffer.from(m[1], "base64");
   const filename =
     (typeof body.filename === "string" ? body.filename : "").replace(/[^\w.\- ]/g, "").slice(0, 80) || `${slug}.jpg`;
+
+  // The row's preview image. Optional, small, and never trusted: same shape
+  // rule as the photo itself, capped at ~45KB decoded, dropped silently when
+  // it fails the checks because a missing preview must never fail a photo.
+  const rawThumb = typeof body.thumb === "string" ? body.thumb : "";
+  const thumb =
+    rawThumb.length <= 60_000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(rawThumb) ? rawThumb : undefined;
 
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
@@ -137,6 +145,7 @@ export async function POST(req: Request) {
       name: product.name,
       filename,
       bytes: jpeg.length,
+      thumb,
       createdAt: Date.now(),
     });
     submitted = (await store.listPhotoSubmissions()).map((s) => s.slug);

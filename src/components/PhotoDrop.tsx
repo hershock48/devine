@@ -24,8 +24,14 @@ type Tier = { label: string; items: Item[] };
 
 const MAX_EDGE = 1800;
 
-function drawScaled(source: ImageBitmap | HTMLImageElement, w0: number, h0: number): string | null {
-  const scale = Math.min(1, MAX_EDGE / Math.max(w0, h0));
+function drawScaled(
+  source: ImageBitmap | HTMLImageElement,
+  w0: number,
+  h0: number,
+  maxEdge = MAX_EDGE,
+  quality = 0.85,
+): string | null {
+  const scale = Math.min(1, maxEdge / Math.max(w0, h0));
   const w = Math.max(1, Math.round(w0 * scale));
   const h = Math.max(1, Math.round(h0 * scale));
   const canvas = document.createElement("canvas");
@@ -34,7 +40,7 @@ function drawScaled(source: ImageBitmap | HTMLImageElement, w0: number, h0: numb
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   ctx.drawImage(source, 0, 0, w, h);
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+  const dataUrl = canvas.toDataURL("image/jpeg", quality);
   return dataUrl.startsWith("data:image/jpeg") ? dataUrl : null;
 }
 
@@ -48,12 +54,14 @@ function drawScaled(source: ImageBitmap | HTMLImageElement, w0: number, h0: numb
  * is also the net under HEIC-on-desktop and any other decode failure: when
  * even that cannot read the file, the row says so and offers texting it.
  */
-async function toJpegDataUrl(file: File): Promise<{ dataUrl: string } | { failed: true }> {
+async function toJpegDataUrl(file: File): Promise<{ dataUrl: string; thumb?: string } | { failed: true }> {
   try {
     const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
     const out = drawScaled(bmp, bmp.width, bmp.height);
+    // The row's preview: ~200px, so she can SEE what is attached to a design.
+    const thumb = out ? (drawScaled(bmp, bmp.width, bmp.height, 200, 0.7) ?? undefined) : undefined;
     bmp.close();
-    if (out) return { dataUrl: out };
+    if (out) return { dataUrl: out, thumb };
   } catch {
     /* fall through to the <img> path */
   }
@@ -67,7 +75,8 @@ async function toJpegDataUrl(file: File): Promise<{ dataUrl: string } | { failed
         img.src = url;
       });
       const out = drawScaled(img, img.naturalWidth, img.naturalHeight);
-      if (out) return { dataUrl: out };
+      const thumb = out ? (drawScaled(img, img.naturalWidth, img.naturalHeight, 200, 0.7) ?? undefined) : undefined;
+      if (out) return { dataUrl: out, thumb };
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -80,15 +89,18 @@ async function toJpegDataUrl(file: File): Promise<{ dataUrl: string } | { failed
 export default function PhotoDrop({
   tiers,
   initialSubmitted,
+  initialThumbs,
   backend,
   mailReady,
 }: {
   tiers: Tier[];
   initialSubmitted: string[];
+  initialThumbs: Record<string, string>;
   backend: string;
   mailReady: boolean;
 }) {
   const [submitted, setSubmitted] = useState<Set<string>>(() => new Set(initialSubmitted));
+  const [thumbs, setThumbs] = useState<Record<string, string>>(initialThumbs);
   const [busy, setBusy] = useState<Set<string>>(() => new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -111,11 +123,12 @@ export default function PhotoDrop({
       const res = await fetch("/api/photos", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ slug: item.slug, filename: file.name, dataUrl: shrunk.dataUrl }),
+        body: JSON.stringify({ slug: item.slug, filename: file.name, dataUrl: shrunk.dataUrl, thumb: shrunk.thumb }),
       });
       const data: { ok?: boolean; submitted?: string[]; error?: string } = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         setSubmitted((s) => new Set([...s, ...(data.submitted ?? [item.slug])]));
+        if (shrunk.thumb) setThumbs((t) => ({ ...t, [item.slug]: shrunk.thumb! }));
       } else {
         setErrors((e) => ({
           ...e,
@@ -167,7 +180,19 @@ export default function PhotoDrop({
               return (
                 <li key={item.slug} className={isDone ? "done" : undefined}>
                   <div className="ph-row">
-                    <span className="ph-name">{item.name}</span>
+                    {isDone && thumbs[item.slug] ? (
+                      /* eslint-disable-next-line @next/next/no-img-element -- a data URL preview; next/image has nothing to optimize */
+                      <img className="ph-thumb" src={thumbs[item.slug]} alt={`The photo sent for ${item.name}`} />
+                    ) : null}
+                    {/* The name opens her own product page in a new tab: 57
+                        designs by name is a memory test, one tap to the photo,
+                        description and price is not. New tab so a mid-batch
+                        check never navigates away from the list. */}
+                    <span className="ph-name">
+                      <a href={`/demo/product/${item.slug}`} target="_blank" rel="noopener">
+                        {item.name}
+                      </a>
+                    </span>
                     <span className="ph-price">
                       {item.price % 1 === 0 ? `$${item.price}` : `$${item.price.toFixed(2)}`}
                     </span>
