@@ -162,6 +162,18 @@ a:hover { color: var(--rose-ink); text-decoration-color: currentColor; }
   border-radius: 1px;
 }
 
+/* Inside a scrollable region the ring turns INWARD. The default ring sits
+   5px outside the control, and the workroom's wide grids (weekly order,
+   stems, inventory, plants, quotes) live in overflow-x wrappers that clip
+   anything drawn past their edge: Kevin caught the variety input wearing
+   three-quarters of a ring. An outline cannot escape a scroll container,
+   so at this altitude the fix is an inset ring on every control inside one,
+   rather than six hand-padded wrappers that the next screen forgets. The
+   wrappers share the [role=region] scroll idiom, which is the hook. */
+:where([role="region"]) :where(a, button, input, select, textarea):focus-visible {
+  outline-offset: -2px;
+}
+
 /* Off-screen until focused, then a real, visible, high-contrast target. Not
    display:none — a hidden element cannot receive focus, which is the usual way a
    skip link ends up doing nothing at all. */
