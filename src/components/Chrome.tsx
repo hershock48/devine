@@ -4,7 +4,6 @@ import { categories } from "@/lib/catalog";
 import { CartLink } from "./Cart";
 import Logo from "./Logo";
 import GlazedPlate from "./GlazedPlate";
-import { SeasonPreview } from "./Season";
 
 /**
  * Header and footer.
@@ -155,11 +154,12 @@ export function Footer() {
         </div>
       </div>
 
-      {/* The seasonal engine's one visible control: preview the year without
-          waiting for it. See components/Season.tsx for why it is in the open. */}
-      <div className="wrap">
-        <SeasonPreview />
-      </div>
+      {/* The seasonal preview strip is GONE from the footer (Kevin,
+          2026-09-01: "this footer needs to go"): it was pitch machinery for
+          showing her the year turn, and customers should never see the
+          controls. The preview itself still works by direct URL
+          (/api/season?set=fall and friends) for demos; only the public
+          affordance is removed. */}
 
       {/* THE CLIENT'S COPYRIGHT STAYS IN THE CLIENT'S BAR. brand.md is explicit
           that sweeping it onto the plate would make the studio's signature the

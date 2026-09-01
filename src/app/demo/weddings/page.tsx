@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { inCategory, money } from "@/lib/catalog";
 import { href } from "@/lib/nav";
 import { site } from "@/lib/site";
+import { WeddingInquiry } from "@/components/InquiryForms";
 
 export const metadata: Metadata = {
   title: "Wedding flowers",
@@ -106,38 +107,10 @@ export default function Weddings() {
           </div>
 
           {/* A form is one of the few places a surface is earned: it marks where the
-              page stops being read and starts being filled in. */}
-          <div className="panel">
-            {/* method="post" on a mailto is not a real submission. It opens the
-                customer's mail app with the body prefilled. Honest, works with no
-                JavaScript, needs no account. Replaced by a server action when the
-                inbox is confirmed. */}
-            <form action={`mailto:${site.email}`} method="post" encType="text/plain">
-              <Field label="Your name" name="Name" required />
-              <Field label="Email" name="Email" type="email" required />
-              <Field label="Wedding date" name="Wedding date" type="date" />
-              <Field label="Venue" name="Venue" placeholder="Where is it happening?" />
-              <Field label="Roughly how many people" name="Guest count" type="number" />
-              <label style={{ display: "block", marginBottom: 14 }}>
-                <span style={{ display: "block", fontSize: 14.5, fontWeight: 600, marginBottom: 5 }}>
-                  Colors, flowers, anything you have saved
-                </span>
-                <textarea
-                  name="Vision"
-                  rows={4}
-                  style={{ width: "100%", padding: "10px 12px", font: "inherit", fontSize: 15.5, border: "1px solid var(--line)", borderRadius: 3, background: "var(--paper)", color: "var(--ink)" }}
-                />
-              </label>
-              <button className="btn btn--solid" type="submit">
-                Send inquiry
-              </button>
-              <p className="muted" style={{ fontSize: 13.5, marginTop: 14, marginBottom: 0 }}>
-                This opens your email with the details filled in. The pictures you have
-                saved on your phone? Attach them right there before you send. Prefer to
-                talk? <a href={site.phoneHref}>{site.phone}</a>.
-              </p>
-            </form>
-          </div>
+              page stops being read and starts being filled in. Submits for real
+              since 2026-09-01 (SMTP + a draft quote on the workroom's Quotes tab);
+              the mailto handoff survives inside it as the failure fallback. */}
+          <WeddingInquiry />
         </div>
       </section>
 
@@ -179,23 +152,3 @@ export default function Weddings() {
   );
 }
 
-function Field({
-  label, name, type = "text", required, placeholder,
-}: { label: string; name: string; type?: string; required?: boolean; placeholder?: string }) {
-  return (
-    <label style={{ display: "block", marginBottom: 14 }}>
-      <span style={{ display: "block", fontSize: 14.5, fontWeight: 600, marginBottom: 5 }}>
-        {label}
-        {required && <span aria-hidden="true"> *</span>}
-        {required && <span className="sr-only"> (required)</span>}
-      </span>
-      <input
-        type={type}
-        name={name}
-        required={required}
-        placeholder={placeholder}
-        style={{ width: "100%", padding: "10px 12px", font: "inherit", fontSize: 15.5, border: "1px solid var(--line)", borderRadius: 3, background: "var(--paper)", color: "var(--ink)" }}
-      />
-    </label>
-  );
-}
