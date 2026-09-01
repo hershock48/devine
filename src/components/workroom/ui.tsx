@@ -30,6 +30,17 @@ export const labelText: React.CSSProperties = {
 export const money = (n: number) => `$${n.toFixed(2)}`;
 
 /**
+ * The customer-identity key: last ten digits of whatever was typed. The
+ * board's "returning customer" badge and the dashboard's Returning tile both
+ * match on this, and they must keep agreeing or the two screens count
+ * different customers. One copy, here, for that reason.
+ */
+export const phoneKey = (s: string) => {
+  const d = s.replace(/\D/g, "");
+  return d.length >= 7 ? d.slice(-10) : "";
+};
+
+/**
  * A radio a thumb can hit. The browser default is 13x13px, which is fine for
  * a mouse and hopeless at a counter; 20px plus the wrapping label's text
  * clears the 24px target-size guidance with the shop's accent on it.

@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   // The tracker wants its quarter; the dashboard's year view asks for 400
   // days so a January screen can still show last year whole. Clamped, so a
   // typo cannot ask the database for a decade.
-  const days = Math.min(400, Math.max(7, Math.round(Number(new URL(req.url).searchParams.get("days"))) || 90));
+  const days = Math.min(400, Math.max(1, Math.round(Number(new URL(req.url).searchParams.get("days"))) || 90));
   const store = getStore();
   const [events, recipes, orders, varieties, squareSales] = await Promise.all([
     store.listStemEvents(days),

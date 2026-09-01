@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { site } from "@/lib/site";
-import { field, labelText, money, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -89,12 +89,6 @@ type Contact = {
   street?: string;
   town?: string;
   zip?: string;
-};
-
-/** Last 10 digits, so 269-555-0101 and +1 (269) 555-0101 are one customer. */
-const phoneKey = (s: string) => {
-  const d = s.replace(/\D/g, "");
-  return d.length >= 7 ? d.slice(-10) : "";
 };
 
 function priorOrders(contacts: Contact[], phone: string, email: string, before: number): Contact[] {

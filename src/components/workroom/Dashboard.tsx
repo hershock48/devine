@@ -1,15 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MemoryWarning, PinGate, money, todayISO } from "@/components/workroom/ui";
+import { MemoryWarning, PinGate, money, phoneKey, todayISO } from "@/components/workroom/ui";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
  * critique: right numbers, wrong shape. Too many sentences, one fixed window,
- * and it lived behind a tab while the board got the front door. This is the
- * so-what promoted to the landing page, rebuilt on how the tools she already
- * reads do it (Square's own app leads with gross sales, transactions,
- * average sale; Stripe and Toast lead with a stat row and one trend chart):
+ * one fixed comparison. Rebuilt on how the tools she already reads do it
+ * (Square's own app leads with gross sales, transactions, average sale;
+ * Stripe and Toast lead with a stat row and one trend chart):
  *
  *   - One range control governs the whole page: Day, Week, Month, Year,
  *     with arrows to step back through past windows.
@@ -33,6 +32,11 @@ import { MemoryWarning, PinGate, money, todayISO } from "@/components/workroom/u
  * MONEY DOUBLE-COUNT GUARD, still: board orders paid by card or cash ARE
  * Square payments, so Taken sums the register once and adds only hand-marked
  * payments, which never reached Square.
+ *
+ * STALENESS IS VISIBLE. The summary response is keyed to the window it was
+ * fetched for; a held summary from another window (mid-refetch, or after a
+ * failed fetch) renders DIMMED, never as current truth. A failed fetch says
+ * so in one line instead of quietly showing zeros as a day's takings.
  *
  * Values sit in the sans, not the site serif: a dashboard number is a
  * reading, not a headline, and the serif's old-style figures wobble in a
@@ -71,10 +75,13 @@ type Summary = {
 
 type Range = "day" | "week" | "month" | "year";
 
-const phoneKey = (s: string) => {
-  const d = s.replace(/\D/g, "");
-  return d.length >= 7 ? d.slice(-10) : "";
-};
+/**
+ * How far back the ledger fetches reach, in days. The ONE copy of that fact
+ * on the client: the fetch URLs, the beyond-history warning, and the
+ * provenance copy all read it (glaze.md's facts-in-one-place rule). The API
+ * routes clamp to the same number as their own defensive cap.
+ */
+const HISTORY_DAYS = 400;
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -87,21 +94,28 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /**
- * The reporting window for (range, back), on this device's own calendar
- * (the todayISO rule: today means today in Marshall). All arithmetic goes
- * through Date parts, never raw day-lengths, so DST cannot shear an edge.
+ * The reporting window for (range, back), hung from an anchor day passed in
+ * as yyyy-mm-dd. The anchor is STATE, not a clock read inside the memo:
+ * that keeps the memo's dependencies honest, and midnight rollover becomes
+ * an ordinary state change (the refresh interval flips the anchor when the
+ * device's date turns). All arithmetic goes through Date parts, never raw
+ * day-lengths, so window BOUNDARIES land on real local midnights across
+ * DST. Two knowingly-accepted DST quirks remain: the elapsed cut below is
+ * raw ms, so on the two changeover days a "to this point" comparison sits
+ * one hour off; and the fall-back day's 1a chart bucket covers both 1
+ * o'clock hours (which is what the wall clock says happened). Totals are
+ * exact either way.
  *
  * prevBegin/prevEnd is the comparison window: the same window one beat
  * earlier (a day compares 7 days back, to the same weekday). When the
  * current window is still running, prevEnd is cut to the same elapsed
  * point, so a Tuesday morning never loses to a whole last week.
  */
-function makeWindow(range: Range, back: number) {
-  const now = new Date(todayISO() + "T12:00:00");
-  now.setTime(Date.now());
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const d = now.getDate();
+function makeWindow(range: Range, back: number, anchorISO: string) {
+  const anchor = new Date(anchorISO + "T12:00:00");
+  const y = anchor.getFullYear();
+  const m = anchor.getMonth();
+  const d = anchor.getDate();
 
   let begin: Date;
   let end: Date;
@@ -116,7 +130,7 @@ function makeWindow(range: Range, back: number) {
     prevEnd = new Date(y, m, d - back - 6);
     for (let h = 0; h <= 24; h++) edges.push(new Date(begin.getFullYear(), begin.getMonth(), begin.getDate(), h).getTime());
   } else if (range === "week") {
-    const dow = (now.getDay() + 6) % 7; // Monday = 0
+    const dow = (anchor.getDay() + 6) % 7; // Monday = 0
     begin = new Date(y, m, d - dow - back * 7);
     end = new Date(begin.getFullYear(), begin.getMonth(), begin.getDate() + 7);
     prevBegin = new Date(begin.getFullYear(), begin.getMonth(), begin.getDate() - 7);
@@ -137,6 +151,8 @@ function makeWindow(range: Range, back: number) {
     for (let i = 0; i <= 12; i++) edges.push(new Date(begin.getFullYear(), i, 1).getTime());
   }
 
+  // The one clock read left: the elapsed cut for a still-running window.
+  // Read at window-build time; at worst the cut is a refresh interval old.
   const nowMs = Date.now();
   const partial = back === 0 && nowMs < end.getTime();
   const prevEndMs = partial
@@ -152,6 +168,8 @@ function makeWindow(range: Range, back: number) {
     partial,
     begin,
     prevBegin,
+    /** Identity of this window, for keying a summary response to it. */
+    key: `${begin.getTime()}:${end.getTime()}:${prevEndMs}`,
   };
 }
 
@@ -220,6 +238,69 @@ function niceMax(maxCents: number): number {
   return d * 100;
 }
 
+/* ------------------------- shared render parts ------------------------- */
+
+/** The uppercase kicker over a number or a panel. One literal, not five. */
+const kicker: React.CSSProperties = {
+  fontSize: 12.5,
+  fontWeight: 700,
+  letterSpacing: "0.07em",
+  textTransform: "uppercase",
+  color: "var(--muted)",
+};
+
+/** The muted footnote line under a section. */
+const note: React.CSSProperties = { margin: "10px 0 0", fontSize: 13.5, color: "var(--muted)" };
+
+/** Arrow + percent, colored by direction times whether up is good, with the
+    prior value beside it so the baseline is on the tile (Kevin's rule: a
+    figure without a baseline is trivia). Shape carries the sign too, never
+    color alone. */
+function Delta({ cur, prev, badUp, fmt }: { cur: number; prev: number; badUp?: boolean; fmt?: (n: number) => string }) {
+  const f = fmt ?? ((n: number) => String(n));
+  if (prev <= 0) {
+    return <span style={{ fontSize: 13, color: "var(--muted)" }}>was {f(prev)}</span>;
+  }
+  const pct = Math.round(((cur - prev) / prev) * 100);
+  const up = pct > 0;
+  const flat = pct === 0;
+  const good = flat ? null : badUp ? !up : up;
+  const color = flat ? "var(--muted)" : good ? "var(--green)" : "var(--rose-ink)";
+  return (
+    <span style={{ fontSize: 13, color: "var(--muted)" }}>
+      <span style={{ color, fontWeight: 700 }}>
+        {flat ? "" : up ? "▲ " : "▼ "}
+        {flat ? "even" : `${Math.abs(pct) > 999 ? ">999" : Math.abs(pct)}%`}
+      </span>
+      {" · "}{f(prev)}
+    </span>
+  );
+}
+
+function Tile({ label, value, sub, delta, hero }: { label: string; value: string; sub?: React.ReactNode; delta?: React.ReactNode; hero?: boolean }) {
+  return (
+    <div className="panel" style={{ padding: "14px 16px", minWidth: 0 }}>
+      <div style={kicker}>{label}</div>
+      <div style={{ fontSize: hero ? 38 : 27, fontWeight: 600, fontFamily: "var(--sans)", lineHeight: 1.15, margin: "4px 0 2px" }}>{value}</div>
+      {delta && <div>{delta}</div>}
+      {sub && <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function SectionHead({ label, href, linkText }: { label: string; href?: string; linkText?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "30px 0 10px" }}>
+      <h2 style={{ ...kicker, fontFamily: "var(--sans)", fontSize: 14.5, letterSpacing: "0.08em", margin: 0 }}>{label}</h2>
+      {href && (
+        <a href={href} style={{ fontSize: 13.5, padding: "4px 0" }}>
+          {linkText} <span aria-hidden="true">&rsaquo;</span>
+        </a>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 
 export default function Dashboard({ initialAuthed }: { initialAuthed: boolean }) {
@@ -232,20 +313,29 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   const [backend, setBackend] = useState("memory");
   const [range, setRange] = useState<Range>("week");
   const [back, setBack] = useState(0);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  /** The local calendar day the windows hang from; flipped by the refresh
+      interval when midnight passes so "Today" rolls over. */
+  const [anchorISO, setAnchorISO] = useState(todayISO);
+  /** The last summary response, KEYED to the window it answered for. A held
+      summary whose key mismatches the current window renders dimmed. */
+  const [summary, setSummary] = useState<{ key: string; data: Summary } | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [summaryFailed, setSummaryFailed] = useState(false);
 
-  const win = useMemo(() => makeWindow(range, back), [range, back]);
+  const win = useMemo(() => makeWindow(range, back, anchorISO), [range, back, anchorISO]);
 
   const pull = useCallback(async () => {
     const [s, o] = await Promise.all([
-      fetch("/api/workroom/stems?days=400", { cache: "no-store" }),
-      fetch("/api/workroom/orders?days=400", { cache: "no-store" }),
+      fetch(`/api/workroom/stems?days=${HISTORY_DAYS}`, { cache: "no-store" }),
+      fetch(`/api/workroom/orders?days=${HISTORY_DAYS}`, { cache: "no-store" }),
     ]);
     if (s.status === 401 || o.status === 401) {
       setAuthed(false);
       return;
     }
+    // A transient 500 mid-poll must not wipe loaded ledgers to zeros: keep
+    // what we have and let the next poll try again.
+    if (!s.ok || !o.ok) return;
     const sd = await s.json();
     const od = await o.json();
     setEvents(sd.events ?? []);
@@ -258,26 +348,39 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   }, []);
 
   // Refetch keeps the frame: the old numbers hold, dimmed, while the new
-  // window loads, so stepping ranges never flashes an empty page.
+  // window loads. A failed or malformed response never becomes "truth": the
+  // held summary stays (still keyed to ITS window, so still dimmed) and one
+  // line below the chart says the load failed. The sequence ref makes only
+  // the NEWEST request's outcome count: without it, a slow old-window fetch
+  // resolving last would overwrite a fresher answer and re-dim the page.
   const summarySeq = useRef(0);
   const pullSummary = useCallback(async (w: Win) => {
     const seq = ++summarySeq.current;
     setLoadingSummary(true);
-    const q = new URLSearchParams({
-      begin: String(w.beginMs),
-      end: String(w.endMs),
-      prevBegin: String(w.prevBeginMs),
-      prevEnd: String(w.prevEndMs),
-      edges: w.edges.join(","),
-    });
     try {
+      const q = new URLSearchParams({
+        begin: String(w.beginMs),
+        end: String(w.endMs),
+        prevBegin: String(w.prevBeginMs),
+        prevEnd: String(w.prevEndMs),
+        edges: w.edges.join(","),
+      });
       const r = await fetch(`/api/workroom/summary?${q}`, { cache: "no-store" });
+      if (seq !== summarySeq.current) return;
       if (r.status === 401) {
         setAuthed(false);
         return;
       }
-      const data = (await r.json()) as Summary;
-      if (seq === summarySeq.current) setSummary(data);
+      const data = (await r.json().catch(() => null)) as Summary | null;
+      if (seq !== summarySeq.current) return;
+      if (!r.ok || !data?.current || !Array.isArray(data.current.buckets)) {
+        setSummaryFailed(true);
+        return;
+      }
+      setSummary({ key: w.key, data });
+      setSummaryFailed(false);
+    } catch {
+      if (seq === summarySeq.current) setSummaryFailed(true);
     } finally {
       if (seq === summarySeq.current) setLoadingSummary(false);
     }
@@ -290,19 +393,25 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
 
   useEffect(() => {
     if (!authed) return;
-    pullSummary(win).catch(() => setLoadingSummary(false));
+    pullSummary(win).catch(() => {});
   }, [authed, win, pullSummary]);
 
   // A counter screen sits open all day; a gentle refresh keeps "Today"
-  // honest without anyone thinking to reload.
+  // honest without anyone thinking to reload. When midnight passes, the
+  // anchor flips and the window effect refetches against the new day. The
+  // Year range skips the periodic summary refetch on purpose: it re-walks a
+  // year of Square payments per pass, and a year-scale chart does not need
+  // 90-second freshness (it still refetches on any interaction).
   useEffect(() => {
     if (!authed || back !== 0) return;
     const t = setInterval(() => {
       pull().catch(() => {});
-      pullSummary(makeWindow(range, 0)).catch(() => {});
+      const today = todayISO();
+      if (today !== anchorISO) setAnchorISO(today);
+      else if (range !== "year") pullSummary(win).catch(() => {});
     }, 90_000);
     return () => clearInterval(t);
-  }, [authed, back, range, pull, pullSummary]);
+  }, [authed, back, range, anchorISO, win, pull, pullSummary]);
 
   /* ---------------- the florist-side arithmetic ---------------- */
 
@@ -324,57 +433,78 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
       return c && c.stems > 0 ? c.cost / c.stems : null;
     };
 
-    const saleMs = (s: Sale) => (Number.isFinite(Date.parse(s.paidAt)) ? Date.parse(s.paidAt) : s.createdAt);
+    // Each sale's instant, resolved once (Date.parse per row per window
+    // scan was the hottest wasted work on this screen).
+    const salesM = sales.map((s) => ({
+      s,
+      ms: Number.isFinite(Date.parse(s.paidAt)) ? Date.parse(s.paidAt) : s.createdAt,
+    }));
 
-    const calc = (beginMs: number, endMs: number) => {
+    // Earliest sighting per phone and per email, built once: the returning
+    // check was O(orders x contacts) with regex normalization in the inner
+    // loop, and contacts grow with every order forever.
+    const firstByPhone = new Map<string, number>();
+    const firstByEmail = new Map<string, number>();
+    for (const c of contacts) {
+      const pk = phoneKey(c.phone);
+      const ek = c.email.trim().toLowerCase();
+      if (pk && (firstByPhone.get(pk) ?? Infinity) > c.createdAt) firstByPhone.set(pk, c.createdAt);
+      if (ek && (firstByEmail.get(ek) ?? Infinity) > c.createdAt) firstByEmail.set(ek, c.createdAt);
+    }
+
+    /** full=false computes only what the comparison window's deltas read;
+        best sellers, occasions and lead times are current-window-only. */
+    const calc = (beginMs: number, endMs: number, full: boolean) => {
       const fromISO = iso(new Date(beginMs));
       const toISO = iso(new Date(endMs - 1));
       const inMs = (ms: number) => ms >= beginMs && ms < endMs;
       const inDates = (dateISO: string) => dateISO >= fromISO && dateISO <= toISO;
 
-      /* money the register never saw */
+      /* money the register never saw. The order fee is deliberately NOT
+         totaled anywhere on this screen (Kevin, 2026-09-01: quit doing
+         that); it is the customer's line item, not a shop metric. */
       const handMarked = orders.filter((o) => o.payment && o.payment.method === "other" && inMs(o.payment.at));
       const handMarkedCents = handMarked.reduce((sum, o) => sum + (o.payment?.totalCents ?? 0), 0);
-      const feeCents = orders
-        .filter((o) => o.payment && inMs(o.payment.at))
-        .reduce((sum, o) => sum + (o.payment?.feeCents ?? 0), 0);
 
       /* orders */
       const ordersIn = orders.filter((o) => inMs(o.createdAt) && o.status !== "canceled");
       const orderedCents = ordersIn.reduce((sum, o) => sum + Math.round(o.subtotal * 100), 0);
       const web = ordersIn.filter((o) => o.source === "web").length;
       const delivery = ordersIn.filter((o) => o.fulfillment === "delivery").length;
-      const occasions = new Map<string, number>();
-      for (const o of ordersIn) {
-        const k = o.occasion || "not given";
-        occasions.set(k, (occasions.get(k) ?? 0) + 1);
-      }
       let returning = 0;
       for (const o of ordersIn) {
         const pk = phoneKey(o.phone);
         const ek = o.email.trim().toLowerCase();
-        if (contacts.some((c) => c.createdAt < o.createdAt && ((pk && phoneKey(c.phone) === pk) || (ek && c.email.trim().toLowerCase() === ek)))) {
-          returning += 1;
+        const seen = Math.min(pk ? firstByPhone.get(pk) ?? Infinity : Infinity, ek ? firstByEmail.get(ek) ?? Infinity : Infinity);
+        if (seen < o.createdAt) returning += 1;
+      }
+
+      const occasions = new Map<string, number>();
+      const leads: number[] = [];
+      const sold = new Map<string, { qty: number; cents: number }>();
+      if (full) {
+        for (const o of ordersIn) {
+          const k = o.occasion || "not given";
+          occasions.set(k, (occasions.get(k) ?? 0) + 1);
+          const lead = Math.round((new Date(o.date + "T12:00:00").getTime() - o.createdAt) / 86_400_000);
+          if (Number.isFinite(lead) && lead >= 0) leads.push(lead);
+        }
+        leads.sort((a, b) => a - b);
+
+        /* best sellers: ticket lines plus item-rung counter sales (linked
+           sales skipped; their lines are the ticket's lines) */
+        const add = (name: string, qty: number, cents: number) => {
+          const row = sold.get(name) ?? { qty: 0, cents: 0 };
+          row.qty += qty;
+          row.cents += cents;
+          sold.set(name, row);
+        };
+        for (const o of ordersIn) for (const l of o.lines) add(l.name, l.qty, Math.round(l.each * 100) * l.qty);
+        for (const { s, ms } of salesM) {
+          if (s.workroomOrderId || !inMs(ms)) continue;
+          for (const l of s.lines) add(l.name, l.qty, l.totalCents);
         }
       }
-      const leads = ordersIn
-        .map((o) => Math.round((new Date(o.date + "T12:00:00").getTime() - o.createdAt) / 86_400_000))
-        .filter((n) => Number.isFinite(n) && n >= 0)
-        .sort((a, b) => a - b);
-      const leadMedian = leads.length ? leads[Math.floor(leads.length / 2)] : null;
-
-      /* best sellers: ticket lines plus item-rung counter sales (linked
-         sales skipped; their lines are the ticket's lines) */
-      const counter = sales.filter((s) => !s.workroomOrderId && inMs(saleMs(s)));
-      const sold = new Map<string, { qty: number; cents: number }>();
-      const add = (name: string, qty: number, cents: number) => {
-        const row = sold.get(name) ?? { qty: 0, cents: 0 };
-        row.qty += qty;
-        row.cents += cents;
-        sold.set(name, row);
-      };
-      for (const o of ordersIn) for (const l of o.lines) add(l.name, l.qty, Math.round(l.each * 100) * l.qty);
-      for (const s of counter) for (const l of s.lines) add(l.name, l.qty, l.totalCents);
       const bestSellers = [...sold.entries()]
         .filter(([name]) => name && name !== "(unnamed)" && name !== "Order fee" && name !== "Service fee" && !name.startsWith("Delivery ("))
         .sort((a, b) => b[1].cents - a[1].cents)
@@ -395,7 +525,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         else tossedCost += per * e.stems;
       }
       const reasons = new Map<string, number>();
-      for (const e of tossed) reasons.set(e.reason || "other", (reasons.get(e.reason || "other") ?? 0) + e.stems);
+      if (full) for (const e of tossed) reasons.set(e.reason || "other", (reasons.get(e.reason || "other") ?? 0) + e.stems);
 
       let consumedStems = 0;
       let unreciped = 0;
@@ -412,18 +542,19 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         if (!inDates(o.date)) continue;
         for (const l of o.lines) consume(l.slug, l.qty);
       }
-      for (const s of sales) {
-        if (s.workroomOrderId) continue;
-        if (!inMs(saleMs(s))) continue;
+      for (const { s, ms } of salesM) {
+        if (s.workroomOrderId || !inMs(ms)) continue;
         for (const l of s.lines) consume(l.slug, l.qty);
       }
 
       return {
-        handMarkedCount: handMarked.length, handMarkedCents, feeCents,
+        handMarkedCount: handMarked.length, handMarkedCents,
         ordersCount: ordersIn.length, orderedCents,
         web, phone: ordersIn.length - web, delivery, pickup: ordersIn.length - delivery,
         topOccasions: [...occasions.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3),
-        returning, leadMedian, bestSellers,
+        returning,
+        leadMedian: leads.length ? leads[Math.floor(leads.length / 2)] : null,
+        bestSellers,
         boughtStems, boughtCost, tossedStems, tossedCost, unpricedTossed,
         topReasons: [...reasons.entries()].sort((a, b) => b[1] - a[1]),
         consumedStems, unreciped,
@@ -431,8 +562,8 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
       };
     };
 
-    const now = calc(win.beginMs, win.endMs);
-    const prev = calc(win.prevBeginMs, win.prevEndMs);
+    const now = calc(win.beginMs, win.endMs, true);
+    const prev = calc(win.prevBeginMs, win.prevEndMs, false);
 
     // Owed is NOW, never windowed: money owed does not care which week it
     // started being owed in.
@@ -442,67 +573,23 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
     return { now, prev, owedCount: owed.length, owedCents };
   }, [events, recipes, orders, sales, contacts, win]);
 
-  /* ---------------- small parts ---------------- */
-
-  /** Arrow + percent, colored by direction times whether up is good, with
-      the prior value beside it so the baseline is on the tile (Kevin's
-      rule: a figure without a baseline is trivia). Shape carries the sign
-      too, never color alone. */
-  const delta = (cur: number, prevV: number, opts?: { badUp?: boolean; fmt?: (n: number) => string }) => {
-    const fmt = opts?.fmt ?? ((n: number) => String(n));
-    if (prevV <= 0) {
-      return <span style={{ fontSize: 13, color: "var(--muted)" }}>was {fmt(prevV)}</span>;
-    }
-    const pct = Math.round(((cur - prevV) / prevV) * 100);
-    const up = pct > 0;
-    const flat = pct === 0;
-    const good = flat ? null : opts?.badUp ? !up : up;
-    const color = flat ? "var(--muted)" : good ? "var(--green)" : "var(--rose-ink)";
-    return (
-      <span style={{ fontSize: 13, color: "var(--muted)" }}>
-        <span style={{ color, fontWeight: 700 }}>
-          {flat ? "" : up ? "▲ " : "▼ "}
-          {flat ? "even" : `${Math.abs(pct) > 999 ? ">999" : Math.abs(pct)}%`}
-        </span>
-        {" · "}{fmt(prevV)}
-      </span>
-    );
-  };
-
-  const tile = (label: string, value: string, sub?: React.ReactNode, deltaNode?: React.ReactNode, hero?: boolean) => (
-    <div className="panel" style={{ padding: "14px 16px", minWidth: 0 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--muted)" }}>{label}</div>
-      <div style={{ fontSize: hero ? 38 : 27, fontWeight: 600, fontFamily: "var(--sans)", lineHeight: 1.15, margin: "4px 0 2px" }}>{value}</div>
-      {deltaNode && <div>{deltaNode}</div>}
-      {sub && <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}
-    </div>
-  );
-
-  const sectionHead = (label: string, href?: string, linkText?: string) => (
-    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "30px 0 10px" }}>
-      <h2 style={{ fontFamily: "var(--sans)", fontSize: 14.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: 0 }}>
-        {label}
-      </h2>
-      {href && (
-        <a href={href} style={{ fontSize: 13.5, padding: "4px 0" }}>
-          {linkText} <span aria-hidden="true">&rsaquo;</span>
-        </a>
-      )}
-    </div>
-  );
-
   if (!authed) {
     return (
       <>
         <h1>Dashboard</h1>
-        <PinGate onAuthed={() => pull().catch(() => {})} />
+        <PinGate onAuthed={() => setAuthed(true)} />
       </>
     );
   }
 
   const { now, prev } = view;
-  const cur = summary?.current;
-  const prv = summary?.previous;
+  /** The summary is only CURRENT when it answers for this window; anything
+      else renders dimmed (mid-refetch, or the last good answer after a
+      failure). */
+  const summaryMatches = summary?.key === win.key;
+  const cur = summary?.data.current;
+  const prv = summary?.data.previous;
+  const stale = loadingSummary || !summaryMatches;
   const takenCents = (cur?.totalCents ?? 0) + now.handMarkedCents;
   const prevTakenCents = (prv?.totalCents ?? 0) + prev.handMarkedCents;
   const avgCents = cur && cur.count > 0 ? Math.round(cur.totalCents / cur.count) : null;
@@ -511,22 +598,23 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   /* auto-fit, not auto-fill: a four-tile row should fill its band, not
      leave a phantom fifth column of air on a desktop. */
   const grid: React.CSSProperties = { display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))" };
+
+  const historyFloorMs = Date.now() - HISTORY_DAYS * 86_400_000;
+  const beyondHistory = win.beginMs < historyFloorMs || win.prevBeginMs < historyFloorMs;
   const quiet = now.ordersCount === 0 && takenCents === 0 && now.boughtStems === 0 && (cur?.count ?? 0) === 0;
 
-  /* chart geometry. The buckets are sliced to the window's label count:
-     while a range change is refetching, the held summary still carries the
-     OLD window's buckets (24 hours against 12 months once crashed the page
-     on an out-of-range label), and the dimmed stale frame only has to look
-     right, never to line up. */
+  /* chart geometry. The buckets are sliced to the window's label count: a
+     held summary from another window may carry a different bucket count
+     (24 hours against 12 months once crashed the page on an out-of-range
+     label), and the dimmed stale frame only has to look right. */
   const labels = bucketLabels(range, win);
   const buckets = (cur?.buckets ?? []).slice(0, labels.all.length);
   const maxCents = niceMax(Math.max(0, ...buckets));
   const CW = 720;
   const CH = 150;
   const PADL = 44;
-  const PADB = 20;
+  const plotH = CH - 20 - 8;
   const plotW = CW - PADL - 6;
-  const plotH = CH - PADB - 8;
   const slot = buckets.length > 0 ? plotW / buckets.length : plotW;
   const barW = Math.min(24, Math.max(3, slot - 4));
 
@@ -572,38 +660,38 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
       </div>
       <p style={{ margin: "0 0 14px", fontSize: 13, color: "var(--muted)" }}>{comparisonLabel(range, win)}</p>
 
-      <div style={{ opacity: loadingSummary ? 0.55 : 1, transition: "opacity 120ms" }} aria-busy={loadingSummary}>
+      <div style={{ opacity: stale ? 0.55 : 1, transition: "opacity 120ms" }} aria-busy={stale}>
         <div style={grid}>
-          {tile(
-            "Taken",
-            wholeDollars(takenCents),
-            <>cash {wholeDollars(cur?.cashCents ?? 0)}{now.handMarkedCount > 0 ? <> · {now.handMarkedCount} by hand</> : null}</>,
-            delta(takenCents, prevTakenCents, { fmt: wholeDollars }),
-            true,
-          )}
-          {tile(
-            "Register sales",
-            String(cur?.count ?? 0),
-            "rings on the Square link",
-            delta(cur?.count ?? 0, prv?.count ?? 0),
-          )}
-          {tile(
-            "Average sale",
-            avgCents === null ? "–" : centsDollars(avgCents),
-            "per register ring",
-            delta(avgCents ?? 0, prevAvgCents, { fmt: centsDollars }),
-          )}
-          {tile(
-            "Owed right now",
-            wholeDollars(view.owedCents),
-            view.owedCount ? `${view.owedCount} order${view.owedCount === 1 ? "" : "s"} out the door unpaid` : "nothing outstanding",
-          )}
+          <Tile
+            label="Taken"
+            value={wholeDollars(takenCents)}
+            hero
+            delta={<Delta cur={takenCents} prev={prevTakenCents} fmt={wholeDollars} />}
+            sub={<>cash {wholeDollars(cur?.cashCents ?? 0)}{now.handMarkedCount > 0 ? <> · {now.handMarkedCount} by hand</> : null}</>}
+          />
+          <Tile
+            label="Register sales"
+            value={String(cur?.count ?? 0)}
+            sub="rings on the Square link"
+            delta={<Delta cur={cur?.count ?? 0} prev={prv?.count ?? 0} />}
+          />
+          <Tile
+            label="Average sale"
+            value={avgCents === null ? "–" : centsDollars(avgCents)}
+            sub="per register ring"
+            delta={<Delta cur={avgCents ?? 0} prev={prevAvgCents} fmt={centsDollars} />}
+          />
+          <Tile
+            label="Owed right now"
+            value={wholeDollars(view.owedCents)}
+            sub={view.owedCount ? `${view.owedCount} order${view.owedCount === 1 ? "" : "s"} out the door unpaid` : "nothing outstanding"}
+          />
         </div>
 
         {/* The trend: one chart, register money per bucket. Single series,
             so the title line is the legend. */}
         <div className="panel" style={{ padding: "14px 16px", marginTop: 12, minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 8 }}>
+          <div style={{ ...kicker, marginBottom: 8 }}>
             Register money {range === "day" ? "by hour" : range === "year" ? "by month" : "by day"}
           </div>
           {/* tabIndex + role because a scrollable region a keyboard cannot
@@ -677,43 +765,60 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
           </details>
         </div>
 
-        {summary?.truncated && (
-          <p style={{ margin: "10px 0 0", fontSize: 13.5, color: "var(--muted)" }}>
-            Square returned more payments than this screen reads at once (4,000 per window); the register numbers above are missing the overflow.
+        {summaryFailed && !loadingSummary && (
+          <p style={note}>
+            The register summary could not load just now; the money figures hold the last loaded answer, dimmed. It retries
+            on the next refresh or range change.
           </p>
         )}
-        {now.feeCents + prev.feeCents > 0 && (
-          <p style={{ margin: "10px 0 0", fontSize: 13.5, color: "var(--muted)" }}>
-            Order fees passed to the platform: {centsDollars(now.feeCents)}.
+        {summaryMatches && summary?.data.truncated && (
+          <p style={note}>
+            Square returned more payments than this screen reads in one pass; the register figures above are missing the overflow.
           </p>
         )}
       </div>
 
-      {sectionHead("Orders", "/workroom/orders", "Open the board")}
+      {/* No silent caps: the ledgers load a bounded history, and a window
+          (or its comparison, which a Year view drags a further year back)
+          can reach past it. Register money is exempt while Square answers
+          live. */}
+      {beyondHistory && (
+        <p style={{ ...note, margin: "14px 0 0", color: "var(--rose-ink)" }}>
+          This window{win.prevBeginMs < historyFloorMs && win.beginMs >= historyFloorMs ? "'s comparison" : ""} reaches
+          past the {HISTORY_DAYS} days of order and stem history this screen loads, so the Orders and Stems tiles below
+          read low there. The register figures are unaffected while Square itself answers.
+        </p>
+      )}
+
+      <SectionHead label="Orders" href="/workroom" linkText="Open the board" />
       <div style={grid}>
-        {tile("New orders", String(now.ordersCount), `${now.web} web · ${now.phone} phone`, delta(now.ordersCount, prev.ordersCount))}
-        {tile("Ordered", wholeDollars(now.orderedCents), "tickets written, paid or not", delta(now.orderedCents, prev.orderedCents, { fmt: wholeDollars }))}
-        {tile("Deliveries", String(now.delivery), `${now.pickup} pickup${now.pickup === 1 ? "" : "s"}`, delta(now.delivery, prev.delivery))}
-        {tile(
-          "Returning",
-          now.ordersCount ? `${Math.round((now.returning / now.ordersCount) * 100)}%` : "–",
-          `${now.returning} of ${now.ordersCount} ordered before`,
-          prev.ordersCount > 0
-            ? delta(now.ordersCount ? Math.round((now.returning / now.ordersCount) * 100) : 0, Math.round((prev.returning / prev.ordersCount) * 100), { fmt: (n) => `${n}%` })
-            : undefined,
-        )}
+        <Tile label="New orders" value={String(now.ordersCount)} sub={`${now.web} web · ${now.phone} phone`} delta={<Delta cur={now.ordersCount} prev={prev.ordersCount} />} />
+        <Tile label="Ordered" value={wholeDollars(now.orderedCents)} sub="tickets written, paid or not" delta={<Delta cur={now.orderedCents} prev={prev.orderedCents} fmt={wholeDollars} />} />
+        <Tile label="Deliveries" value={String(now.delivery)} sub={`${now.pickup} pickup${now.pickup === 1 ? "" : "s"}`} delta={<Delta cur={now.delivery} prev={prev.delivery} />} />
+        <Tile
+          label="Returning"
+          value={now.ordersCount ? `${Math.round((now.returning / now.ordersCount) * 100)}%` : "–"}
+          sub={`${now.returning} of ${now.ordersCount} ordered before`}
+          delta={
+            prev.ordersCount > 0 ? (
+              <Delta
+                cur={now.ordersCount ? Math.round((now.returning / now.ordersCount) * 100) : 0}
+                prev={Math.round((prev.returning / prev.ordersCount) * 100)}
+                fmt={(n) => `${n}%`}
+              />
+            ) : undefined
+          }
+        />
       </div>
       {(now.leadMedian !== null || now.topOccasions.length > 0) && (
-        <p style={{ margin: "10px 0 0", fontSize: 13.5, color: "var(--muted)" }}>
+        <p style={note}>
           {now.leadMedian !== null && <>Median lead {now.leadMedian} day{now.leadMedian === 1 ? "" : "s"}, order to due date. </>}
           {now.topOccasions.length > 0 && <>Occasions: {now.topOccasions.map(([k, n]) => `${k} (${n})`).join(", ")}.</>}
         </p>
       )}
       {now.bestSellers.length > 0 && (
         <div className="panel" style={{ padding: "12px 16px", marginTop: 12 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-            Best sellers
-          </div>
+          <div style={{ ...kicker, marginBottom: 4 }}>Best sellers</div>
           {now.bestSellers.map(([name, r]) => {
             const topCents = now.bestSellers[0][1].cents || 1;
             return (
@@ -731,29 +836,27 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         </div>
       )}
 
-      {sectionHead("Stems", "/workroom/stems", "Stems & shrink")}
+      <SectionHead label="Stems" href="/workroom/stems" linkText="Stems & shrink" />
       <div style={grid}>
-        {tile("Bought", String(now.boughtStems), `stems · ${money(now.boughtCost)} paid`, delta(now.boughtStems, prev.boughtStems))}
-        {tile(
-          "Tossed",
-          money(now.tossedCost),
-          `${now.tossedStems} stems${now.shrinkPct === null ? "" : ` · ${now.shrinkPct}% of bought`}`,
-          delta(Math.round(now.tossedCost * 100), Math.round(prev.tossedCost * 100), { badUp: true, fmt: (n) => money(n / 100) }),
-        )}
-        {tile("Made into orders", String(now.consumedStems), "stems, via recipes", delta(now.consumedStems, prev.consumedStems))}
+        <Tile label="Bought" value={String(now.boughtStems)} sub={`stems · ${money(now.boughtCost)} paid`} delta={<Delta cur={now.boughtStems} prev={prev.boughtStems} />} />
+        <Tile
+          label="Tossed"
+          value={money(now.tossedCost)}
+          sub={`${now.tossedStems} stems${now.shrinkPct === null ? "" : ` · ${now.shrinkPct}% of bought`}`}
+          delta={<Delta cur={Math.round(now.tossedCost * 100)} prev={Math.round(prev.tossedCost * 100)} badUp fmt={(n) => money(n / 100)} />}
+        />
+        <Tile label="Made into orders" value={String(now.consumedStems)} sub="stems, via recipes" delta={<Delta cur={now.consumedStems} prev={prev.consumedStems} />} />
       </div>
       {now.topReasons.length > 0 && (
-        <p style={{ margin: "10px 0 0", fontSize: 13.5, color: "var(--muted)" }}>
-          Why tossed: {now.topReasons.map(([k, n]) => `${k} (${n})`).join(", ")}.
-        </p>
+        <p style={note}>Why tossed: {now.topReasons.map(([k, n]) => `${k} (${n})`).join(", ")}.</p>
       )}
       {now.unpricedTossed > 0 && (
-        <p style={{ margin: "8px 0 0", fontSize: 13.5, color: "var(--muted)" }}>
+        <p style={{ ...note, margin: "8px 0 0" }}>
           {now.unpricedTossed} tossed stem{now.unpricedTossed === 1 ? "" : "s"} had no purchase history to price {now.unpricedTossed === 1 ? "it" : "them"}; counted, not dollared.
         </p>
       )}
       {now.unreciped > 0 && (
-        <p style={{ margin: "8px 0 0", fontSize: 13.5, color: "var(--muted)" }}>
+        <p style={{ ...note, margin: "8px 0 0" }}>
           {now.unreciped} sold line{now.unreciped === 1 ? "" : "s"} had no recipe, so their stems could not be counted.
         </p>
       )}
@@ -770,7 +873,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         <summary style={{ fontSize: 13.5, color: "var(--muted)", cursor: "pointer" }}>Where these numbers come from</summary>
         <div style={{ fontSize: 13.5, color: "var(--muted)", maxWidth: 640 }}>
           <p style={{ margin: "10px 0 0" }}>
-            Register money comes {summary?.source === "square" ? "straight from Square" : "from the stored copy of Square's webhook (the live link is not connected here)"},
+            Register money comes {summary?.data.source === "square" ? "straight from Square" : "from the stored copy of Square's webhook (the live link is not connected here)"},
             gross, refunds not subtracted; Taken adds hand-marked payments (checks, accounts) that never touched Square. Owed is every
             finished, unpaid ticket regardless of window. Ordered is tickets written, whichever window their money lands.
           </p>
@@ -780,8 +883,9 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
           </p>
           <p style={{ margin: "8px 0 0" }}>
             Stems come from the stem log and recipes, consumed by finished orders and item-rung register sales; tossed stems are
-            priced at each variety&rsquo;s average purchase cost on record. Order and stem history reaches back 400 days here, so a
-            Year view early in January still shows last year whole; register money has no such limit when the Square link is live.
+            priced at each variety&rsquo;s average purchase cost on record. Order and stem history reaches back {HISTORY_DAYS} days
+            here, so a Year view early in January still shows last year whole; the register figures have no such limit when the
+            Square link is live.
           </p>
         </div>
       </details>

@@ -1,15 +1,11 @@
-import type { Metadata } from "next";
-import Board from "@/components/workroom/Board";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { redirect } from "next/navigation";
 
 /**
- * The order board, at its own address since the dashboard took the front
- * door (2026-09-01). Server wrapper so the first paint already knows whether
- * the cookie is good (pjs pattern).
+ * The board held this address for a few hours on 2026-09-01 before moving
+ * back to the workroom's front door, and that layout deployed. A counter
+ * tab, bookmark, or autocomplete entry may still hold it; same courtesy as
+ * /workroom/week.
  */
-export const metadata: Metadata = { title: "Orders" };
-export const dynamic = "force-dynamic";
-
-export default async function OrdersPage() {
-  return <Board initialAuthed={await isWorkroomAuthed()} />;
+export default function OrdersPage() {
+  redirect("/workroom");
 }

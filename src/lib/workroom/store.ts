@@ -755,12 +755,17 @@ const postgresStore: Store = {
     // payment key is absent until money lands, so data->'payment' IS NULL
     // is the unpaid test, and it holds for rows written before the payment
     // field existed.
+    // Newest-first inside the LIMIT, then flipped back to ASC: a bare
+    // ASC+LIMIT truncates by dropping the NEWEST rows, which is the worst
+    // possible end to lose (today's orders vanish first, silently).
     const r = await pool.query(
-      `SELECT data FROM workroom_orders
-       WHERE status NOT IN ('done', 'canceled')
-          OR (status = 'done' AND data->'payment' IS NULL)
-          OR created_at >= $1
-       ORDER BY created_at ASC LIMIT 2000`,
+      `SELECT data FROM (
+         SELECT data, created_at FROM workroom_orders
+         WHERE status NOT IN ('done', 'canceled')
+            OR (status = 'done' AND data->'payment' IS NULL)
+            OR created_at >= $1
+         ORDER BY created_at DESC LIMIT 2000
+       ) t ORDER BY created_at ASC`,
       [cutoff(days)],
     );
     return r.rows.map((row) => row.data as WorkroomOrder);
@@ -828,8 +833,13 @@ const postgresStore: Store = {
   },
   async listStemEvents(days) {
     const pool = await pgPool();
+    // Same newest-first-inside-the-LIMIT shape as listOrders: at the cap it
+    // is the oldest events that fall off, never today's log.
     const r = await pool.query(
-      `SELECT data FROM workroom_stems WHERE created_at >= $1 ORDER BY created_at ASC LIMIT 5000`,
+      `SELECT data FROM (
+         SELECT data, created_at FROM workroom_stems WHERE created_at >= $1
+         ORDER BY created_at DESC LIMIT 5000
+       ) t ORDER BY created_at ASC`,
       [cutoff(days)],
     );
     return r.rows.map((row) => row.data as StemEvent);

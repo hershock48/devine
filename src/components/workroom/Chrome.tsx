@@ -18,8 +18,8 @@ import { site } from "@/lib/site";
  */
 
 const TABS = [
-  { href: "/workroom", label: "Dashboard" },
-  { href: "/workroom/orders", label: "Orders" },
+  { href: "/workroom", label: "Orders" },
+  { href: "/workroom/dashboard", label: "Dashboard" },
   { href: "/workroom/stems", label: "Stems & shrink" },
   { href: "/workroom/inventory", label: "Inventory" },
   { href: "/workroom/weekly-order", label: "Weekly order" },
@@ -46,7 +46,9 @@ export default function WorkroomChrome() {
     <header className="wr-chrome">
       <div className="wr-chrome-in">
         {/* The brand is the way home: everyone expects the top-left mark to
-            go somewhere, and since 2026-09-01 somewhere is the dashboard. */}
+            go somewhere, and here somewhere is the board (Kevin's ask,
+            reaffirmed 2026-09-01 after a few hours of the dashboard holding
+            the front door). */}
         <a className="wr-brand" href="/workroom" style={{ textDecoration: "none", color: "inherit" }}>
           <span className="wr-shop">{site.shortName}</span>
           <span className="wr-word">Workroom</span>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
-import { square } from "@/lib/square/client";
+import { square, type SquareConfig } from "@/lib/square/client";
 import { resolveSquare } from "@/lib/square/oauth";
 import { getStore } from "@/lib/workroom/store";
 
@@ -60,9 +60,7 @@ type ListPaymentsResponse = {
  */
 const PAGE_CAP = 40;
 
-async function fromSquare(beginMs: number, endMs: number): Promise<{ rows: PaymentRow[]; truncated: boolean } | null> {
-  const cfg = await resolveSquare();
-  if (!cfg) return null;
+async function fromSquare(cfg: SquareConfig, beginMs: number, endMs: number): Promise<{ rows: PaymentRow[]; truncated: boolean }> {
   const rows: PaymentRow[] = [];
   let cursor: string | undefined;
   let pages = 0;
@@ -117,7 +115,12 @@ function summarize(rows: PaymentRow[], edges: number[]): WindowSummary {
   return { totalCents, count: rows.length, cashCents, buckets };
 }
 
+/** A present, finite number or null. Number(null) is 0, so a missing param
+    must be caught BEFORE coercion or the malformed-window guard is dead and
+    an absent begin silently becomes epoch 1970 (which, with the Square link
+    live, walks the merchant's entire payment history). */
 const num = (v: string | null): number | null => {
+  if (v === null || v.trim() === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
@@ -130,21 +133,35 @@ export async function GET(req: Request) {
   const end = num(url.searchParams.get("end"));
   const prevBegin = num(url.searchParams.get("prevBegin"));
   const prevEnd = num(url.searchParams.get("prevEnd"));
+  // The longest real edge list is a month's 32; 400 is hygiene against a
+  // hand-built URL asking for a million buckets.
   const edges = (url.searchParams.get("edges") ?? "")
     .split(",")
+    .slice(0, 400)
     .map(Number)
     .filter((n) => Number.isFinite(n));
   if (begin === null || end === null || prevBegin === null || prevEnd === null || end <= begin) {
     return NextResponse.json({ error: "Malformed window." }, { status: 400 });
+  }
+  // The client owns the calendar, but the geometry is still checked: edges
+  // must ascend and sit inside the window, or the buckets would not sum to
+  // the totals and the chart would lie with a straight face.
+  for (let i = 0; i < edges.length; i++) {
+    if (edges[i] < begin || edges[i] > end || (i > 0 && edges[i] <= edges[i - 1])) {
+      return NextResponse.json({ error: "Malformed bucket edges." }, { status: 400 });
+    }
   }
 
   let source: "square" | "stored" = "stored";
   let truncated = false;
   let cur: PaymentRow[];
   let prev: PaymentRow[];
+  // Resolved ONCE per request: resolving inside each window's fetch ran the
+  // lazy token refresh twice concurrently for no reason.
+  const cfg = await resolveSquare();
   try {
-    const [c, p] = await Promise.all([fromSquare(begin, end), fromSquare(prevBegin, prevEnd)]);
-    if (c && p) {
+    if (cfg) {
+      const [c, p] = await Promise.all([fromSquare(cfg, begin, end), fromSquare(cfg, prevBegin, prevEnd)]);
       source = "square";
       truncated = c.truncated || p.truncated;
       cur = c.rows;
@@ -155,6 +172,7 @@ export async function GET(req: Request) {
   } catch (err) {
     // Square down is a degraded dashboard, not a dead one.
     console.error("summary: Square unreachable, serving stored sales", err);
+    source = "stored";
     [cur, prev] = await Promise.all([fromStored(begin, end), fromStored(prevBegin, prevEnd)]);
   }
 
@@ -163,6 +181,5 @@ export async function GET(req: Request) {
     truncated,
     current: summarize(cur, edges),
     previous: summarize(prev, []),
-    backend: getStore().backend,
   });
 }

@@ -102,7 +102,9 @@ export async function PATCH(req: Request) {
   if (status === "out") {
     // "out" means on the van. A pickup order cannot be en route; refusing
     // here keeps a stray client from inventing a state the flow cannot leave.
-    const order = (await getStore().listOrders(60)).find((o) => o.id === id);
+    // Looked up by id, not scanned from a windowed list: the old 60-day scan
+    // quietly skipped the check for any order older than its window.
+    const order = await getStore().getOrder(id);
     if (order && order.fulfillment !== "delivery") {
       return NextResponse.json({ error: "A pickup order has no van to be out on." }, { status: 400 });
     }
