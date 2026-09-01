@@ -77,8 +77,8 @@ type Summary = {
 type Range = "day" | "week" | "month" | "year";
 
 /* HISTORY_DAYS, the date/week helpers, and the stem arithmetic live in
-   lib/workroom/derive.ts, shared with the Stems and Inventory screens so
-   one toss prices the same on every tab. */
+   lib/workroom/derive.ts, shared with the Stems screen so one toss prices
+   the same on every tab. */
 
 /** Whole dollars on tiles; cents stay in tooltips and the table (Square's
     own widget rounds the same way). */
@@ -800,7 +800,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         </div>
       )}
 
-      <SectionHead label="Stems" href="/workroom/stems" linkText="Stems & shrink" />
+      <SectionHead label="Stems" href="/workroom/stems" linkText="Open the stems page" />
       <div style={grid}>
         <Tile label="Bought" value={String(now.boughtStems)} sub={`stems · ${money(now.boughtCost)} paid`} delta={<Delta cur={now.boughtStems} prev={prev.boughtStems} />} />
         <Tile

@@ -20,8 +20,9 @@ import { site } from "@/lib/site";
 const TABS = [
   { href: "/workroom", label: "Orders" },
   { href: "/workroom/dashboard", label: "Dashboard" },
-  { href: "/workroom/stems", label: "Stems & shrink" },
-  { href: "/workroom/inventory", label: "Inventory" },
+  // Stems and Inventory merged 2026-09-01 (one job, one tab); the header
+  // was filling up and the two screens shared every ledger.
+  { href: "/workroom/stems", label: "Stems" },
   { href: "/workroom/weekly-order", label: "Weekly order" },
   { href: "/workroom/plants", label: "Plants" },
   { href: "/workroom/quotes", label: "Quotes" },
