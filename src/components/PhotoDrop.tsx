@@ -24,25 +24,57 @@ type Tier = { label: string; items: Item[] };
 
 const MAX_EDGE = 1800;
 
+function drawScaled(source: ImageBitmap | HTMLImageElement, w0: number, h0: number): string | null {
+  const scale = Math.min(1, MAX_EDGE / Math.max(w0, h0));
+  const w = Math.max(1, Math.round(w0 * scale));
+  const h = Math.max(1, Math.round(h0 * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(source, 0, 0, w, h);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+  return dataUrl.startsWith("data:image/jpeg") ? dataUrl : null;
+}
+
+/**
+ * ORIENTATION IS THE TRAP HERE. A camera photo is stored sideways with a
+ * rotation flag in its EXIF, and the canvas re-encode strips EXIF, so if the
+ * decode step ignores the flag she uploads sideways flowers. Primary path
+ * asks createImageBitmap for baked-in orientation explicitly; browsers too
+ * old for the option (it throws there) fall through to an <img> decode,
+ * which every engine orientation-corrects before drawImage. The <img> path
+ * is also the net under HEIC-on-desktop and any other decode failure: when
+ * even that cannot read the file, the row says so and offers texting it.
+ */
 async function toJpegDataUrl(file: File): Promise<{ dataUrl: string } | { failed: true }> {
   try {
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, MAX_EDGE / Math.max(bmp.width, bmp.height));
-    const w = Math.max(1, Math.round(bmp.width * scale));
-    const h = Math.max(1, Math.round(bmp.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return { failed: true };
-    ctx.drawImage(bmp, 0, 0, w, h);
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const out = drawScaled(bmp, bmp.width, bmp.height);
     bmp.close();
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    if (!dataUrl.startsWith("data:image/jpeg")) return { failed: true };
-    return { dataUrl };
+    if (out) return { dataUrl: out };
   } catch {
-    return { failed: true };
+    /* fall through to the <img> path */
   }
+  try {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("decode"));
+        img.src = url;
+      });
+      const out = drawScaled(img, img.naturalWidth, img.naturalHeight);
+      if (out) return { dataUrl: out };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    /* fall through to the honest error */
+  }
+  return { failed: true };
 }
 
 export default function PhotoDrop({

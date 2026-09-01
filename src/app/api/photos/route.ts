@@ -25,7 +25,14 @@ export const runtime = "nodejs";
  * starves a script.
  */
 
-const LIMIT = 40;
+/*
+  100, not the 40 it launched at: her real batch is 34 designs plus retakes,
+  and an efficient afternoon at the camera roll can land 34 uploads inside
+  ten minutes — throttling the OWNER mid-batch is the one failure this page
+  must never have. 100 emailed images per 10 minutes per IP is still a
+  boring haul for an abuser.
+*/
+const LIMIT = 100;
 const WINDOW_MS = 10 * 60 * 1000;
 /** ~3.5MB decoded. The client downscales to well under this; anything bigger
     is not one of our uploads. Vercel's own request cap is 4.5MB. */
