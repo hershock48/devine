@@ -204,6 +204,15 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
 
       <MemoryWarning backend={backend} />
 
+      {/* The point of the typing, stated where the typing happens: Kevin's
+          test read was "you put the info in there -- so what, where does it
+          go?" and the honest answer was three other tabs, silently. */}
+      <p className="lede" style={{ margin: "4px 0 18px" }}>
+        Everything logged here feeds three places: what the cooler holds on Inventory, the
+        prefilled flower costs on Quotes, and the shrink and made numbers on This week. Skip the
+        logging and those pages go quiet, not wrong.
+      </p>
+
       {/* ---------------- the week ---------------- */}
       <section className="panel" style={{ marginBottom: 30 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
