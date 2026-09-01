@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 import { categories, catBySlug, inCategory, priceRange, money } from "@/lib/catalog";
+import { photoFirst } from "@/lib/order";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
 
@@ -68,15 +69,17 @@ export default async function CategoryPage({ params }: Params) {
         <div className="wrap">
           <div className="sec-head">
             <p className="kicker" style={{ margin: 0 }}>
-              {items.length} designs &middot; {money(lo)}&ndash;{money(hi)} &middot; sorted by price
+              {items.length} designs &middot; {money(lo)}&ndash;{money(hi)}
             </p>
             <a className="btn" href={href("/delivery")}>
               Delivery area
             </a>
           </div>
 
+          {/* Photographed first, price order kept within each group — the
+              full-category exemption was retracted; see lib/order.ts. */}
           <div className="grid">
-            {items.map((p) => (
+            {photoFirst(items).map((p) => (
               <ProductCard key={p.slug} p={p} />
             ))}
           </div>

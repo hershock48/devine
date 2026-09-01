@@ -139,6 +139,14 @@ export default async function ProductPage({ params }: Params) {
               )}
             </p>
 
+            {/* The button sits with the price, above the copy. It used to follow
+                the description, and on a phone a generous description (Gayle's
+                Garden runs to 60 words) pushed the one action the page exists
+                for a full screen down. Name, price, order, then the story. */}
+            <div style={{ margin: "0 0 26px" }}>
+              <AddToCart slug={p.slug} name={p.name} cartHref={href("/cart")} />
+            </div>
+
             {needsCopy ? (
               <div className="notice">
                 <strong>PLACEHOLDER.</strong> Their shop carries no description for this
@@ -148,10 +156,6 @@ export default async function ProductPage({ params }: Params) {
             ) : (
               <p style={{ fontSize: 18, lineHeight: 1.7 }}>{p.desc}</p>
             )}
-
-            <div style={{ margin: "28px 0" }}>
-              <AddToCart slug={p.slug} name={p.name} cartHref={href("/cart")} />
-            </div>
 
             <div className="notes" style={{ gridTemplateColumns: "1fr" }}>
               <div>

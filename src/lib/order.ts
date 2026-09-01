@@ -4,8 +4,7 @@ import manifest from "@/lib/image-manifest.json";
 export const hasPhoto = (slug: string): boolean => `product/${slug}` in manifest;
 
 /**
- * PHOTOGRAPHED FIRST — but only where the list is a SAMPLE, never where it is the
- * whole category.
+ * PHOTOGRAPHED FIRST, everywhere a grid renders.
  *
  * 20 of 57 products have photographs. Every truncated list on this site was taking
  * the first three by price, which meant the real flowers were mostly buried on page
@@ -14,10 +13,16 @@ export const hasPhoto = (slug: string): boolean => `product/${slug}` in manifest
  * wallpaper — which is the single biggest thing standing between this build and
  * looking expensive, and it is a content gap rather than a design one.
  *
- * So: any list that shows only some of a category shows the photographed ones. A full
- * category page stays in price order, because someone reading a whole category is
- * comparing prices and reordering it under them to flatter the photography would be
- * serving us rather than them.
+ * RETRACTED, the sample-only rule. This comment used to exempt full category pages,
+ * arguing that a category reader is comparing prices and reordering under them to
+ * flatter the photography serves us rather than them. The mobile audit showed what
+ * that argument buys: Birthday opened with four generated prints in a row, because
+ * price-ascending seats the unphotographed $55 pieces first — a wall of stand-in
+ * art as a category's opening image, the exact pattern the weddings and sympathy
+ * pages were rebuilt to kill. A flower customer buys the photograph; a placeholder
+ * cannot inform any comparison, so leading with real work serves the reader too.
+ * Price order is untouched WITHIN each group, and the category page states its
+ * range so price comparison loses nothing.
  *
  * The sort is stable — guaranteed by the language since ES2019 — so price order is
  * preserved inside each of the two groups. When the remaining 37 photographs land,

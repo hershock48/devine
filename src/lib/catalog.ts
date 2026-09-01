@@ -37,15 +37,37 @@ export type Category = {
   blurb: string;
 };
 
+/*
+  THE ORDER IS THE SALES ORDER, as well as it can be known today. This array
+  drives the shop page's sections, its contents index and the homepage occasion
+  list, so its sequence is merchandising, not alphabet.
+
+  What it is built from, since the shop has no online sales history yet: the
+  Society of American Florists' consumer buying data (safnow.org) puts "just
+  because" at 23% of cut-flower purchases and birthday and anniversary at 12%
+  each — the three biggest reasons anyone buys flowers, so they open the shop.
+  Sympathy is a small share of CONSUMER purchases but a core revenue line for a
+  local full-service florist (hers carries the shop's highest tickets, $95-215,
+  and its buyers are urgent), so it sits directly after the everyday three.
+  Plants follow (roughly a fifth of purchases are for the buyer's own home or
+  office, and it is the deepest, best-photographed shelf). Gifts are
+  attachments rather than destinations — the cart already offers them beside
+  the register. Wedding closes: four ready-to-order classics, while the real
+  wedding trade runs through its own consultation page.
+
+  PROVISIONAL, and self-correcting: the Square register link lands her actual
+  counter sales in square_sales. Once a season of real numbers exists, this
+  order gets re-cut from what Marshall actually buys, not from industry data.
+*/
 export const categories: Category[] = [
   { slug: "just-because", name: "Just Because", blurb: "No occasion required. The arrangements our designers reach for when someone simply deserves flowers." },
   { slug: "birthday", name: "Birthday", blurb: "Bright, generous and built to be carried into a room." },
   { slug: "anniversary", name: "Anniversary", blurb: "Roses, and the arrangements for people who would rather not send roses." },
-  { slug: "new-baby", name: "New Baby", blurb: "Something for the parents, and something the child keeps." },
   { slug: "celebration-of-life", name: "Celebration of Life", blurb: "Arrangements for a service, a graveside, or a kitchen table that needs softening." },
-  { slug: "wedding", name: "Wedding", blurb: "Our four classics, ready to order. Everything else is designed with you." },
   { slug: "plants", name: "Plants", blurb: "Living things that stay long after cut flowers are done." },
+  { slug: "new-baby", name: "New Baby", blurb: "Something for the parents, and something the child keeps." },
   { slug: "gifts-add-ons", name: "Gifts & Add Ons", blurb: "Tea, chocolate from Albion, and something soft to hold. Add one to any arrangement." },
+  { slug: "wedding", name: "Wedding", blurb: "Our four classics, ready to order. Everything else is designed with you." },
 ];
 
 /*
