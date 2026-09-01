@@ -410,6 +410,16 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [picked, setPicked] = useState<Contact | null>(null);
+  /**
+   * Which of the two lookup fields the HUMAN has typed in since the last
+   * pick. Suggestions match only against typed fields, never autofilled
+   * ones: without this, picking Wanda fills her phone number, retyping the
+   * name to someone else leaves that number in the phone field, and Wanda
+   * keeps being suggested off a value nobody typed (found by Kevin in the
+   * first minute of testing). A pick resets both flags because the values
+   * it writes are the machine's, not the caller's.
+   */
+  const [typed, setTyped] = useState({ name: false, phone: false });
   const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">("delivery");
   const [recipient, setRecipient] = useState("");
   const [street, setStreet] = useState("");
@@ -470,6 +480,12 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
               // Typing again reopens the suggestions: a wrong pick must not
               // be sticky.
               setPicked(null);
+              setTyped((t) => ({ ...t, name: true }));
+            }}
+            onKeyDown={(e) => {
+              // Escape dismisses the suggestions (the canonical combobox
+              // behavior); the next keystroke brings them back.
+              if (e.key === "Escape") setTyped({ name: false, phone: false });
             }}
             required
             style={field}
@@ -483,6 +499,10 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
             onChange={(e) => {
               setPhone(e.target.value);
               setPicked(null);
+              setTyped((t) => ({ ...t, phone: true }));
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setTyped({ name: false, phone: false });
             }}
             style={field}
           />
@@ -496,10 +516,21 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
           those too and Kevin cut it, because what they are ordering and why
           is this call's business, and a prefilled Sympathy on a birthday
           order is the kind of wrong that ships. No separate customer table
-          to maintain or drift: the orders already know everyone. */}
+          to maintain or drift: the orders already know everyone.
+
+          The interaction follows the canonical autocomplete rules (checked
+          against the ARIA APG combobox pattern 2026-09-01): match only the
+          characters the human typed, selection closes the list, editing
+          reopens it filtered by the new value, Escape dismisses. What it
+          deliberately is NOT is a full ARIA combobox with arrow-key
+          activedescendant plumbing: the suggestions are real buttons,
+          natively tabbable and announced, and the APG's own guidance warns
+          that half-applied combobox attributes are worse than none. */}
       {(() => {
-        const q = name.trim().toLowerCase();
-        const pq = phone.replace(/\D/g, "");
+        // Only what the human typed counts as a query; autofilled values
+        // must never drive matching (see the `typed` note above).
+        const q = typed.name ? name.trim().toLowerCase() : "";
+        const pq = typed.phone ? phone.replace(/\D/g, "") : "";
         if (picked || (q.length < 2 && pq.length < 3)) return null;
         const latestByKey = new Map<string, { c: Contact; count: number }>();
         for (const c of contacts) {
@@ -529,6 +560,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                 type="button"
                 onClick={() => {
                   setPicked(c);
+                  setTyped({ name: false, phone: false });
                   setName(c.name);
                   setPhone(c.phone);
                   if (c.fulfillment) setFulfillment(c.fulfillment);
