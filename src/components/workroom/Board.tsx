@@ -319,6 +319,18 @@ function OrderCard({
         </p>
       )}
 
+      {/* The customer's tap-to-call, up here with their name where it reads
+          as "call them", not dangling under the money where it read as part
+          of the payment controls (Kevin, mid-test: "why is this number
+          here?"). */}
+      {o.phone && (
+        <p style={{ margin: "2px 0", fontSize: 14.5 }}>
+          <a href={`tel:${o.phone.replace(/[^\d+]/g, "")}`} style={{ display: "inline-block", padding: "5px 0" }}>
+            {o.phone}
+          </a>
+        </p>
+      )}
+
       <p style={{ margin: "6px 0", fontSize: 14.5 }}>
         <strong>{o.date}</strong>
         {" · "}
@@ -362,6 +374,21 @@ function OrderCard({
           <span>Subtotal</span>
           <span>{money(o.subtotal)}</span>
         </li>
+        {/* Once paid by card, the fee and the true total join the ticket
+            itself, receipt style, so the record reads whole without hunting
+            through the badge. */}
+        {o.payment && o.payment.feeCents > 0 && (
+          <>
+            <li style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>Service fee</span>
+              <span>{money(o.payment.feeCents / 100)}</span>
+            </li>
+            <li style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>
+              <span>Total paid</span>
+              <span>{money(o.payment.totalCents / 100)}</span>
+            </li>
+          </>
+        )}
       </ul>
 
       {/* overflowWrap, because a card message is customer-typed text and one
@@ -370,14 +397,6 @@ function OrderCard({
         <p style={{ margin: "6px 0", fontSize: 14.5, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{o.cardMessage}&rdquo;</p>
       )}
       {o.notes && <p style={{ margin: "6px 0", fontSize: 14.5, overflowWrap: "anywhere" }}>{o.notes}</p>}
-      {o.phone && (
-        <p style={{ margin: "2px 0", fontSize: 14.5 }}>
-          {/* inline-block + padding so the tap target clears 24px on a phone */}
-          <a href={`tel:${o.phone.replace(/[^\d+]/g, "")}`} style={{ display: "inline-block", padding: "5px 0" }}>
-            {o.phone}
-          </a>
-        </p>
-      )}
 
       {/* The money corner. Canceled orders take no payment; finished unpaid
           ones still can, because "paid at pickup" happens after "picked up"

@@ -218,10 +218,25 @@ export default function PayControls({
 
       {mode === "card" && (
         <div className="panel" style={{ padding: 12, marginTop: 4 }}>
-          <p style={{ margin: "0 0 8px", fontSize: 14 }}>
-            Charging <strong>{dollars(cardTotal)}</strong> ({dollars(Math.round(subtotal * 100))} +{" "}
-            {dollars(fee)} service fee). Quote the customer the full number.
-          </p>
+          {/* A receipt, not a sentence: the earlier version explained the fee
+              apologetically and then nagged staff to disclose it (Kevin's
+              read, near verbatim: "this is the price and then there's a
+              service fee... sorry... and make sure you tell them"). Rows say
+              it plainly; the button quotes the total. */}
+          <ul style={{ listStyle: "none", padding: 0, margin: "0 0 10px", fontSize: 14.5 }}>
+            <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <span>Subtotal</span>
+              <span>{dollars(Math.round(subtotal * 100))}</span>
+            </li>
+            <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <span>Service fee</span>
+              <span>{dollars(fee)}</span>
+            </li>
+            <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
+              <span>Total</span>
+              <span>{dollars(cardTotal)}</span>
+            </li>
+          </ul>
           <div ref={holderRef} />
           <p style={{ margin: "10px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
             <button type="button" className="btn btn--solid" disabled={busy || !ready} onClick={() => pay("card")}>
