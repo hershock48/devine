@@ -184,6 +184,15 @@ export default function CartView() {
     if (payMethod === "card" && !cardAllowed) setPayMethod("call");
   }, [payMethod, cardAllowed]);
 
+  /* Card is the DEFAULT whenever it is available (Kevin's call): most
+     buyers expect to pay at a checkout, and the pay-later option remains
+     one tap away. The upgrade only happens while the buyer has not touched
+     the radio; an explicit choice is never overridden. */
+  const [payChosen, setPayChosen] = useState(false);
+  useEffect(() => {
+    if (!payChosen && cardAllowed && payMethod === "call") setPayMethod("card");
+  }, [payChosen, cardAllowed, payMethod]);
+
   // Mount Square's field only while the card option is chosen; tear it
   // down when it is not, same lifecycle as the workroom's pane.
   useEffect(() => {
@@ -680,7 +689,10 @@ export default function CartView() {
                               type="radio"
                               name="paymethod"
                               checked={payMethod === m}
-                              onChange={() => setPayMethod(m)}
+                              onChange={() => {
+                                setPayMethod(m);
+                                setPayChosen(true);
+                              }}
                               style={{ width: 20, height: 20, accentColor: "var(--green)" }}
                             />
                             {m === "card"
@@ -706,6 +718,37 @@ export default function CartView() {
                       little more to pay by card now, or send it and we&rsquo;ll talk it through
                       on the call.
                     </p>
+                  )}
+
+                  {/* Pay-on-call gets its breakdown too (Kevin's ask): the
+                      buyer deserves the same arithmetic whichever way the
+                      money moves. No Order fee row here, honestly: the fee
+                      exists only on remote card payments, and this buyer
+                      might pay cash at pickup; the note says which. */}
+                  {payMethod === "call" && (!delivering || deliveryFee !== undefined) && (
+                    <div style={{ border: "1px solid var(--line)", borderRadius: 3, padding: 14, background: "var(--paper-2)" }}>
+                      <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 15 }}>
+                        <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <span>Subtotal</span>
+                          <span>{money(subtotal)}</span>
+                        </li>
+                        {delivering && deliveryFee !== undefined && (
+                          <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                            <span>Delivery ({zipTrim})</span>
+                            <span>{money(deliveryFee)}</span>
+                          </li>
+                        )}
+                        <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
+                          <span>Total due</span>
+                          <span>{money(Math.round((subtotal + (delivering ? deliveryFee ?? 0 : 0)) * 100) / 100)}</span>
+                        </li>
+                      </ul>
+                      {cfg.cards && (
+                        <p className="muted" style={{ fontSize: 13.5, margin: "8px 0 0" }}>
+                          Paying by card adds the {money(feeCents / 100)} order fee; cash does not.
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   {payMethod === "card" && cardAllowed && (
