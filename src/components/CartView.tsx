@@ -126,6 +126,17 @@ export default function CartView() {
   const cardRef = useRef<SquareCard | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
   const zipRef = useRef<HTMLInputElement | null>(null);
+  const sentHeadingRef = useRef<HTMLHeadingElement | null>(null);
+
+  /* The confirmation is much shorter than the form it replaces, so the
+     browser's kept scroll position landed people in the footer instead of
+     on the good news (Kevin's catch). Scroll to the top and move focus to
+     the heading, which also makes screen readers announce the change. */
+  useEffect(() => {
+    if (outcome.state !== "sent") return;
+    window.scrollTo({ top: 0 });
+    sentHeadingRef.current?.focus();
+  }, [outcome.state]);
 
   /*
     BROWSER AUTOFILL FILLS PIXELS, NOT ALWAYS STATE: Chrome can populate the
@@ -310,7 +321,9 @@ export default function CartView() {
       <section className="section">
         <div className="wrap" style={{ maxWidth: 860 }}>
           <p className="kicker">Your order</p>
-          <h1>It&rsquo;s in.</h1>
+          <h1 ref={sentHeadingRef} tabIndex={-1} style={{ outline: "none" }}>
+            It&rsquo;s in.
+          </h1>
           <p className="lede" style={{ marginTop: 12 }}>
             Order <strong>{outcome.number}</strong> is with the shop.
           </p>
