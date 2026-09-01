@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, VarietyGate } from "@/components/workroom/ui";
 import { normalizeVariety } from "@/lib/workroom/derive";
 import PlantsSection from "@/components/workroom/Plants";
 
@@ -52,7 +52,9 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
   const [open, setOpen] = useState(false);
   /** Names the truck tried to receive that the stem library lacks; the
       one-tap add clears them. */
-  const [unknown, setUnknown] = useState<string[]>([]);
+  /** Lines whose variety was just added via the gate, so the confirmation
+      stays visible after the library refresh clears the flag itself. */
+  const [justAdded, setJustAdded] = useState<Record<number, string>>({});
 
   const pull = useCallback(async () => {
     const [ro, rv] = await Promise.all([
@@ -157,35 +159,17 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
 
   /* THE LIBRARY IS THE ONE NAMESPACE (Kevin, 2026-09-01). A line naming a
      variety the library lacks is refused here by name (the route refuses
-     too), with one tap to add it if it is genuinely new: a typo must never
-     become a phantom variety beside the real one. */
+     too) and flagged under its own line, where the gate offers the closest
+     existing names first and a small deliberate add behind them. The
+     earlier add-them-all batch button died with Kevin's catch that one
+     reflexive click enshrined the typo anyway. */
   const library = useMemo(() => new Set(varieties.map((v) => v.name)), [varieties]);
-
-  async function addUnknown() {
-    setStatus("");
-    for (const name of unknown) {
-      const r = await fetch("/api/workroom/varieties", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, kind: "flower", sellStem: "", sellBunch: "", stemsPerBunch: "" }),
-      });
-      if (!r.ok) {
-        const d = await r.json().catch(() => null);
-        setStatus(d?.error || "That did not save.");
-        return;
-      }
-    }
-    setStatus(`Added to the stem library: ${unknown.join(", ")}. Log the truck again.`);
-    setUnknown([]);
-    pull();
-  }
+  const libraryNames = useMemo(() => varieties.map((v) => v.name), [varieties]);
 
   async function receive() {
-    setUnknown([]);
     const notListed = [...new Set(lines.map((l) => normalizeVariety(l.variety)).filter((v) => v && !library.has(v)))];
     if (notListed.length > 0) {
-      setUnknown(notListed);
-      setStatus(`Not in the stem library: ${notListed.join(", ")}. Add ${notListed.length === 1 ? "it" : "them"}, or fix the spelling.`);
+      setStatus(`Not in the stem library: ${notListed.join(", ")}. Each is flagged under its line.`);
       return;
     }
     const missing = lines.filter((l) => l.variety.trim() && l.unit === "bunch" && !Number(l.stemsPerBunch));
@@ -305,23 +289,26 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
                 </tr>
               </thead>
               <tbody>
-                {lines.map((l, i) => (
-                  <tr key={i}>
+                {lines.map((l, i) => {
+                  const setLineVariety = (name: string) =>
+                    setLines((cur) =>
+                      cur.map((x, at) => {
+                        if (at !== i) return x;
+                        const spb = spbByName.get(normalizeVariety(name));
+                        return { ...x, variety: name, stemsPerBunch: x.stemsPerBunch || (spb ? String(spb) : "") };
+                      }),
+                    );
+                  const lineName = normalizeVariety(l.variety);
+                  const flagged = (!!lineName && !library.has(lineName)) || justAdded[i] === lineName;
+                  return (
+                  <Fragment key={i}>
+                  <tr>
                     <td style={{ padding: 3, minWidth: 170 }}>
                       <input
                         aria-label={`Line ${i + 1} variety`}
                         list="wo-varieties"
                         value={l.variety}
-                        onChange={(e) => {
-                          const name = e.target.value;
-                          setLines((cur) =>
-                            cur.map((x, at) => {
-                              if (at !== i) return x;
-                              const spb = spbByName.get(name.trim().toLowerCase());
-                              return { ...x, variety: name, stemsPerBunch: x.stemsPerBunch || (spb ? String(spb) : "") };
-                            }),
-                          );
-                        }}
+                        onChange={(e) => setLineVariety(e.target.value)}
                         style={tiny}
                       />
                     </td>
@@ -353,7 +340,25 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
                       </button>
                     </td>
                   </tr>
-                ))}
+                  {flagged && (
+                    <tr>
+                      <td colSpan={7} style={{ padding: "0 6px 6px" }}>
+                        <VarietyGate
+                          value={l.variety}
+                          library={libraryNames}
+                          onReplace={setLineVariety}
+                          onAdded={(n) => {
+                            setLineVariety(n);
+                            setJustAdded((cur) => ({ ...cur, [i]: n }));
+                            pull();
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -386,16 +391,8 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
               The truck came — log it
             </button>
           </p>
-          <p aria-live="polite" style={{ margin: "10px 0 0", fontSize: 14, fontWeight: 600, color: status.includes("saved") || status.includes("logged") || status.startsWith("Added") ? "var(--green)" : "var(--rose-ink)", minHeight: "1.3em" }}>
+          <p aria-live="polite" style={{ margin: "10px 0 0", fontSize: 14, fontWeight: 600, color: status.includes("saved") || status.includes("logged") ? "var(--green)" : "var(--rose-ink)", minHeight: "1.3em" }}>
             {status}
-            {unknown.length > 0 && (
-              <>
-                {" "}
-                <button type="button" onClick={addUnknown} style={{ ...textButton, fontSize: 14, fontWeight: 700 }}>
-                  Add {unknown.length === 1 ? "it" : "them"} to the library
-                </button>
-              </>
-            )}
           </p>
         </section>
       )}

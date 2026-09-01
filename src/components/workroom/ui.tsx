@@ -7,8 +7,8 @@
  * (the pjs kitchen screen's rule).
  */
 
-import { useState } from "react";
-import { isoDate } from "@/lib/workroom/derive";
+import { useEffect, useMemo, useState } from "react";
+import { isoDate, normalizeVariety } from "@/lib/workroom/derive";
 
 export const field: React.CSSProperties = {
   width: "100%",
@@ -97,6 +97,184 @@ export function MemoryWarning({ backend }: { backend: string | null }) {
   );
 }
 
+
+/* Small edit distance for did-you-mean, with an early out on hopeless
+   length gaps. The library is ~115 short names; this is cheap. */
+function editDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 3) return 9;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/** The closest library names to a typed one: distance-ranked, prefix and
+    contains matches included, at most two offered. */
+function suggestNames(name: string, library: string[]): string[] {
+  const cap = name.length < 5 ? 1 : 2;
+  return library
+    .map((n) => {
+      const d = editDistance(name, n);
+      const related = n.startsWith(name) || name.startsWith(n) || (name.length >= 4 && n.includes(name));
+      return { n, score: d <= cap ? d : related ? 3 : 9 };
+    })
+    .filter((x) => x.score < 9)
+    .sort((a, b) => a.score - b.score || a.n.length - b.n.length)
+    .slice(0, 2)
+    .map((x) => x.n);
+}
+
+/**
+ * The gate under every variety field. When the typed name is not in the
+ * stem library it offers the CLOSEST existing names first (most strangers
+ * are misspellings of a resident, and Kevin's worry was exactly that one
+ * reflexive click would enshrine the typo), and behind them a small
+ * deliberate add: the name shown again for a second look, its kind, and
+ * the optional facts worth capturing while someone is standing there. A
+ * finished add says so in words instead of just disappearing.
+ *
+ * Render it unconditionally under the field; it decides for itself whether
+ * there is anything to say.
+ */
+export function VarietyGate({
+  value,
+  library,
+  onReplace,
+  onAdded,
+}: {
+  /** The field's raw typed value. */
+  value: string;
+  /** The library's names (plus any added this session by the caller). */
+  library: string[];
+  /** Put this name into the field (a suggestion tap, or the added name). */
+  onReplace: (name: string) => void;
+  /** The add succeeded; the caller refreshes or extends its library list. */
+  onAdded: (name: string) => void;
+}) {
+  const name = normalizeVariety(value);
+  const listed = useMemo(() => new Set(library), [library]);
+  const [openForm, setOpenForm] = useState(false);
+  const [draft, setDraft] = useState({ name: "", kind: "flower", sellStem: "", stemsPerBunch: "" });
+  const [error, setError] = useState("");
+  const [added, setAdded] = useState("");
+
+  // A different name in the field closes the form; the confirmation stays
+  // only while the field still holds the name it confirmed.
+  useEffect(() => {
+    setOpenForm(false);
+    setError("");
+  }, [name]);
+
+  if (!name) return null;
+
+  if (listed.has(name)) {
+    if (added === name) {
+      return (
+        <p style={{ margin: "4px 0 0", fontSize: 13.5 }}>
+          <strong style={{ color: "var(--green)" }}>Added.</strong>{" "}
+          <span className="muted">
+            &ldquo;{name}&rdquo; is in the stem library now; anything left blank can be filled there later.
+          </span>
+        </p>
+      );
+    }
+    return null;
+  }
+
+  async function save() {
+    setError("");
+    const finalName = normalizeVariety(draft.name);
+    if (!finalName) {
+      setError("A name is required.");
+      return;
+    }
+    const r = await fetch("/api/workroom/varieties", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: finalName, kind: draft.kind, sellStem: draft.sellStem, sellBunch: "", stemsPerBunch: draft.stemsPerBunch }),
+    });
+    const d = (await r.json().catch(() => null)) as { variety?: { name?: string }; error?: string } | null;
+    if (!r.ok) {
+      setError(d?.error || "That did not save.");
+      return;
+    }
+    const savedName = d?.variety?.name ?? finalName;
+    setAdded(savedName);
+    setOpenForm(false);
+    onAdded(savedName);
+    onReplace(savedName);
+  }
+
+  if (!openForm) {
+    const suggestions = suggestNames(name, library);
+    return (
+      <p style={{ margin: "4px 0 0", fontSize: 13.5 }}>
+        <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Not in the stem library.</span>{" "}
+        {suggestions.map((s) => (
+          <span key={s}>
+            <button type="button" onClick={() => onReplace(s)} style={{ ...textButton, fontSize: 13.5, fontWeight: 700 }}>
+              Did you mean &ldquo;{s}&rdquo;?
+            </button>{" "}
+          </span>
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            setDraft({ name, kind: "flower", sellStem: "", stemsPerBunch: "" });
+            setOpenForm(true);
+          }}
+          style={{ ...textButton, fontSize: 13.5 }}
+        >
+          Add &ldquo;{name}&rdquo; as a new variety&hellip;
+        </button>
+      </p>
+    );
+  }
+
+  const tiny: React.CSSProperties = { ...field, padding: "7px 9px", fontSize: 14 };
+  return (
+    <div style={{ margin: "6px 0 0", border: "1px solid var(--line)", borderRadius: 3, padding: "10px 12px", display: "grid", gap: 8 }}>
+      <p style={{ margin: 0, fontSize: 13.5, fontWeight: 600 }}>
+        A new library entry. Check the spelling once; every ledger matches on it forever.
+      </p>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+        <label style={{ flex: "1 1 140px" }}>
+          <span style={{ ...labelText, fontSize: 12.5 }}>Name</span>
+          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} style={tiny} />
+        </label>
+        <label>
+          <span style={{ ...labelText, fontSize: 12.5 }}>Kind</span>
+          <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })} style={tiny}>
+            <option value="flower">flower</option>
+            <option value="green">green</option>
+          </select>
+        </label>
+        <label>
+          <span style={{ ...labelText, fontSize: 12.5 }}>Sell/stem</span>
+          <input inputMode="decimal" value={draft.sellStem} onChange={(e) => setDraft({ ...draft, sellStem: e.target.value })} placeholder="$, if known" style={{ ...tiny, width: 92 }} />
+        </label>
+        <label>
+          <span style={{ ...labelText, fontSize: 12.5 }}>Stems/bunch</span>
+          <input inputMode="numeric" value={draft.stemsPerBunch} onChange={(e) => setDraft({ ...draft, stemsPerBunch: e.target.value })} placeholder="if known" style={{ ...tiny, width: 86 }} />
+        </label>
+      </div>
+      <p style={{ margin: 0, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button className="btn btn--solid" type="button" onClick={save}>
+          Add to the library
+        </button>
+        <button type="button" onClick={() => setOpenForm(false)} style={textButton}>
+          Cancel
+        </button>
+        <span aria-live="polite" style={{ fontSize: 13.5, color: "var(--rose-ink)", fontWeight: 600 }}>{error}</span>
+      </p>
+    </div>
+  );
+}
 
 /** The PIN gate. One field, big enough to tap with a thumb. */
 export function PinGate({ onAuthed }: { onAuthed: () => void }) {

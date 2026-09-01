@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { products } from "@/lib/catalog";
-import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, VarietyGate } from "@/components/workroom/ui";
 import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, normalizeVariety, recipeUnitCost, saleInstantMs } from "@/lib/workroom/derive";
 
 /**
@@ -91,18 +91,9 @@ const recipeEligibleSlugs = new Set(recipeEligible.map((p) => p.slug));
 /** The recipe picker's option list: eligible designs only, by name. */
 const sortedEligible = [...recipeEligible].sort((a, b) => a.name.localeCompare(b.name));
 
-/** One tap adds a name to the library with blank prices. Shared by every
-    form on the page, so the add is the same motion everywhere. */
-async function addToLibrary(name: string): Promise<{ ok: boolean; name: string; error?: string }> {
-  const r = await fetch("/api/workroom/varieties", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, kind: "flower", sellStem: "", sellBunch: "", stemsPerBunch: "" }),
-  });
-  const d = await r.json().catch(() => null);
-  if (!r.ok) return { ok: false, name, error: d?.error || "That did not save." };
-  return { ok: true, name: d?.variety?.name ?? name };
-}
+/* Adding a name to the library is VarietyGate's job (ui.tsx): suggestions
+   first, then a small deliberate form. The old one-tap helper died with
+   Kevin's catch that one reflexive click enshrined the typo anyway. */
 
 export default function Inventory({ initialAuthed }: { initialAuthed: boolean }) {
   const [authed, setAuthed] = useState(initialAuthed);
@@ -721,23 +712,12 @@ function EventForm({
   const perStem = kind === "purchase" && stemsN > 0 && costN > 0 ? costN / stemsN : null;
   const usual = kind === "purchase" && name && !unknown ? costPerStem.get(name) ?? null : null;
 
-  async function add() {
-    setError("");
-    const r = await addToLibrary(name);
-    if (!r.ok) {
-      setError(r.error || "That did not save.");
-      return;
-    }
-    setVariety(r.name);
-    onSaved();
-  }
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setSaved("");
     if (unknown) {
-      setError(`"${name}" is not in the stem library. Add it with the button by the field, or fix the spelling.`);
+      setError(`"${name}" is not in the stem library. Pick a suggestion under the field, add it there, or fix the spelling.`);
       return;
     }
     const r = await fetch("/api/workroom/stems", {
@@ -802,15 +782,15 @@ function EventForm({
           </label>
         )}
       </div>
-      {unknown && (
-        <p style={{ margin: 0, fontSize: 13.5 }}>
-          <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Not in the stem library.</span>{" "}
-          <button type="button" onClick={add} style={{ ...textButton, fontSize: 13.5 }}>
-            Add &ldquo;{name}&rdquo; to it
-          </button>{" "}
-          <span className="muted">or fix the spelling.</span>
-        </p>
-      )}
+      <VarietyGate
+        value={variety}
+        library={library}
+        onReplace={setVariety}
+        onAdded={(n) => {
+          setVariety(n);
+          onSaved();
+        }}
+      />
       {kind === "purchase" && perStem != null && (
         <p className="muted" style={{ margin: 0, fontSize: 14 }}>
           {money(perStem)} a stem.
@@ -869,16 +849,6 @@ function RecipeForm({
   const listed = useMemo(() => new Set([...library, ...extraNames]), [library, extraNames]);
   const suggest = useMemo(() => [...listed].sort(), [listed]);
 
-  async function add(name: string) {
-    setError("");
-    const r = await addToLibrary(name);
-    if (!r.ok) {
-      setError(r.error || "That did not save.");
-      return;
-    }
-    setExtraNames((cur) => [...cur, r.name]);
-  }
-
   // Choosing a product loads its saved recipe, so editing is the same motion
   // as creating and there is no second UI to learn.
   const pick = useCallback(
@@ -929,7 +899,7 @@ function RecipeForm({
       ),
     ];
     if (unknowns.length > 0) {
-      setError(`Not in the stem library: ${unknowns.join(", ")}. Add ${unknowns.length === 1 ? "it" : "them"} with the button by the field, or fix the spelling.`);
+      setError(`Not in the stem library: ${unknowns.join(", ")}. Pick a suggestion under the field, add ${unknowns.length === 1 ? "it" : "them"} there, or fix the spelling.`);
       return;
     }
     const r = await fetch("/api/workroom/recipes", {
@@ -980,8 +950,7 @@ function RecipeForm({
       {slug && (
         <>
           {parts.map((p, i) => {
-            const name = normalizeVariety(p.variety);
-            const unknown = !!name && !listed.has(name);
+            const setRow = (variety: string) => setParts((cur) => cur.map((x, at) => (at === i ? { ...x, variety } : x)));
             return (
               <div key={i}>
                 <div style={{ display: "grid", gap: 8, gridTemplateColumns: "2fr 90px" }}>
@@ -990,7 +959,7 @@ function RecipeForm({
                     list="recipe-varieties"
                     placeholder="variety"
                     value={p.variety}
-                    onChange={(e) => setParts((cur) => cur.map((x, at) => (at === i ? { ...x, variety: e.target.value } : x)))}
+                    onChange={(e) => setRow(e.target.value)}
                     style={field}
                   />
                   <input
@@ -1002,15 +971,15 @@ function RecipeForm({
                     style={field}
                   />
                 </div>
-                {unknown && (
-                  <p style={{ margin: "4px 0 0", fontSize: 13 }}>
-                    <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Not in the stem library.</span>{" "}
-                    <button type="button" onClick={() => add(name)} style={{ ...textButton, fontSize: 13 }}>
-                      Add &ldquo;{name}&rdquo; to it
-                    </button>{" "}
-                    <span className="muted">or fix the spelling.</span>
-                  </p>
-                )}
+                <VarietyGate
+                  value={p.variety}
+                  library={suggest}
+                  onReplace={setRow}
+                  onAdded={(n) => {
+                    setExtraNames((cur) => [...cur, n]);
+                    setRow(n);
+                  }}
+                />
               </div>
             );
           })}
