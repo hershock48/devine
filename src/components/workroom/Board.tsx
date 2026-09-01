@@ -490,7 +490,22 @@ function OrderCard({
           ones still can, because "paid at pickup" happens after "picked up"
           more often than a process diagram admits. */}
       {o.status !== "canceled" && (
-        <PayControls orderId={o.id} subtotal={o.subtotal} payment={o.payment} onPaid={() => onPaid().catch(() => {})} />
+        <PayControls
+          orderId={o.id}
+          subtotal={o.subtotal}
+          /* Mirrors the pay route's own computation: a delivery ticket with
+             no delivery line yet gets the zip's fee appended at charge time,
+             and the buttons must quote what will actually be charged. */
+          deliveryCents={
+            o.fulfillment === "delivery" &&
+            !o.lines.some((l) => l.name.startsWith("Delivery (")) &&
+            site.deliveryFees[o.zip] !== undefined
+              ? Math.round(site.deliveryFees[o.zip] * 100)
+              : 0
+          }
+          payment={o.payment}
+          onPaid={() => onPaid().catch(() => {})}
+        />
       )}
 
       {next && (

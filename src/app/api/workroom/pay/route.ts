@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { chargeBoardOrder } from "@/lib/square/payments";
-import { getStore, type OrderPayment } from "@/lib/workroom/store";
+import { getStore, type OrderPayment, type WorkroomLine } from "@/lib/workroom/store";
 
 /**
  * Where a board order's money gets settled: the card keyed on the order
@@ -46,6 +47,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Already paid (${order.payment.method}).` }, { status: 409 });
   }
 
+  /*
+    THE DELIVERY FEE RIDES EVERY DELIVERY CHARGE, whichever side takes it.
+    Found via Kevin's own test ticket: an unpaid web delivery carried only
+    its flower lines, so the workroom's Take-card would have quietly
+    undercharged by the fee on every phoned-in delivery while the online
+    checkout charged it correctly. If the ticket has no delivery line yet
+    and the zip is on her sheet, one is appended (and persisted on
+    success, so the ticket's rows agree with its payment). A zip off the
+    sheet charges the lines as they stand; that fee is the confirm call's
+    business, the way it always was.
+  */
+  const hasDeliveryLine = order.lines.some((l) => l.name.startsWith("Delivery ("));
+  const zipFee = order.fulfillment === "delivery" && !hasDeliveryLine ? site.deliveryFees[order.zip] : undefined;
+  const lines: WorkroomLine[] =
+    zipFee !== undefined
+      ? [...order.lines, { slug: null, name: `Delivery (${order.zip})`, qty: 1, each: zipFee }]
+      : order.lines;
+  const subtotal = zipFee !== undefined ? Math.round((order.subtotal + zipFee) * 100) / 100 : order.subtotal;
+
   // The by-hand mark: money already moved outside the board (a check, an
   // account, an unlinked register ring). Records the fact and touches
   // nothing else; deliberately works even with Square unconfigured.
@@ -54,9 +74,10 @@ export async function POST(req: Request) {
       at: Date.now(),
       method: "other",
       squarePaymentId: "",
-      totalCents: Math.round(order.subtotal * 100),
+      totalCents: Math.round(subtotal * 100),
       feeCents: 0,
     };
+    if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
     await store.setOrderPayment(order.id, payment);
     return NextResponse.json({ ok: true, payment });
   }
@@ -73,7 +94,7 @@ export async function POST(req: Request) {
     const charged = await chargeBoardOrder(cfg, {
       workroomOrderId: order.id,
       orderNumber: order.number,
-      lines: order.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
+      lines: lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
       method,
       sourceId,
     });
@@ -84,6 +105,7 @@ export async function POST(req: Request) {
       totalCents: charged.totalCents,
       feeCents: charged.feeCents,
     };
+    if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
     await store.setOrderPayment(order.id, payment);
     return NextResponse.json({ ok: true, payment, receiptUrl: charged.receiptUrl });
   } catch (err) {

@@ -25,11 +25,16 @@ const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 export default function PayControls({
   orderId,
   subtotal,
+  deliveryCents = 0,
   payment,
   onPaid,
 }: {
   orderId: string;
   subtotal: number;
+  /** The delivery fee the pay route will append for a delivery ticket
+      that never carried one (zip on the owner's sheet). Display only;
+      the server computes its own copy and the two must agree. */
+  deliveryCents?: number;
   payment?: Payment | null;
   onPaid: () => void;
 }) {
@@ -45,7 +50,8 @@ export default function PayControls({
   const cardRef = useRef<SquareCard | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
 
-  const cardTotal = Math.round(subtotal * 100) + fee;
+  const baseTotal = Math.round(subtotal * 100) + deliveryCents;
+  const cardTotal = baseTotal + fee;
 
   // Mount Square's card field when card mode opens; tear it down when it
   // closes, because a destroyed iframe beats a leaked one on a page that
@@ -192,6 +198,12 @@ export default function PayControls({
               <span>Subtotal</span>
               <span>{dollars(Math.round(subtotal * 100))}</span>
             </li>
+            {deliveryCents > 0 && (
+              <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span>Delivery</span>
+                <span>{dollars(deliveryCents)}</span>
+              </li>
+            )}
             <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
               {/* "Order fee", chosen 2026-09-01 over service/convenience/
                   technology fee: concrete labels are the best-tolerated per
@@ -219,7 +231,7 @@ export default function PayControls({
       {mode === "cash" && (
         <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           <button type="button" className="btn btn--solid" disabled={busy} onClick={() => pay("cash")}>
-            {busy ? "Recording…" : `Record ${dollars(Math.round(subtotal * 100))} cash`}
+            {busy ? "Recording…" : `Record ${dollars(baseTotal)} cash`}
           </button>
           <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
             Never mind

@@ -389,6 +389,10 @@ type Store = {
   getOrderByNumber(number: string): Promise<WorkroomOrder | null>;
   setOrderStatus(id: string, status: OrderStatus): Promise<void>;
   setOrderPayment(id: string, p: OrderPayment): Promise<void>;
+  /** The pay route appends the delivery-fee line when it charges a
+      delivery ticket that never carried one, so the ticket's rows and its
+      payment agree. */
+  setOrderLines(id: string, lines: WorkroomLine[], subtotal: number): Promise<void>;
   addStemEvent(e: StemEvent): Promise<void>;
   listStemEvents(days: number): Promise<StemEvent[]>;
   /** Mis-keyed counts happen at 7am. A delete, not an edit: retyping five
@@ -505,6 +509,13 @@ const memoryStore: Store = {
   async setOrderPayment(id, p) {
     const o = bag().orders.get(id);
     if (o) o.payment = p;
+  },
+  async setOrderLines(id, lines, subtotal) {
+    const o = bag().orders.get(id);
+    if (o) {
+      o.lines = lines;
+      o.subtotal = subtotal;
+    }
   },
   async listOrderContacts() {
     return [...bag().orders.values()]
@@ -742,6 +753,13 @@ const postgresStore: Store = {
     await pool.query(
       `UPDATE workroom_orders SET data = data || jsonb_build_object('payment', $2::jsonb) WHERE id = $1`,
       [id, JSON.stringify(p)],
+    );
+  },
+  async setOrderLines(id, lines, subtotal) {
+    const pool = await pgPool();
+    await pool.query(
+      `UPDATE workroom_orders SET data = data || jsonb_build_object('lines', $2::jsonb, 'subtotal', $3::numeric) WHERE id = $1`,
+      [id, JSON.stringify(lines), subtotal],
     );
   },
   async listOrderContacts() {
