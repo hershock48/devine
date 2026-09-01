@@ -116,6 +116,10 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [backend, setBackend] = useState("memory");
   const [adding, setAdding] = useState(false);
   const [showDone, setShowDone] = useState(false);
+  /** The find box: a caller says "order DV-0901-4226" or "it's under
+      Wanda" and the counter should not have to scan a busy board by eye.
+      Matches number, name, and phone digits; empty means everything. */
+  const [find, setFind] = useState("");
 
   const pull = useCallback(async () => {
     const r = await fetch("/api/workroom/orders", { cache: "no-store" });
@@ -150,7 +154,15 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
   const today = todayISO();
   const buckets = useMemo(() => {
-    const open = orders.filter((o) => o.status !== "done" && o.status !== "canceled");
+    const q = find.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, "");
+    const matches = (o: Order) =>
+      !q ||
+      o.number.toLowerCase().includes(q) ||
+      o.name.toLowerCase().includes(q) ||
+      (qDigits.length >= 3 && o.phone.replace(/\D/g, "").includes(qDigits));
+    const shown = orders.filter(matches);
+    const open = shown.filter((o) => o.status !== "done" && o.status !== "canceled");
     // Within a day, deliveries first: they own a van schedule and a hard
     // deadline; pickups wait patiently in the cooler. Date stays primary,
     // because a florist's whole question is "what has to exist by when".
@@ -191,10 +203,17 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
       <MemoryWarning backend={backend} />
 
-      <p style={{ margin: "6px 0 26px" }}>
+      <p style={{ margin: "6px 0 26px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
         <button className="btn" type="button" onClick={() => setAdding((v) => !v)}>
           {adding ? "Close the form" : "Write up a phone order"}
         </button>
+        <input
+          aria-label="Find an order"
+          placeholder="Find: order number, name, or phone"
+          value={find}
+          onChange={(e) => setFind(e.target.value)}
+          style={{ ...field, width: "auto", flex: "0 1 280px", minWidth: 0 }}
+        />
       </p>
 
       {adding && (
@@ -214,7 +233,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
       {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length === 0 && (
         <p className="lede" style={{ marginTop: 8 }}>
-          Nothing open. Web orders land here on their own; phone orders get written up above.
+          {find.trim()
+            ? `Nothing matches "${find.trim()}". The finished pile below is searched too.`
+            : "Nothing open. Web orders land here on their own; phone orders get written up above."}
         </p>
       )}
 
@@ -292,6 +313,7 @@ function OrderCard({
   onPaid: () => Promise<void>;
 }) {
   const next = nextMove(o);
+  const today = todayISO();
   const zipFlag = o.fulfillment === "delivery" && o.zip && !(site.deliveryZips as readonly string[]).includes(o.zip);
   const sympathy = o.occasion === "Sympathy or funeral";
   const prior = priorOrders(contacts, o.phone, o.email, o.createdAt);
@@ -415,6 +437,18 @@ function OrderCard({
       {o.status === "new" && (
         <p style={{ margin: "10px 0 0", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
           New web order: call to confirm{o.payment ? "" : ", then take payment below or on pickup"}.
+        </p>
+      )}
+
+      {/* A paid web order wanted TODAY skipped the confirm call by design
+          (its money is settled), but its timing is a promise nobody made
+          yet. The customer was told we will call about timing; this line
+          is that promise, employee side. Same-day is the flag because it
+          is a fact; a big-order dollar threshold is the owner's policy to
+          set and is on her question list. */}
+      {o.source === "web" && o.status === "confirmed" && !!o.payment && o.date === today && (
+        <p style={{ margin: "10px 0 0", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
+          Paid web order for today: call about timing.
         </p>
       )}
 

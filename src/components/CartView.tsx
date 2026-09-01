@@ -250,8 +250,18 @@ export default function CartView() {
           </p>
           {outcome.paid ? (
             <p style={{ maxWidth: "58ch" }}>
-              Paid: <strong>{money(outcome.paid.totalCents / 100)}</strong> by card, order fee
-              included. We&rsquo;ll have it ready for pickup on <strong>{date}</strong>.
+              Paid: <strong>{money(outcome.paid.totalCents / 100)}</strong> by card.{" "}
+              {date === today ? (
+                <>
+                  It&rsquo;s wanted <strong>today</strong>, so we&rsquo;ll call you to confirm
+                  timing.
+                </>
+              ) : (
+                <>
+                  We&rsquo;ll have it ready for pickup on <strong>{date}</strong>. If anything
+                  about timing needs a word, we&rsquo;ll call you.
+                </>
+              )}
               {email.trim() ? " Your receipt and a copy of the order are on their way to your email." : ""}
               {outcome.paid.receiptUrl ? (
                 <>
