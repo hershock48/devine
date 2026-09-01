@@ -83,6 +83,7 @@ const productPrice = new Map(products.map((p) => [p.slug, p.price]));
     Chocolate, tea, plush and chimes have no stems in them, so they never
     count against recipe coverage. */
 const recipeEligible = products.filter((p) => p.cats.some((c) => c !== "gifts-add-ons"));
+const recipeEligibleSlugs = new Set(recipeEligible.map((p) => p.slug));
 
 /** Monday-to-Sunday week containing the given yyyy-mm-dd (the shared Monday
     anchor from derive.ts, so this page's week and the dashboard's Week range
@@ -145,6 +146,25 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
   );
   const recipeBySlug = useMemo(() => new Map(recipes.map((r) => [r.slug, r])), [recipes]);
   const varietyByName = useMemo(() => new Map(varieties.map((v) => [v.name, v])), [varieties]);
+
+  /** Stem cost of ONE unit of a product, or null when the recipe is missing
+      or any part is unpriced: costed only when whole, the one costing rule
+      for the week figures and the margins table alike (they were two loops
+      that could have drifted). */
+  const recipeCost = useCallback(
+    (slug: string): number | null => {
+      const recipe = recipeBySlug.get(slug);
+      if (!recipe) return null;
+      let cost = 0;
+      for (const part of recipe.parts) {
+        const c = costPerStem.get(part.variety);
+        if (c == null) return null;
+        cost += c * part.stems;
+      }
+      return cost;
+    },
+    [recipeBySlug, costPerStem],
+  );
 
   /* ---------------- the cooler (windowed ledger) ---------------- */
 
@@ -265,7 +285,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
     // biggest seller first. She should never face all 57.
     const soldAll = soldBetween(null, null);
     const missing = [...soldAll.entries()]
-      .filter(([slug]) => !recipeBySlug.has(slug) && recipeEligible.some((p) => p.slug === slug))
+      .filter(([slug]) => !recipeBySlug.has(slug) && recipeEligibleSlugs.has(slug))
       .sort((a, b) => b[1].revenue - a[1].revenue)
       .slice(0, 5)
       .map(([slug, s]) => ({ slug, qty: s.qty, revenue: s.revenue }));
@@ -309,29 +329,18 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
       sources as the dashboard's best sellers. The first version counted
       board orders only, so counter-rung recipe products were invisible to
       the margin table while the cooler was decrementing for them.
-
-      A line is "costed" only when a recipe exists AND every part has a
-      purchase to price it from. Anything less joins the uncosted count: an
-      earlier version quietly added $0 for unknown-cost parts, which made
-      "stems in what sold" read more complete than it was.
     */
     const sold = soldBetween(week.from, week.to);
     let stemCost = 0;
     let uncostedUnits = 0;
     for (const [slug, sale] of sold) {
-      const recipe = recipeBySlug.get(slug);
-      const costs = recipe?.parts.map((part) => costPerStem.get(part.variety));
-      if (!recipe || costs!.some((c) => c == null)) {
-        uncostedUnits += sale.qty;
-        continue;
-      }
-      recipe.parts.forEach((part, i) => {
-        stemCost += (costs![i] as number) * part.stems * sale.qty;
-      });
+      const cost = recipeCost(slug);
+      if (cost == null) uncostedUnits += sale.qty;
+      else stemCost += cost * sale.qty;
     }
 
     return { bought, tossed, stemCost, uncostedUnits, sold };
-  }, [events, recipeBySlug, costPerStem, soldBetween, week.from, week.to]);
+  }, [events, costPerStem, recipeCost, soldBetween, week.from, week.to]);
 
   if (!authed) {
     return (
@@ -366,13 +375,11 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
 
       <MemoryWarning backend={backend} />
 
-      {/* The point of the typing, stated where the typing happens: Kevin's
-          test read was "you put the info in there -- so what, where does it
-          go?" and the honest answer used to be three other tabs, silently. */}
+      {/* The point of the typing, in one sentence (Kevin's so-what rule,
+          then his too-wordy rule the same day). */}
       <p className="lede" style={{ margin: "4px 0 18px" }}>
-        The whole flower story: what the cooler holds, what got tossed and why, and the recipes
-        that turn both into margins here, prefilled costs on Quotes, and the stem numbers on the
-        Dashboard. Skip the logging and those numbers go quiet, not wrong.
+        What the cooler holds, what got tossed and why, and the recipes that price it all. This
+        page feeds the Dashboard and the Quotes prefills.
       </p>
 
       {/* ---------------- the cooler ---------------- */}
@@ -389,17 +396,16 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
           </label>
         </div>
         <p className="muted" style={{ margin: "8px 0 0", fontSize: 14 }}>
-          Bought minus tossed minus made since {coolerStart}. Arithmetic over the ledgers, not a
-          shelf count: stems older than the window are treated as gone, because they are. Toss from
-          the row you are looking at; the walk down the rack should not need a keyboard.
+          Bought minus tossed minus made since {coolerStart}; ledger arithmetic, not a shelf count.
+          Stems older than the window count as gone.
         </p>
         {(cooler.unrecipedLines > 0 || cooler.customSales > 0) && (
           <p className="muted" style={{ margin: "6px 0 0", fontSize: 14 }}>
             Not counted:{" "}
-            {cooler.unrecipedLines > 0 && `${cooler.unrecipedLines} sold line(s) with no recipe to name their stems`}
-            {cooler.unrecipedLines > 0 && cooler.customSales > 0 && ", and "}
+            {cooler.unrecipedLines > 0 && `${cooler.unrecipedLines} sold line(s) with no recipe`}
+            {cooler.unrecipedLines > 0 && cooler.customSales > 0 && " and "}
             {cooler.customSales > 0 && `${cooler.customSales} register sale(s) rung as a bare amount`}
-            . Recipes and item-rung sales fix that, not this page.
+            .
           </p>
         )}
 
@@ -467,7 +473,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
                 {` (${w.tossed} stems, mostly ${w.why})`}
               </span>
             ))}
-            . Worth a smaller buy on the next truck.
+            .
           </p>
         )}
       </section>
@@ -531,8 +537,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
         </div>
         {report.tossed.unknown > 0 && (
           <p className="muted" style={{ fontSize: 14, margin: "8px 0 0" }}>
-            {report.tossed.unknown} tossed stem(s) have no purchase on record, so their dollar cost is
-            unknown rather than guessed.
+            {report.tossed.unknown} tossed stem(s) have no purchase on record; cost unknown, not guessed.
           </p>
         )}
 
@@ -557,18 +562,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
                 .sort((a, b) => b[1].revenue - a[1].revenue)
                 .map(([slug, s]) => {
                 const recipe = recipeBySlug.get(slug);
-                let cost: number | null = null;
-                if (recipe) {
-                  cost = 0;
-                  for (const part of recipe.parts) {
-                    const c = costPerStem.get(part.variety);
-                    if (c == null) {
-                      cost = null;
-                      break;
-                    }
-                    cost += c * part.stems;
-                  }
-                }
+                const cost = recipeCost(slug);
                 return (
                   <tr key={slug}>
                     <td style={{ ...td, textAlign: "left" }}>{productName.get(slug) ?? slug}</td>
@@ -591,14 +585,13 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
       <section className="panel" style={{ marginBottom: 26 }}>
         <h2 style={{ fontSize: 22, margin: 0 }}>Recipes</h2>
         <p className="muted" style={{ margin: "8px 0 0", fontSize: 14 }}>
-          {recipeCoverage.covered} of {recipeCoverage.total} designs carry a recipe (gift items need
-          none). A recipe is what turns a sale into counted stems, a margin, and a prefilled quote;
-          without one, the page can only shrug.
+          Recipes cover {recipeCoverage.covered} of {recipeCoverage.total} designs (gift items need
+          none). A recipe turns a sale into counted stems, a margin, and a prefilled quote.
         </p>
         {recipeCoverage.missing.length > 0 && (
           <div style={{ margin: "12px 0 4px" }}>
             <p style={{ margin: "0 0 6px", fontSize: 14.5, fontWeight: 600 }}>
-              Worth writing first, biggest seller without one at the top:
+              Worth writing first:
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {recipeCoverage.missing.map((m) => (
@@ -639,8 +632,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
         <div style={{ display: "grid", gap: 12 }}>
           <EventForm kind="purchase" varieties={knownVarieties} onSaved={pull} />
           <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>
-            The truck does this in one tap: <a href="/workroom/weekly-order">Weekly order</a> turns a
-            received order into purchases by itself.
+            The truck does this in one tap, on <a href="/workroom/weekly-order">Weekly order</a>.
           </p>
         </div>
         <EventForm kind="shrink" varieties={knownVarieties} onSaved={pull} />
@@ -800,8 +792,7 @@ function EventForm({ kind, varieties, onSaved }: { kind: "purchase" | "shrink"; 
       <h2 style={{ fontSize: 20, margin: 0 }}>{kind === "purchase" ? "Stems in" : "Stems tossed"}</h2>
       {kind === "shrink" && (
         <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>
-          For backdating or a variety the cooler table does not show; a cleanout is faster from the
-          table&rsquo;s own Toss buttons.
+          For backdating; a live cleanout is faster from the cooler table&rsquo;s Toss buttons.
         </p>
       )}
       <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
@@ -1093,14 +1084,19 @@ function VarietyList({
           />
         )}
       </div>
+      {/* Second person, not third: this copy talks TO the shop, and an early
+          draft said "hers to fill" as if the reader were somebody else. */}
       <p className="muted" style={{ margin: "8px 0 0", fontSize: 14 }}>
-        The one list everything speaks: recipes, purchases and the weekly order all pick from these
-        names. Sell prices came off the laminated lists behind the counter; a blank means her sheet
-        did not say, and it is hers to fill, not ours to guess.
+        Recipes, purchases and the weekly order all pick from these names. Prices came off the
+        laminated lists behind the counter; blanks are yours to fill, never guessed.
       </p>
 
       {varieties.length > 0 && (
-        <div tabIndex={0} role="region" aria-label="Master stem list" style={{ overflowX: "auto", marginTop: 14 }}>
+        <details style={{ marginTop: 12 }}>
+        <summary style={{ fontSize: 14, color: "var(--muted)", cursor: "pointer" }}>
+          Open the list ({varieties.length} varieties)
+        </summary>
+        <div tabIndex={0} role="region" aria-label="Master stem list" style={{ overflowX: "auto", marginTop: 8, position: "relative" }}>
           <table style={{ width: "100%", minWidth: 640, borderCollapse: "collapse", fontSize: 14.5 }}>
             <thead>
               <tr>
@@ -1157,6 +1153,7 @@ function VarietyList({
             </tbody>
           </table>
         </div>
+        </details>
       )}
 
       {/* add one */}
