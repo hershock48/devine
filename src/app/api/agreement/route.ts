@@ -54,6 +54,16 @@ function recordText(a: AgreementAcceptance): string {
   ].join("\n");
 }
 
+/** For a browser poke while wiring things up: says whether the pieces exist,
+    never what they are. Booleans only, same shape as the square webhook GET. */
+export async function GET() {
+  return NextResponse.json({
+    smtp: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
+    recordTo: process.env.AGREEMENT_TO ? "AGREEMENT_TO" : "default (kevin@glazedweb.com)",
+    backend: getStore().backend,
+  });
+}
+
 export async function POST(req: Request) {
   let raw: unknown;
   try {
