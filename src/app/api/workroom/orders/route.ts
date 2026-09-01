@@ -95,8 +95,18 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
-  const p = (await req.json().catch(() => ({}))) as { id?: unknown; status?: unknown };
+  const p = (await req.json().catch(() => ({}))) as { id?: unknown; status?: unknown; markRefunded?: unknown };
   const id = typeof p.id === "string" ? p.id : "";
+
+  // The refund attestation: the shop says the Square refund happened, and
+  // the money-to-return section clears. Guarded in the store to orders
+  // that actually carry a payment.
+  if (p.markRefunded === true) {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    await getStore().markOrderRefunded(id);
+    return NextResponse.json({ ok: true });
+  }
+
   const status = STATUSES.includes(p.status as OrderStatus) ? (p.status as OrderStatus) : null;
   if (!id || !status) return NextResponse.json({ error: "Malformed." }, { status: 400 });
   if (status === "out") {

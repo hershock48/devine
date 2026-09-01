@@ -62,6 +62,11 @@ export type OrderPayment = {
   totalCents: number;
   /** The customer-paid order fee included in totalCents; 0 on cash. */
   feeCents: number;
+  /** Set when the shop attests the Square refund happened (canceled paid
+      orders). The workroom cannot see refunds itself and does not
+      pretend to; this is the human mark that clears the money-to-return
+      section. */
+  refundedAt?: number;
 };
 
 export type WorkroomOrder = {
@@ -411,6 +416,7 @@ type Store = {
       delivery ticket that never carried one, so the ticket's rows and its
       payment agree. */
   setOrderLines(id: string, lines: WorkroomLine[], subtotal: number): Promise<void>;
+  markOrderRefunded(id: string): Promise<void>;
   addStemEvent(e: StemEvent): Promise<void>;
   listStemEvents(days: number): Promise<StemEvent[]>;
   /** Mis-keyed counts happen at 7am. A delete, not an edit: retyping five
@@ -539,6 +545,10 @@ const memoryStore: Store = {
       o.lines = lines;
       o.subtotal = subtotal;
     }
+  },
+  async markOrderRefunded(id) {
+    const o = bag().orders.get(id);
+    if (o?.payment) o.payment.refundedAt = Date.now();
   },
   async listOrderContacts() {
     return [...bag().orders.values()]
@@ -799,6 +809,18 @@ const postgresStore: Store = {
     await pool.query(
       `UPDATE workroom_orders SET data = data || jsonb_build_object('lines', $2::jsonb, 'subtotal', $3::numeric) WHERE id = $1`,
       [id, JSON.stringify(lines), subtotal],
+    );
+  },
+  async markOrderRefunded(id) {
+    const pool = await pgPool();
+    // jsonb_set, not ||: the stamp goes INSIDE the existing payment object.
+    // The payment-exists guard keeps a stray call from minting a payment
+    // out of a bare refund stamp.
+    await pool.query(
+      `UPDATE workroom_orders
+       SET data = jsonb_set(data, '{payment,refundedAt}', to_jsonb($2::bigint))
+       WHERE id = $1 AND data->'payment' IS NOT NULL`,
+      [id, Date.now()],
     );
   },
   async listOrderContacts() {

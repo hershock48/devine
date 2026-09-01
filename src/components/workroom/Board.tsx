@@ -51,7 +51,7 @@ type Order = {
   lines: Line[];
   subtotal: number;
   createdAt: number;
-  payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number } | null;
+  payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
 };
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
@@ -146,6 +146,18 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     pull().catch(() => {});
   }
 
+  /** The human attestation that the Square refund happened; the workroom
+      cannot see refunds on its own (no refund webhook subscribed) and
+      should not pretend to. */
+  async function markRefunded(id: string) {
+    await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, markRefunded: true }),
+    });
+    pull().catch(() => {});
+  }
+
   const today = todayISO();
   const buckets = useMemo(() => {
     const q = find.trim().toLowerCase();
@@ -174,16 +186,31 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     // its own always-visible section instead of the collapsed pile, carries
     // its pay buttons, and clears itself the moment money lands. Canceled
     // orders are never owed; nothing was delivered.
+    // Canceled-but-paid is the customer's money still in the till: it holds
+    // a visible section until someone refunds it in Square and marks it
+    // here (Kevin's edge case, 2026-09-01). One-click refunds are
+    // deliberately NOT built: pushing money out of her account from behind
+    // a counter PIN crosses the line the auth design drew on day one.
     return {
       overdue: open.filter((o) => o.date < today).sort(byDate),
       today: open.filter((o) => o.date === today).sort(byDate),
       upcoming: open.filter((o) => o.date > today).sort(byDate),
-      owed: orders.filter((o) => o.status === "done" && !o.payment).sort(byDate),
-      closed: orders
-        .filter((o) => o.status === "canceled" || (o.status === "done" && !!o.payment))
+      owed: shown.filter((o) => o.status === "done" && !o.payment).sort(byDate),
+      toRefund: shown
+        .filter((o) => o.status === "canceled" && !!o.payment && !o.payment.refundedAt)
+        .sort((a, b) => b.createdAt - a.createdAt),
+      closed: shown
+        .filter(
+          (o) =>
+            (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
+            (o.status === "done" && !!o.payment),
+        )
         .sort((a, b) => b.createdAt - a.createdAt),
     };
-  }, [orders, today]);
+    // `find` was missing from this list at first, so typing in the box
+    // recomputed nothing and the filter looked dead. Kevin reported it as
+    // "maybe it has to be done EXACTLY right"; it had to be done never.
+  }, [orders, today, find]);
 
   if (!authed) {
     return (
@@ -229,8 +256,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} />
       <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} />
       <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} />
+      <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
 
-      {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length === 0 && (
+      {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
         <p className="lede" style={{ marginTop: 8 }}>
           {find.trim()
             ? `Nothing matches "${find.trim()}". The finished pile below is searched too.`
@@ -247,8 +275,44 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
           {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
         </button>
       </p>
-      {showDone && <Bucket title="" orders={buckets.closed} contacts={contacts} onMove={move} onPaid={pull} />}
+      {showDone && <ClosedList orders={buckets.closed} />}
     </>
+  );
+}
+
+/**
+ * The finished pile as one-line rows, not cards (Kevin's call: "there
+ * could be hundreds of orders in that at some point"). A closed order is a
+ * record, not work; a record earns a line. The find box upstream filters
+ * these too, so a caller asking about last month's order is one search and
+ * one glance.
+ */
+function ClosedList({ orders }: { orders: Order[] }) {
+  if (orders.length === 0) return null;
+  const moneyWord = (o: Order) => {
+    if (!o.payment) return o.status === "canceled" ? "" : "not paid";
+    if (o.payment.refundedAt) return `refunded ${money(o.payment.totalCents / 100)}`;
+    return `paid ${money(o.payment.totalCents / 100)}`;
+  };
+  return (
+    <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0", maxWidth: 720 }}>
+      {orders.map((o) => (
+        <li
+          key={o.id}
+          style={{
+            display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap",
+            padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 14,
+            opacity: o.status === "canceled" ? 0.6 : 1,
+          }}
+        >
+          <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)", whiteSpace: "nowrap" }}>{o.number}</span>
+          <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.name}</span>
+          <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{o.date}</span>
+          <span style={{ whiteSpace: "nowrap" }}>{o.status === "canceled" ? "canceled" : "done"}</span>
+          <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{moneyWord(o)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -259,6 +323,7 @@ function Bucket({
   contacts,
   onMove,
   onPaid,
+  onRefunded,
 }: {
   title: string;
   tone?: "late";
@@ -266,6 +331,7 @@ function Bucket({
   contacts: Contact[];
   onMove: (id: string, s: Order["status"]) => void;
   onPaid: () => Promise<void>;
+  onRefunded?: (id: string) => void;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -293,7 +359,7 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} />
+          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} />
         ))}
       </div>
     </section>
@@ -305,11 +371,13 @@ function OrderCard({
   contacts,
   onMove,
   onPaid,
+  onRefunded,
 }: {
   o: Order;
   contacts: Contact[];
   onMove: (id: string, s: Order["status"]) => void;
   onPaid: () => Promise<void>;
+  onRefunded?: (id: string) => void;
 }) {
   const next = nextMove(o);
   const today = todayISO();
@@ -483,6 +551,24 @@ function OrderCard({
       {/* The money corner. Canceled orders take no payment; finished unpaid
           ones still can, because "paid at pickup" happens after "picked up"
           more often than a process diagram admits. */}
+      {/* The refund reminder: money in, order canceled, nothing given. The
+          workroom cannot move money out (deliberate; see the bucket note),
+          so it says exactly what to do and takes the shop's word when it is
+          done. */}
+      {o.status === "canceled" && o.payment && !o.payment.refundedAt && (
+        <div style={{ margin: "10px 0 0" }}>
+          <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
+            Paid {money(o.payment.totalCents / 100)}, then canceled. Refund it from the Square
+            dashboard (Transactions), then mark it here.
+          </p>
+          {onRefunded && (
+            <button type="button" className="btn" onClick={() => onRefunded(o.id)}>
+              Refunded in Square
+            </button>
+          )}
+        </div>
+      )}
+
       {o.status !== "canceled" && (
         <PayControls
           orderId={o.id}
