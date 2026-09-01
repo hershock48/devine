@@ -36,6 +36,17 @@
 
 export const HISTORY_DAYS = 400;
 
+/**
+ * The one spelling of a variety name: trimmed, lowercased, single-spaced.
+ * Purchases, recipes, shrink and the master list all match on this string,
+ * so it lives here (client-safe) and the server store re-exports it; the
+ * recipe form needs the same rule to say "not on the stem list" BEFORE the
+ * server does.
+ */
+export function normalizeVariety(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 /** yyyy-mm-dd on the device's own calendar (the todayISO rule: "today"
     means today in Marshall, where the device is). */
 export const isoDate = (d: Date) =>

@@ -461,9 +461,9 @@ type Store = {
 
 export const SHRINK_REASONS = ["wilted", "damaged", "overbought", "event fell through", "other"] as const;
 
-export function normalizeVariety(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
+/** One spelling everywhere: defined in derive.ts (client-safe) so the
+    recipe form applies the same rule the server enforces. */
+export { normalizeVariety } from "./derive";
 
 export function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;

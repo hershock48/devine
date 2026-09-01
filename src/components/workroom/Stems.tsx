@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { products } from "@/lib/catalog";
 import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, mondayOf, saleInstantMs, shrinkTotals } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, mondayOf, normalizeVariety, saleInstantMs, shrinkTotals } from "@/lib/workroom/derive";
 
 /**
  * STEMS: the flower ledger, whole. Stems & shrink and Inventory were two
@@ -147,6 +147,10 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
   );
   const recipeBySlug = useMemo(() => new Map(recipes.map((r) => [r.slug, r])), [recipes]);
   const varietyByName = useMemo(() => new Map(varieties.map((v) => [v.name, v])), [varieties]);
+  /** The master list's names alone: what a recipe may reference. The entry
+      forms keep the wider ledger-known set, because a purchase is a fact
+      and facts may bring new names. */
+  const masterNames = useMemo(() => varieties.map((v) => v.name).sort(), [varieties]);
 
   /** Stem cost of ONE unit of a product, or null when the recipe is missing
       or any part is unpriced: costed only when whole, the one costing rule
@@ -652,7 +656,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
         <div style={{ marginTop: 14 }}>
           <RecipeForm
             recipes={recipeBySlug}
-            varieties={knownVarieties}
+            varieties={masterNames}
             costPerStem={costPerStem}
             pickSlug={pickSlug}
             onSaved={() => {
@@ -902,6 +906,31 @@ function RecipeForm({
   const [parts, setParts] = useState<{ variety: string; stems: string }[]>([{ variety: "", stems: "" }]);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  /** Names added to the master list from THIS form (the one-tap add). Held
+      locally instead of refetching, because a refetch mid-edit would reload
+      the picked recipe over unsaved parts. */
+  const [extraNames, setExtraNames] = useState<string[]>([]);
+
+  /* What a recipe may reference: the master list, per the retraction note
+     in the recipes route. A typo is flagged in place, and a genuinely new
+     variety is one tap, not a silent list entry. */
+  const listed = useMemo(() => new Set([...varieties, ...extraNames]), [varieties, extraNames]);
+  const suggest = useMemo(() => [...new Set([...varieties, ...extraNames])].sort(), [varieties, extraNames]);
+
+  async function addToList(name: string) {
+    setError("");
+    const r = await fetch("/api/workroom/varieties", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, kind: "flower", sellStem: "", sellBunch: "", stemsPerBunch: "" }),
+    });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) {
+      setError(d?.error || "That did not save.");
+      return;
+    }
+    setExtraNames((cur) => [...cur, d?.variety?.name ?? name]);
+  }
 
   // Choosing a product loads its saved recipe, so editing is the same motion
   // as creating and there is no second UI to learn.
@@ -942,6 +971,20 @@ function RecipeForm({
     e.preventDefault();
     setError("");
     setSaved("");
+    // Same check the server enforces, said here first so the refusal sits
+    // next to the field instead of arriving as a failed save.
+    const unknowns = [
+      ...new Set(
+        parts
+          .filter((p) => p.variety.trim() && Number(p.stems) > 0)
+          .map((p) => normalizeVariety(p.variety))
+          .filter((v) => !listed.has(v)),
+      ),
+    ];
+    if (unknowns.length > 0) {
+      setError(`Not on the stem list: ${unknowns.join(", ")}. Add ${unknowns.length === 1 ? "it" : "them"} with the button by the field, or fix the spelling.`);
+      return;
+    }
     const r = await fetch("/api/workroom/recipes", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -990,31 +1033,46 @@ function RecipeForm({
       </label>
       {slug && (
         <>
-          {parts.map((p, i) => (
-            <div key={i} style={{ display: "grid", gap: 8, gridTemplateColumns: "2fr 90px" }}>
-              <input
-                aria-label={`Part ${i + 1} variety`}
-                list="recipe-varieties"
-                placeholder="variety"
-                value={p.variety}
-                onChange={(e) => setParts((cur) => cur.map((x, at) => (at === i ? { ...x, variety: e.target.value } : x)))}
-                style={field}
-              />
-              <input
-                aria-label={`Part ${i + 1} stems`}
-                inputMode="numeric"
-                placeholder="stems"
-                value={p.stems}
-                onChange={(e) => setParts((cur) => cur.map((x, at) => (at === i ? { ...x, stems: e.target.value } : x)))}
-                style={field}
-              />
-            </div>
-          ))}
+          {parts.map((p, i) => {
+            const name = normalizeVariety(p.variety);
+            const unknown = !!name && !listed.has(name);
+            return (
+              <div key={i}>
+                <div style={{ display: "grid", gap: 8, gridTemplateColumns: "2fr 90px" }}>
+                  <input
+                    aria-label={`Part ${i + 1} variety`}
+                    list="recipe-varieties"
+                    placeholder="variety"
+                    value={p.variety}
+                    onChange={(e) => setParts((cur) => cur.map((x, at) => (at === i ? { ...x, variety: e.target.value } : x)))}
+                    style={field}
+                  />
+                  <input
+                    aria-label={`Part ${i + 1} stems`}
+                    inputMode="numeric"
+                    placeholder="stems"
+                    value={p.stems}
+                    onChange={(e) => setParts((cur) => cur.map((x, at) => (at === i ? { ...x, stems: e.target.value } : x)))}
+                    style={field}
+                  />
+                </div>
+                {unknown && (
+                  <p style={{ margin: "4px 0 0", fontSize: 13 }}>
+                    <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Not on the stem list.</span>{" "}
+                    <button type="button" onClick={() => addToList(name)} style={{ ...textButton, fontSize: 13 }}>
+                      Add &ldquo;{name}&rdquo; to it
+                    </button>{" "}
+                    <span className="muted">or fix the spelling.</span>
+                  </p>
+                )}
+              </div>
+            );
+          })}
           {/* The whole master list, not just purchased varieties: a recipe
               names what the product is made of, whether or not this quarter
               happened to buy it yet. */}
           <datalist id="recipe-varieties">
-            {varieties.map((v) => (
+            {suggest.map((v) => (
               <option key={v} value={v} />
             ))}
           </datalist>

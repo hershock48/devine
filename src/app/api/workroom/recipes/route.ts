@@ -34,26 +34,27 @@ export async function PUT(req: Request) {
 
   const store = getStore();
   /*
-    A recipe part must exist on the master stem list — the owner's ask,
-    verbatim: a recipe with "rose" in it should mean the rose in the stem
-    list. Enforced by REGISTERING rather than refusing: the part's variety is
-    added to the list (prices blank) if it is new, because a counter tool
-    that rejects a save over vocabulary teaches people to stop saving. The
-    normalization above already prevents Rose/roses splits; registration
-    makes the list the single namespace everything shares.
+    A recipe part must exist on the master stem list. RETRACTION, 2026-09-01
+    (Kevin's catch): this route used to REGISTER an unknown variety onto the
+    list rather than refuse, so a save could never be blocked over
+    vocabulary. The typo cost won the argument: "rosse" silently became a
+    list entry, and its recipe looked saved while pricing cost-unknown
+    forever and decrementing a variety no truck will ever deliver. The rule
+    now: LEDGER FACTS create names (a purchase happened, so its variety
+    auto-registers), recipes REFERENCE them. The form offers a one-tap "Add
+    it to the list" for a genuinely new variety, so a deliberate new name
+    costs one tap and a typo gets a refusal that names itself.
   */
   const known = new Set((await store.listVarieties()).map((v) => v.name));
-  for (const part of parts) {
-    if (known.has(part.variety)) continue;
-    known.add(part.variety);
-    await store.upsertVariety({
-      name: part.variety,
-      kind: "flower",
-      sellStem: null,
-      sellBunch: null,
-      stemsPerBunch: null,
-      createdAt: Date.now(),
-    });
+  const unknown = [...new Set(parts.map((x) => x.variety).filter((v) => !known.has(v)))];
+  if (unknown.length > 0) {
+    return NextResponse.json(
+      {
+        error: `Not on the stem list: ${unknown.join(", ")}. Add ${unknown.length === 1 ? "it" : "them"} to the list first, or fix the spelling.`,
+        unknown,
+      },
+      { status: 400 },
+    );
   }
 
   await store.upsertRecipe({ slug, parts });
