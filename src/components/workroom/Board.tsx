@@ -247,7 +247,7 @@ function Bucket({
         <h2
           style={{
             /* Explicit sans: the global h2 is serif, and an uppercase serif
-               label with Cormorant's oldstyle figures â€” "TODAY (Éª)" â€” read as
+               label with Cormorant's oldstyle figures — "TODAY (ɪ)" — read as
                a glitch next to the sans labels everywhere else on the page. */
             fontFamily: "var(--sans)",
             fontSize: 15,
@@ -309,42 +309,42 @@ function OrderCard({
       <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
         <strong style={{ fontSize: 17 }}>{o.name}</strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
-          {o.number} Â· {o.source}
+          {o.number} · {o.source}
         </span>
       </header>
 
       {prior.length > 0 && (
         <p style={{ margin: "2px 0 0", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--green)" }}>
-          Returning Â· their {ordinal(prior.length + 1)} order
+          Returning · their {ordinal(prior.length + 1)} order
         </p>
       )}
 
       <p style={{ margin: "6px 0", fontSize: 14.5 }}>
         <strong>{o.date}</strong>
-        {" Â· "}
+        {" · "}
         {/* The one fact that changes the whole afternoon gets weight, not a
             lowercase word lost mid-line: DELIVER means a van and a deadline. */}
         <strong style={{ letterSpacing: "0.04em", color: o.fulfillment === "delivery" ? "var(--rose-ink)" : "var(--ink)" }}>
           {o.fulfillment === "delivery" ? "DELIVER" : "PICKUP"}
         </strong>
-        {o.occasion ? ` Â· ${o.occasion}` : ""}
-        {o.status !== "confirmed" ? ` Â· ${statusWord}` : ""}
+        {o.occasion ? ` · ${o.occasion}` : ""}
+        {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
       </p>
 
       {/* Built from the parts that exist: a phone order can be taken before
-          the address is known, and "Smoke Test Â· ," is not an address. A named
-          recipient with no street is a real case too, not a missing one â€” a
+          the address is known, and "Smoke Test · ," is not an address. A named
+          recipient with no street is a real case too, not a missing one — a
           funeral quote sends flowers to "Kempf Funeral Home" and the driver
           knows where that is. */}
       {o.fulfillment === "delivery" && (
         <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>
           {(() => {
             const where = [o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-            if (where) return `${o.recipient || o.name} Â· ${where}`;
+            if (where) return `${o.recipient || o.name} · ${where}`;
             return o.recipient || "No delivery address yet";
           })()}
           {zipFlag && (
-            <strong style={{ color: "var(--rose-ink)" }}> Â· off the delivery list</strong>
+            <strong style={{ color: "var(--rose-ink)" }}> · off the delivery list</strong>
           )}
         </p>
       )}
@@ -353,7 +353,7 @@ function OrderCard({
         {o.lines.map((l, i) => (
           <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <span>
-              {l.qty} Ã— {l.name}
+              {l.qty} × {l.name}
             </span>
             <span style={{ whiteSpace: "nowrap" }}>{money(l.each * l.qty)}</span>
           </li>
@@ -407,7 +407,7 @@ function OrderCard({
 /**
  * The counter's order pad. Catalog lines price themselves from the catalog
  * (same rule as the web checkout); custom lines take a typed price, because
- * half of what a florist sells â€” a casket spray, a one-off vase â€” has no
+ * half of what a florist sells — a casket spray, a one-off vase — has no
  * catalog entry.
  */
 const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name));
@@ -590,7 +590,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                   cursor: "pointer",
                 }}
               >
-                {c.name || "On file"} Â· {c.phone || c.email} Â· {count} order{count === 1 ? "" : "s"}
+                {c.name || "On file"} · {c.phone || c.email} · {count} order{count === 1 ? "" : "s"}
               </button>
             ))}
           </div>
@@ -684,7 +684,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                   onChange={(e) => setLine(i, { slug: e.target.value })}
                   style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
                 >
-                  <option value="">Custom itemâ€¦</option>
+                  <option value="">Custom item…</option>
                   {sortedProducts.map((sp) => (
                     <option key={sp.slug} value={sp.slug}>
                       {sp.name} ({money(sp.price)})

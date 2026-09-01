@@ -69,6 +69,11 @@ export default function PayControls({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fee, setFee] = useState(99);
+  /** True once Square's card field is attached and typeable. The charge
+      button stays disabled until then, because the first live test clicked
+      into "The card field is not ready yet.", which is the code scolding
+      the user for its own loading time. */
+  const [ready, setReady] = useState(false);
   const cardRef = useRef<Awaited<ReturnType<Awaited<ReturnType<NonNullable<Window["Square"]>["payments"]>>["card"]>> | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
 
@@ -80,6 +85,14 @@ export default function PayControls({
   useEffect(() => {
     if (mode !== "card") return;
     let dead = false;
+    setReady(false);
+    // If neither the field nor an error has shown in 12 seconds, say so:
+    // a silent forever-spinner behind a counter is a phone call to Kevin.
+    const stuck = setTimeout(() => {
+      if (!dead && !cardRef.current) {
+        setError("Square's card field did not open. Close this and try again, or refresh the page.");
+      }
+    }, 12000);
     (async () => {
       try {
         const r = await fetch("/api/workroom/square-web", { cache: "no-store" });
@@ -104,14 +117,17 @@ export default function PayControls({
         }
         await card.attach(holderRef.current);
         cardRef.current = card;
+        if (!dead) setReady(true);
       } catch (err) {
         if (!dead) setError(err instanceof Error ? err.message : "Card entry did not open.");
       }
     })();
     return () => {
       dead = true;
+      clearTimeout(stuck);
       cardRef.current?.destroy().catch(() => {});
       cardRef.current = null;
+      setReady(false);
     };
   }, [mode]);
 
@@ -205,8 +221,8 @@ export default function PayControls({
           </p>
           <div ref={holderRef} />
           <p style={{ margin: "10px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
-            <button type="button" className="btn btn--solid" disabled={busy} onClick={() => pay("card")}>
-              {busy ? "Charging…" : `Charge ${dollars(cardTotal)}`}
+            <button type="button" className="btn btn--solid" disabled={busy || !ready} onClick={() => pay("card")}>
+              {!ready ? "Opening card field…" : busy ? "Charging…" : `Charge ${dollars(cardTotal)}`}
             </button>
             <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
               Never mind
