@@ -343,6 +343,20 @@ export type AgreementAcceptance = {
   createdAt: number;
 };
 
+export type OrderContact = {
+  name: string;
+  phone: string;
+  email: string;
+  createdAt: number;
+  fulfillment: "delivery" | "pickup";
+  recipient: string;
+  street: string;
+  town: string;
+  zip: string;
+  occasion: string;
+  lines: WorkroomLine[];
+};
+
 type Store = {
   backend: "postgres" | "memory";
   createOrder(o: WorkroomOrder): Promise<void>;
@@ -351,8 +365,15 @@ type Store = {
    * board's 60-day window): the board derives "returning customer" from
    * these instead of asking anyone to type it, and a customer's third order
    * in a year should count even when the first two aged off the board.
+   *
+   * Grown 2026-09-01 to carry each order's delivery details and lines, so
+   * the phone-order form can AUTOFILL a repeat caller from their latest
+   * order instead of retyping them 52 times a year (the weekly-order
+   * customer, Kevin's example, near verbatim). Still a projection: these
+   * named fields, never the card messages and notes that make the full
+   * blobs heavy.
    */
-  listOrderContacts(): Promise<{ name: string; phone: string; email: string; createdAt: number }[]>;
+  listOrderContacts(): Promise<OrderContact[]>;
   /** Every OPEN order regardless of age, plus closed ones from the last
       `days`. The first version filtered everything on createdAt and it was a
       real bug, not a maybe: weddings book up to six months out (site.ts's own
@@ -482,7 +503,19 @@ const memoryStore: Store = {
   async listOrderContacts() {
     return [...bag().orders.values()]
       .filter((o) => o.status !== "canceled")
-      .map((o) => ({ name: o.name, phone: o.phone, email: o.email, createdAt: o.createdAt }));
+      .map((o) => ({
+        name: o.name,
+        phone: o.phone,
+        email: o.email,
+        createdAt: o.createdAt,
+        fulfillment: o.fulfillment,
+        recipient: o.recipient,
+        street: o.street,
+        town: o.town,
+        zip: o.zip,
+        occasion: o.occasion,
+        lines: o.lines,
+      }));
   },
   async addStemEvent(e) {
     bag().stems.set(e.id, e);
@@ -703,10 +736,15 @@ const postgresStore: Store = {
   },
   async listOrderContacts() {
     const pool = await pgPool();
-    // A projection, not rows: five thousand orders of contact facts is a few
-    // hundred KB; the full jsonb blobs would be megabytes of card messages.
+    // A projection, not rows: named fields plus the lines, never the card
+    // messages and notes that make the full jsonb blobs heavy. Five
+    // thousand orders of this is still a manageable payload, and the LIMIT
+    // keeps the far end bounded either way.
     const r = await pool.query(
-      `SELECT data->>'name' AS name, data->>'phone' AS phone, data->>'email' AS email, created_at
+      `SELECT data->>'name' AS name, data->>'phone' AS phone, data->>'email' AS email,
+              data->>'fulfillment' AS fulfillment, data->>'recipient' AS recipient,
+              data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip,
+              data->>'occasion' AS occasion, data->'lines' AS lines, created_at
        FROM workroom_orders WHERE status <> 'canceled' ORDER BY created_at DESC LIMIT 5000`,
     );
     return r.rows.map((row) => ({
@@ -714,6 +752,13 @@ const postgresStore: Store = {
       phone: (row.phone as string) ?? "",
       email: (row.email as string) ?? "",
       createdAt: Number(row.created_at),
+      fulfillment: row.fulfillment === "pickup" ? ("pickup" as const) : ("delivery" as const),
+      recipient: (row.recipient as string) ?? "",
+      street: (row.street as string) ?? "",
+      town: (row.town as string) ?? "",
+      zip: (row.zip as string) ?? "",
+      occasion: (row.occasion as string) ?? "",
+      lines: (row.lines as WorkroomLine[]) ?? [],
     }));
   },
   async addStemEvent(e) {

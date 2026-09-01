@@ -67,7 +67,22 @@ function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   }
 }
 
-type Contact = { name: string; phone: string; email: string; createdAt: number };
+type Contact = {
+  name: string;
+  phone: string;
+  email: string;
+  createdAt: number;
+  /** Present since the projection grew (2026-09-01); optional so a stale
+      client against a fresh API, or vice versa, degrades to recognition
+      without autofill instead of breaking. */
+  fulfillment?: "delivery" | "pickup";
+  recipient?: string;
+  street?: string;
+  town?: string;
+  zip?: string;
+  occasion?: string;
+  lines?: Line[];
+};
 
 /** Last 10 digits, so 269-555-0101 and +1 (269) 555-0101 are one customer. */
 const phoneKey = (s: string) => {
@@ -394,6 +409,7 @@ const blankLine = (): DraftLine => ({ slug: "", custom: "", each: "", qty: 1 });
 function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: () => void }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [picked, setPicked] = useState<Contact | null>(null);
   const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">("delivery");
   const [recipient, setRecipient] = useState("");
   const [street, setStreet] = useState("");
@@ -447,26 +463,127 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         <label>
           <span style={labelText}>Customer</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} required style={field} />
+          <input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              // Typing again reopens the suggestions: a wrong pick must not
+              // be sticky.
+              setPicked(null);
+            }}
+            required
+            style={field}
+          />
         </label>
         <label>
           <span style={labelText}>Phone</span>
-          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={field} />
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setPicked(null);
+            }}
+            style={field}
+          />
         </label>
       </div>
 
-      {/* Recognized while they are still on the line, which is when knowing
-          matters: "good to hear from you again" is a different phone call. */}
+      {/* THE CUSTOMER BASE IS THE ORDER HISTORY, surfaced while typing: a
+          few characters of name or phone offer the matching customers, one
+          tap fills the whole form from their latest order, and the weekly
+          caller stops being retyped 52 times a year (Kevin's example, near
+          verbatim). No separate customer table to maintain or drift: the
+          orders already know everyone. */}
       {(() => {
-        const seen = priorOrders(contacts, phone, "", Infinity);
-        if (seen.length === 0) return null;
-        const latest = seen.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+        const q = name.trim().toLowerCase();
+        const pq = phone.replace(/\D/g, "");
+        if (picked || (q.length < 2 && pq.length < 3)) return null;
+        const latestByKey = new Map<string, { c: Contact; count: number }>();
+        for (const c of contacts) {
+          const key = phoneKey(c.phone) || c.email.trim().toLowerCase() || c.name.trim().toLowerCase();
+          if (!key) continue;
+          const cur = latestByKey.get(key);
+          if (!cur) latestByKey.set(key, { c, count: 1 });
+          else {
+            cur.count += 1;
+            if (c.createdAt > cur.c.createdAt) cur.c = c;
+          }
+        }
+        const hits = [...latestByKey.values()]
+          .filter(
+            ({ c }) =>
+              (q.length >= 2 && c.name.toLowerCase().includes(q)) ||
+              (pq.length >= 3 && phoneKey(c.phone).includes(pq)),
+          )
+          .sort((a, b) => b.c.createdAt - a.c.createdAt)
+          .slice(0, 4);
+        if (hits.length === 0) return null;
         return (
-          <p role="status" style={{ margin: "-6px 0 0", fontSize: 14, fontWeight: 600, color: "var(--green)" }}>
-            Existing customer: {latest.name || "on file"} · {seen.length} past order{seen.length === 1 ? "" : "s"}
-          </p>
+          <div role="status" style={{ margin: "-6px 0 0", display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {hits.map(({ c, count }) => (
+              <button
+                key={`${c.phone}|${c.name}`}
+                type="button"
+                onClick={() => {
+                  setPicked(c);
+                  setName(c.name);
+                  setPhone(c.phone);
+                  if (c.fulfillment) setFulfillment(c.fulfillment);
+                  setRecipient(c.recipient ?? "");
+                  setStreet(c.street ?? "");
+                  setTown(c.town ?? "");
+                  setZip(c.zip ?? "");
+                  if (c.occasion && (occasions as readonly string[]).includes(c.occasion)) setOccasion(c.occasion);
+                }}
+                style={{
+                  font: "inherit",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: "var(--green)",
+                  background: "var(--paper-2)",
+                  border: "1px solid var(--line)",
+                  borderRadius: 2,
+                  padding: "6px 10px",
+                  cursor: "pointer",
+                }}
+              >
+                {c.name || "On file"} · {c.phone || c.email} · {count} order{count === 1 ? "" : "s"}
+              </button>
+            ))}
+          </div>
         );
       })()}
+
+      {/* After a pick: their last order is one tap from being this one,
+          which is the entire weekly-caller workflow. */}
+      {picked && (
+        <p role="status" style={{ margin: "-6px 0 0", fontSize: 14, fontWeight: 600, color: "var(--green)", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+          <span>
+            Filled from {picked.name || "their file"}&rsquo;s last order
+            {picked.lines && picked.lines.length > 0
+              ? ` (${picked.lines.map((l) => `${l.qty} × ${l.name}`).join(", ")})`
+              : ""}
+          </span>
+          {picked.lines && picked.lines.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                setLines(
+                  picked.lines!.map((l) =>
+                    l.slug
+                      ? { slug: l.slug, custom: "", each: "", qty: l.qty }
+                      : { slug: "", custom: l.name, each: String(l.each), qty: l.qty },
+                  ),
+                )
+              }
+              style={{ ...textButton, fontSize: 13.5 }}
+            >
+              Use the same lines
+            </button>
+          )}
+        </p>
+      )}
 
       <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
         <legend style={labelText}>Delivery or pickup</legend>
