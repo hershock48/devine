@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/components/Cart";
 import ProductImage from "@/components/ProductImage";
-import { bySlug, money } from "@/lib/catalog";
+import { bySlug, money, products } from "@/lib/catalog";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
@@ -72,14 +72,26 @@ type Outcome =
 type CardConfig = { cards: boolean; applicationId?: string; locationId?: string; env?: string; feeCents?: number };
 
 /**
- * The cart's add-on row. Three small things a flower buyer adds at the last
- * moment in a real shop: the chocolates by the register, the tea, the plush.
- * All from her own Gifts & Add Ons category, full names because the names
- * are hers, text-only because none of the three has a photograph yet and a
- * generated print does not belong at a checkout. A row disappears once its
- * item is in the cart; the whole strip disappears when all three are.
+ * The cart's add-on strip. Three small things a flower buyer adds at the
+ * last moment in a real shop: the chocolates by the register, the tea, the
+ * plush. Text-only on purpose (a generated print does not belong at a
+ * checkout), full names because the names are hers.
+ *
+ * THE STRIP NEVER RUNS DRY: it draws from her whole Gifts & Add Ons
+ * category, the classic trio first and the rest by price, always showing
+ * the next three not already in the cart. Add the chocolates and a tea
+ * steps up; add a product to the category later and it surfaces here with
+ * zero code changes. The counter always has three little things by the
+ * register.
  */
-const ADD_ON_SLUGS = ["petite-box-of-chocolates", "bohemian-breakfast-tea", "lil-lovey"];
+const ADD_ON_PRIORITY = ["petite-box-of-chocolates", "bohemian-breakfast-tea", "lil-lovey"];
+const ADD_ON_POOL = (() => {
+  const gifts = products.filter((p) => p.cats.includes("gifts-add-ons"));
+  return [
+    ...ADD_ON_PRIORITY.map((s) => gifts.find((g) => g.slug === s)).filter((p): p is NonNullable<typeof p> => !!p),
+    ...gifts.filter((g) => !ADD_ON_PRIORITY.includes(g.slug)).sort((a, b) => a.price - b.price),
+  ];
+})();
 
 export default function CartView() {
   const { items, subtotal, setQty, remove, count, clear, add, lines } = useCart();
@@ -430,9 +442,9 @@ export default function CartView() {
             </ul>
 
             {(() => {
-              const extras = ADD_ON_SLUGS
-                .map((s) => bySlug.get(s))
-                .filter((p): p is NonNullable<typeof p> => !!p && !lines.some((l) => l.slug === p.slug));
+              const extras = ADD_ON_POOL
+                .filter((p) => !lines.some((l) => l.slug === p.slug))
+                .slice(0, 3);
               if (extras.length === 0) return null;
               return (
                 <div style={{ padding: "16px 0", borderBottom: "1px solid var(--line)" }}>
@@ -603,6 +615,36 @@ export default function CartView() {
                       {site.delivery.funeralNote}
                     </p>
                   )}
+
+                  {/* One whispered match per occasion, from her own shelves:
+                      the plush her catalog already files under new-baby, the
+                      tea for a hospital room, the chocolates for celebrations.
+                      SYMPATHY DELIBERATELY GETS NOTHING: merchandising grief
+                      is how a checkout loses someone forever. The mapping is
+                      provisional merchandising, hers to tune. */}
+                  {(() => {
+                    if (!occasion || occasion === "Sympathy or funeral") return null;
+                    const open = ADD_ON_POOL.filter((p) => !lines.some((l) => l.slug === p.slug));
+                    const pick =
+                      occasion === "New baby"
+                        ? open.find((p) => p.cats.includes("new-baby"))
+                        : occasion === "Hospital"
+                          ? open.find((p) => p.name.toLowerCase().includes("tea"))
+                          : open.find((p) => p.slug === "petite-box-of-chocolates");
+                    if (!pick) return null;
+                    return (
+                      <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }} aria-live="polite">
+                        A {pick.name} rides along nicely ({money(pick.price)}).{" "}
+                        <button
+                          type="button"
+                          onClick={() => add(pick.slug)}
+                          style={{ background: "none", border: 0, font: "inherit", fontSize: 14.5, fontWeight: 600, color: "var(--green)", cursor: "pointer", textDecoration: "underline", padding: "4px 0" }}
+                        >
+                          Add it
+                        </button>
+                      </p>
+                    );
+                  })()}
 
                   <label>
                     <span style={labelText}>
