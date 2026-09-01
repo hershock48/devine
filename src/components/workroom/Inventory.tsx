@@ -27,7 +27,7 @@ import { field, labelText, money, textButton, MemoryWarning, PinGate } from "@/c
 type StemEvent = { id: string; kind: "purchase" | "shrink"; date: string; variety: string; stems: number; cost: number };
 type Recipe = { slug: string; parts: { variety: string; stems: number }[] };
 type Order = { id: string; status: string; date: string; lines: { slug: string | null; qty: number }[] };
-type SquareSale = { id: string; paidAt: string; lines: { slug: string | null; qty: number }[] };
+type SquareSale = { id: string; paidAt: string; workroomOrderId?: string; lines: { slug: string | null; qty: number }[] };
 type Variety = {
   name: string;
   kind: "flower" | "green";
@@ -111,6 +111,11 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
     }
     let customSales = 0;
     for (const s of sales) {
+      // A sale linked to a board order is that order's MONEY, not a second
+      // sale: its stems are counted once, by the order's made-status above.
+      // Without this skip an arrangement written up and also rung by its
+      // product tile would decrement twice.
+      if (s.workroomOrderId) continue;
       if ((s.paidAt || "").slice(0, 10) < windowStart) continue;
       if (s.lines.length === 0) customSales += 1;
       for (const l of s.lines) consume(l.slug, l.qty);

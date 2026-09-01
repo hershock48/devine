@@ -5,6 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { site } from "@/lib/site";
 import { field, labelText, money, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import PayControls from "@/components/workroom/PayControls";
 
 /**
  * The order board. Adapted from the pjs kitchen screen, at florist pace:
@@ -48,6 +49,7 @@ type Order = {
   lines: Line[];
   subtotal: number;
   createdAt: number;
+  payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number } | null;
 };
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
@@ -175,9 +177,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         />
       )}
 
-      <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} />
-      <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} />
-      <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} />
+      <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} />
+      <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} />
+      <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} />
 
       {buckets.today.length + buckets.overdue.length + buckets.upcoming.length === 0 && (
         <p className="lede" style={{ marginTop: 8 }}>
@@ -194,7 +196,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
           {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
         </button>
       </p>
-      {showDone && <Bucket title="" orders={buckets.closed} contacts={contacts} onMove={move} />}
+      {showDone && <Bucket title="" orders={buckets.closed} contacts={contacts} onMove={move} onPaid={pull} />}
     </>
   );
 }
@@ -205,12 +207,14 @@ function Bucket({
   orders,
   contacts,
   onMove,
+  onPaid,
 }: {
   title: string;
   tone?: "late";
   orders: Order[];
   contacts: Contact[];
   onMove: (id: string, s: Order["status"]) => void;
+  onPaid: () => Promise<void>;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -238,14 +242,24 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} />
+          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} />
         ))}
       </div>
     </section>
   );
 }
 
-function OrderCard({ o, contacts, onMove }: { o: Order; contacts: Contact[]; onMove: (id: string, s: Order["status"]) => void }) {
+function OrderCard({
+  o,
+  contacts,
+  onMove,
+  onPaid,
+}: {
+  o: Order;
+  contacts: Contact[];
+  onMove: (id: string, s: Order["status"]) => void;
+  onPaid: () => Promise<void>;
+}) {
   const next = nextMove(o);
   const zipFlag = o.fulfillment === "delivery" && o.zip && !(site.deliveryZips as readonly string[]).includes(o.zip);
   const sympathy = o.occasion === "Sympathy or funeral";
@@ -339,6 +353,13 @@ function OrderCard({ o, contacts, onMove }: { o: Order; contacts: Contact[]; onM
             {o.phone}
           </a>
         </p>
+      )}
+
+      {/* The money corner. Canceled orders take no payment; finished unpaid
+          ones still can, because "paid at pickup" happens after "picked up"
+          more often than a process diagram admits. */}
+      {o.status !== "canceled" && (
+        <PayControls orderId={o.id} subtotal={o.subtotal} payment={o.payment} onPaid={() => onPaid().catch(() => {})} />
       )}
 
       {next && (

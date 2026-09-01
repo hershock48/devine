@@ -44,6 +44,7 @@ type PaymentEvent = {
         location_id?: string;
         source_type?: string;
         created_at?: string;
+        note?: string;
         total_money?: { amount?: number };
       };
     };
@@ -52,6 +53,7 @@ type PaymentEvent = {
 
 type OrderResponse = {
   order?: {
+    reference_id?: string;
     line_items?: {
       catalog_object_id?: string;
       name?: string;
@@ -74,8 +76,13 @@ function verified(raw: string, header: string | null, url: string): boolean {
   return got.length === expected.length && timingSafeEqual(got, expected);
 }
 
-/** Line items name what sold; variation SKUs say which are OUR products. */
-async function toLines(cfg: SquareConfig, orderId: string): Promise<SquareSaleLine[]> {
+/** Line items name what sold; variation SKUs say which are OUR products.
+    The order's reference_id rides back too: our own API payments carry the
+    workroom order id there, which is how a sale gets linked to its ticket. */
+async function toLines(
+  cfg: SquareConfig,
+  orderId: string,
+): Promise<{ lines: SquareSaleLine[]; referenceId: string }> {
   const { order } = await square<OrderResponse>(cfg, "GET", `/v2/orders/${orderId}`);
   const items = order?.line_items ?? [];
   const ids = [...new Set(items.map((l) => l.catalog_object_id).filter((id): id is string => !!id))];
@@ -89,7 +96,7 @@ async function toLines(cfg: SquareConfig, orderId: string): Promise<SquareSaleLi
       if (sku) skuById.set(o.id, sku);
     }
   }
-  return items.map((l) => {
+  const lines = items.map((l) => {
     const sku = l.catalog_object_id ? skuById.get(l.catalog_object_id) : undefined;
     return {
       // Only a SKU that is genuinely one of our slugs links to a recipe. A
@@ -104,6 +111,27 @@ async function toLines(cfg: SquareConfig, orderId: string): Promise<SquareSaleLi
       totalCents: l.total_money?.amount ?? 0,
     };
   });
+  return { lines, referenceId: order?.reference_id ?? "" };
+}
+
+/**
+ * Which board order this sale settles, if any. Two recognizers, strongest
+ * first: the reference id our own API payments always carry, then a DV
+ * number typed into a register ring's note (the fallback for the day staff
+ * rings a board order at the counter anyway). "" means a plain walk-out.
+ */
+async function matchWorkroomOrder(referenceId: string, note: string): Promise<string> {
+  const store = getStore();
+  if (referenceId) {
+    const o = await store.getOrder(referenceId).catch(() => null);
+    if (o) return o.id;
+  }
+  const dv = note.match(/DV-\d{4}-\d{4}/)?.[0];
+  if (dv) {
+    const o = await store.getOrderByNumber(dv).catch(() => null);
+    if (o) return o.id;
+  }
+  return "";
 }
 
 export async function POST(req: Request) {
@@ -128,17 +156,43 @@ export async function POST(req: Request) {
   }
 
   try {
+    const detail = payment.order_id
+      ? await toLines(cfg, payment.order_id)
+      : { lines: [], referenceId: "" };
+    const workroomOrderId = await matchWorkroomOrder(detail.referenceId, payment.note ?? "");
     const sale: SquareSale = {
       id: payment.id,
+      workroomOrderId: workroomOrderId || undefined,
       orderId: payment.order_id ?? "",
       locationId: payment.location_id ?? "",
       source: payment.source_type ?? "UNKNOWN",
       totalCents: payment.total_money?.amount ?? 0,
       paidAt: payment.created_at ?? "",
-      lines: payment.order_id ? await toLines(cfg, payment.order_id) : [],
+      lines: detail.lines,
       createdAt: Date.now(),
     };
     await getStore().upsertSquareSale(sale);
+
+    // A linked sale marks its board order paid, unless the order already is
+    // (our /pay route marks synchronously; this covers the register-rung
+    // fallback and any race). Best effort: a failed mark is a log line, the
+    // sale itself is already stored and Square must not redeliver over it.
+    if (workroomOrderId) {
+      try {
+        const order = await getStore().getOrder(workroomOrderId);
+        if (order && !order.payment) {
+          await getStore().setOrderPayment(workroomOrderId, {
+            at: Date.now(),
+            method: payment.source_type === "CASH" ? "cash" : "register",
+            squarePaymentId: payment.id,
+            totalCents: payment.total_money?.amount ?? 0,
+            feeCents: 0,
+          });
+        }
+      } catch (err) {
+        console.error(`square webhook: sale ${payment.id} stored but order ${workroomOrderId} not marked paid`, err);
+      }
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("square webhook: sale not stored, Square will retry", err);

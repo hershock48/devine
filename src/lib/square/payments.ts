@@ -70,3 +70,117 @@ export async function createCardPayment(cfg: ResolvedSquare, p: CardPayment) {
   const res = await square<PaymentResponse>(cfg, "POST", "/v2/payments", body);
   return { payment: res.payment, appFeeCents: feeLegal ? fee : 0 };
 }
+
+/* ------------------- board orders: the settled money ------------------- */
+
+/**
+ * Charging a BOARD ORDER, card or cash, from the workroom. This is Square's
+ * documented pattern (create the order via the API, pay it via the API);
+ * the register-side alternative, an unpaid API order collected at the POS,
+ * is explicitly unsupported per Square staff (developer forum, 2026-08-18),
+ * which is why payments for board orders live here and the register's job
+ * is purely walk-outs.
+ *
+ * Line items are sent AD HOC (name + price), not by catalog id, on purpose:
+ * half of board work is custom pieces with no catalog entry, the itemization
+ * in her ledger reads the same either way, and an ad hoc line can never
+ * collide with the register catalog. Stems for these sales are counted by
+ * the board order's own made-status; the webhook links the sale back by
+ * reference id and inventory skips linked sales.
+ *
+ * THE FEE RULE, per Kevin 2026-09-01 and the agreement's wording: card
+ * payments taken remotely (online checkout or keyed here) carry the 99 cent
+ * customer-paid service fee as its own line item, so the customer was
+ * quoted the true total and her ledger shows the line. Cash carries no fee:
+ * it is a card service fee, and a cash drawer holding 99 unexplained cents
+ * helps nobody.
+ */
+
+type BoardOrderLine = { name: string; qty: number; each: number };
+
+type CreateOrderResponse = {
+  order?: { id?: string; total_money?: { amount?: number } };
+};
+
+const cents = (dollars: number) => Math.round(dollars * 100);
+
+export async function chargeBoardOrder(
+  cfg: ResolvedSquare,
+  opts: {
+    /** The workroom order id; rides as reference_id so the webhook links the sale. */
+    workroomOrderId: string;
+    /** The DV number, for the human reading her Square dashboard. */
+    orderNumber: string;
+    lines: BoardOrderLine[];
+    method: "card" | "cash";
+    /** Card only: the Web Payments SDK token from the browser. */
+    sourceId?: string;
+  },
+) {
+  const subtotalCents = opts.lines.reduce((sum, l) => sum + cents(l.each) * l.qty, 0);
+  if (subtotalCents <= 0) throw new Error("This order has no priced lines to charge.");
+
+  const fee = opts.method === "card" ? appFeeCents() : 0;
+  const feeLegal = fee > 0 && cfg.viaOAuth && fee * 5 <= subtotalCents + fee;
+  const feeCents = feeLegal ? fee : 0;
+  const totalCents = subtotalCents + feeCents;
+
+  const lineItems: Record<string, unknown>[] = opts.lines.map((l) => ({
+    name: l.name,
+    quantity: String(l.qty),
+    base_price_money: { amount: cents(l.each), currency: "USD" },
+  }));
+  if (feeCents > 0) {
+    lineItems.push({
+      name: "Service fee",
+      quantity: "1",
+      base_price_money: { amount: feeCents, currency: "USD" },
+    });
+  }
+
+  const created = await square<CreateOrderResponse>(cfg, "POST", "/v2/orders", {
+    idempotency_key: randomUUID(),
+    order: {
+      location_id: cfg.locationId,
+      reference_id: opts.workroomOrderId,
+      line_items: lineItems,
+      // The note is what a person sees scanning her dashboard.
+      note: `Board order ${opts.orderNumber}`,
+    },
+  });
+  const squareOrderId = created.order?.id;
+  if (!squareOrderId) throw new Error("Square did not return an order id.");
+  // Square's total is the truth the payment must match; a mismatch here
+  // means our line math drifted and the sale must not go through fuzzy.
+  const squareTotal = created.order?.total_money?.amount;
+  if (squareTotal !== undefined && squareTotal !== totalCents) {
+    throw new Error(`Order total mismatch: ours ${totalCents}, Square's ${squareTotal}.`);
+  }
+
+  const body: Record<string, unknown> = {
+    idempotency_key: randomUUID(),
+    order_id: squareOrderId,
+    location_id: cfg.locationId,
+    amount_money: { amount: totalCents, currency: "USD" },
+    reference_id: opts.workroomOrderId,
+    note: `Board order ${opts.orderNumber}`,
+  };
+  if (opts.method === "card") {
+    if (!opts.sourceId) throw new Error("Card payment without a card token.");
+    body.source_id = opts.sourceId;
+    if (feeCents > 0) body.app_fee_money = { amount: feeCents, currency: "USD" };
+  } else {
+    body.source_id = "CASH";
+    body.cash_details = { buyer_supplied_money: { amount: totalCents, currency: "USD" } };
+  }
+
+  const res = await square<PaymentResponse>(cfg, "POST", "/v2/payments", body);
+  if (!res.payment?.id) throw new Error("Square did not return a payment.");
+  return {
+    paymentId: res.payment.id,
+    status: res.payment.status ?? "",
+    receiptUrl: res.payment.receipt_url ?? "",
+    totalCents,
+    feeCents,
+  };
+}

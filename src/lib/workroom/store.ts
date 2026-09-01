@@ -44,6 +44,23 @@ export type WorkroomLine = {
   each: number; // dollars
 };
 
+/**
+ * How an order's money got settled. Set by /api/workroom/pay when the shop
+ * takes the card or records cash from the order card, or by the Square
+ * webhook when a register ring is recognized as belonging to a board order
+ * (reference id from our own API payments, or a DV number typed into the
+ * ring's note). Absent means unpaid, which every order historically was,
+ * so old rows need no migration.
+ */
+export type OrderPayment = {
+  at: number;
+  method: "card" | "cash" | "register";
+  squarePaymentId: string;
+  totalCents: number;
+  /** The customer-paid service fee included in totalCents; 0 on cash. */
+  feeCents: number;
+};
+
 export type WorkroomOrder = {
   id: string;
   /** The same DV- number the email ticket carries, so a phone call about
@@ -68,6 +85,7 @@ export type WorkroomOrder = {
   lines: WorkroomLine[];
   subtotal: number;
   createdAt: number;
+  payment?: OrderPayment | null;
 };
 
 export type StemEvent = {
@@ -185,6 +203,10 @@ export type SquareSaleLine = {
 export type SquareSale = {
   /** Square's payment id. THE dedupe key: webhooks redeliver on any 5xx. */
   id: string;
+  /** Set when this sale is a board order's money (matched by reference id
+      or by a DV number in the ring's note). Inventory skips linked sales:
+      the board order's made-status is the single stem truth for them. */
+  workroomOrderId?: string;
   orderId: string;
   locationId: string;
   /** CARD, CASH, WALLET... Square's source_type, verbatim. Cash counts: the
@@ -338,7 +360,12 @@ type Store = {
       silently left the board in August, still unmade. Open orders never age
       off; only finished ones do. */
   listOrders(days: number): Promise<WorkroomOrder[]>;
+  getOrder(id: string): Promise<WorkroomOrder | null>;
+  /** By the DV number the ticket carries, for matching a register ring's
+      typed note. Number collisions do not exist (date + random). */
+  getOrderByNumber(number: string): Promise<WorkroomOrder | null>;
   setOrderStatus(id: string, status: OrderStatus): Promise<void>;
+  setOrderPayment(id: string, p: OrderPayment): Promise<void>;
   addStemEvent(e: StemEvent): Promise<void>;
   listStemEvents(days: number): Promise<StemEvent[]>;
   /** Mis-keyed counts happen at 7am. A delete, not an edit: retyping five
@@ -438,9 +465,19 @@ const memoryStore: Store = {
       .filter((o) => open(o) || o.createdAt >= cutoff(days))
       .sort((a, b) => a.createdAt - b.createdAt);
   },
+  async getOrder(id) {
+    return bag().orders.get(id) ?? null;
+  },
+  async getOrderByNumber(number) {
+    return [...bag().orders.values()].find((o) => o.number === number) ?? null;
+  },
   async setOrderStatus(id, status) {
     const o = bag().orders.get(id);
     if (o) o.status = status;
+  },
+  async setOrderPayment(id, p) {
+    const o = bag().orders.get(id);
+    if (o) o.payment = p;
   },
   async listOrderContacts() {
     return [...bag().orders.values()]
@@ -640,11 +677,28 @@ const postgresStore: Store = {
     );
     return r.rows.map((row) => row.data as WorkroomOrder);
   },
+  async getOrder(id) {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_orders WHERE id = $1`, [id]);
+    return r.rows[0] ? (r.rows[0].data as WorkroomOrder) : null;
+  },
+  async getOrderByNumber(number) {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_orders WHERE data->>'number' = $1 LIMIT 1`, [number]);
+    return r.rows[0] ? (r.rows[0].data as WorkroomOrder) : null;
+  },
   async setOrderStatus(id, status) {
     const pool = await pgPool();
     await pool.query(
       `UPDATE workroom_orders SET status = $2, data = data || jsonb_build_object('status', $2::text) WHERE id = $1`,
       [id, status],
+    );
+  },
+  async setOrderPayment(id, p) {
+    const pool = await pgPool();
+    await pool.query(
+      `UPDATE workroom_orders SET data = data || jsonb_build_object('payment', $2::jsonb) WHERE id = $1`,
+      [id, JSON.stringify(p)],
     );
   },
   async listOrderContacts() {
