@@ -155,10 +155,15 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const today = todayISO();
   const buckets = useMemo(() => {
     const q = find.trim().toLowerCase();
+    // Punctuation never decides a match: dv0901, 0901-4226, and 09014226
+    // all find DV-0901-4226 (Kevin's catch: the first version demanded the
+    // dashes typed exactly). Numbers compare stripped to letters+digits;
+    // phones compare digits; names compare as typed.
+    const qNorm = q.replace(/[^a-z0-9]/g, "");
     const qDigits = q.replace(/\D/g, "");
     const matches = (o: Order) =>
       !q ||
-      o.number.toLowerCase().includes(q) ||
+      (qNorm.length >= 2 && o.number.toLowerCase().replace(/[^a-z0-9]/g, "").includes(qNorm)) ||
       o.name.toLowerCase().includes(q) ||
       (qDigits.length >= 3 && o.phone.replace(/\D/g, "").includes(qDigits));
     const shown = orders.filter(matches);
@@ -453,7 +458,15 @@ function OrderCard({
           these cards, in the attention color, next to the buttons. */}
       {o.status === "new" && (
         <p style={{ margin: "10px 0 0", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
-          New web order: call to confirm{o.payment ? "" : ", then take payment below or on pickup"}.
+          New web order:{" "}
+          {o.phone ? (
+            <a href={`tel:${o.phone.replace(/[^\d+]/g, "")}`} style={{ color: "inherit" }}>
+              call {o.phone}
+            </a>
+          ) : (
+            "call them"
+          )}{" "}
+          to confirm{o.payment ? "" : ", then take payment below or at pickup"}.
         </p>
       )}
 

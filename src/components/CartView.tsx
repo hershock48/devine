@@ -113,6 +113,27 @@ export default function CartView() {
   const [cardReady, setCardReady] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
+  const zipRef = useRef<HTMLInputElement | null>(null);
+
+  /*
+    BROWSER AUTOFILL FILLS PIXELS, NOT ALWAYS STATE: Chrome can populate the
+    address fields without firing the change events React listens to, so the
+    zip looked filled while the fee line never appeared and, worse, the
+    state-built payload would have submitted empty fields (Kevin hit the
+    visible half: "I have to delete the autofill and retype it"). Two
+    defenses: submit reads the DOM through FormData so what the customer
+    SEES is what sends, and the zip specifically gets a gentle watcher while
+    the checkout is open, because the fee display and the card gate hang off
+    it live.
+  */
+  useEffect(() => {
+    if (!checkingOut) return;
+    const t = setInterval(() => {
+      const dom = zipRef.current?.value ?? "";
+      setZip((cur) => (dom !== cur ? dom : cur));
+    }, 400);
+    return () => clearInterval(t);
+  }, [checkingOut]);
 
   useEffect(() => {
     fetch("/api/checkout/config", { cache: "no-store" })
@@ -190,6 +211,25 @@ export default function CartView() {
     e.preventDefault();
     setOutcome({ state: "sending" });
 
+    // The DOM is the truth for typed fields: autofill can fill inputs
+    // without React hearing about it, and what the customer sees in the
+    // boxes must be exactly what sends. State is the fallback, and gets
+    // synced so the confirmation screen shows the same values.
+    const fd = new FormData(e.currentTarget as HTMLFormElement);
+    const dom = (k: string, fallback: string) => {
+      const v = fd.get(k);
+      return typeof v === "string" ? v : fallback;
+    };
+    const dName = dom("name", name);
+    const dPhone = dom("phone", phone);
+    const dEmail = dom("email", email);
+    const dRecipient = dom("recipient", recipient);
+    const dStreet = dom("street", street);
+    const dTown = dom("town", town);
+    const dZip = dom("zip", zip);
+    setName(dName); setPhone(dPhone); setEmail(dEmail);
+    setRecipient(dRecipient); setStreet(dStreet); setTown(dTown); setZip(dZip);
+
     // Tokenize first when paying by card: no token, no POST, and the
     // message names what to fix. The card number itself never leaves
     // Square's iframe.
@@ -208,11 +248,11 @@ export default function CartView() {
 
     const payload = {
       lines: items.map((i) => ({ slug: i.product.slug, qty: i.qty })),
-      name, phone, email, fulfillment,
-      recipient: delivering ? recipient : "",
-      street: delivering ? street : "",
-      town: delivering ? town : "",
-      zip: delivering ? zip.trim() : "",
+      name: dName, phone: dPhone, email: dEmail, fulfillment,
+      recipient: delivering ? dRecipient : "",
+      street: delivering ? dStreet : "",
+      town: delivering ? dTown : "",
+      zip: delivering ? dZip.trim() : "",
       date, occasion, cardMessage, notes,
       card: cardPayload,
     };
@@ -455,19 +495,19 @@ export default function CartView() {
                 <div style={{ display: "grid", gap: 16 }}>
                   <label>
                     <span style={labelText}>Your name</span>
-                    <input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" style={field} />
+                    <input name="name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" style={field} />
                   </label>
 
                   <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
                     <label>
                       <span style={labelText}>Phone</span>
-                      <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoComplete="tel" style={field} />
+                      <input name="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoComplete="tel" style={field} />
                     </label>
                     <label>
                       <span style={labelText}>
                         Email <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
                       </span>
-                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" style={field} />
+                      <input name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" style={field} />
                     </label>
                   </div>
 
@@ -499,20 +539,20 @@ export default function CartView() {
                           Recipient&rsquo;s name{" "}
                           <span className="muted" style={{ fontWeight: 400 }}>(if not you)</span>
                         </span>
-                        <input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={field} />
+                        <input name="recipient" value={recipient} onChange={(e) => setRecipient(e.target.value)} style={field} />
                       </label>
                       <label>
                         <span style={labelText}>Street address</span>
-                        <input value={street} onChange={(e) => setStreet(e.target.value)} required autoComplete="street-address" style={field} />
+                        <input name="street" value={street} onChange={(e) => setStreet(e.target.value)} required autoComplete="street-address" style={field} />
                       </label>
                       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr minmax(110px, 140px)" }}>
                         <label>
                           <span style={labelText}>Town</span>
-                          <input value={town} onChange={(e) => setTown(e.target.value)} required style={field} />
+                          <input name="town" value={town} onChange={(e) => setTown(e.target.value)} required autoComplete="address-level2" style={field} />
                         </label>
                         <label>
                           <span style={labelText}>Zip</span>
-                          <input value={zip} onChange={(e) => setZip(e.target.value)} inputMode="numeric" autoComplete="postal-code" style={field} />
+                          <input ref={zipRef} name="zip" value={zip} onChange={(e) => setZip(e.target.value)} inputMode="numeric" autoComplete="postal-code" style={field} />
                         </label>
                       </div>
                       {/* ZipCheck's rule: a near miss is a phone call, not a wall.
@@ -588,7 +628,11 @@ export default function CartView() {
                               onChange={() => setPayMethod(m)}
                               style={{ width: 20, height: 20, accentColor: "var(--green)" }}
                             />
-                            {m === "card" ? "Pay now by card" : "Pay when we call to confirm"}
+                            {m === "card"
+                              ? "Pay now by card"
+                              : delivering
+                                ? "Pay when we call to confirm"
+                                : "Pay at pickup (we’ll call to confirm)"}
                           </label>
                         ))}
                       </div>
