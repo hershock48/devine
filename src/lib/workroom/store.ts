@@ -483,7 +483,11 @@ const memoryStore: Store = {
     bag().orders.set(o.id, o);
   },
   async listOrders(days) {
-    const open = (o: WorkroomOrder) => o.status !== "done" && o.status !== "canceled";
+    // Done-but-unpaid counts as open for aging: it is a receivable, and a
+    // receivable that quietly leaves the board after 60 days disappears at
+    // exactly the moment it most needs seeing. It ages off when paid.
+    const open = (o: WorkroomOrder) =>
+      (o.status !== "done" && o.status !== "canceled") || (o.status === "done" && !o.payment);
     return [...bag().orders.values()]
       .filter((o) => open(o) || o.createdAt >= cutoff(days))
       .sort((a, b) => a.createdAt - b.createdAt);
@@ -702,9 +706,15 @@ const postgresStore: Store = {
   },
   async listOrders(days) {
     const pool = await pgPool();
+    // Done-but-unpaid ages like open (see the memory copy's note): the
+    // payment key is absent until money lands, so data->'payment' IS NULL
+    // is the unpaid test, and it holds for rows written before the payment
+    // field existed.
     const r = await pool.query(
       `SELECT data FROM workroom_orders
-       WHERE status NOT IN ('done', 'canceled') OR created_at >= $1
+       WHERE status NOT IN ('done', 'canceled')
+          OR (status = 'done' AND data->'payment' IS NULL)
+          OR created_at >= $1
        ORDER BY created_at ASC LIMIT 500`,
       [cutoff(days)],
     );

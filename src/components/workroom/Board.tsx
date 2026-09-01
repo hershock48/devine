@@ -205,7 +205,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} />
       <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} />
 
-      {buckets.today.length + buckets.overdue.length + buckets.upcoming.length === 0 && (
+      {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length === 0 && (
         <p className="lede" style={{ marginTop: 8 }}>
           Nothing open. Web orders land here on their own; phone orders get written up above.
         </p>
