@@ -18,7 +18,7 @@ import type { ResolvedSquare } from "./oauth";
  * amountCents, the shop's account receives amountCents minus processing
  * minus the fee, and the fee accrues to the Glazed account that owns the
  * app. So the checkout that wants the customer to pay the fee (the model:
- * a visible "Service fee $0.99" line, never a hidden markup) must ADD the
+ * a visible "Order fee $0.99" line, never a hidden markup) must ADD the
  * fee to the order total it charges, then name the same number here.
  *
  * Two hard rules from Square, enforced here rather than discovered in a
@@ -90,10 +90,10 @@ export async function createCardPayment(cfg: ResolvedSquare, p: CardPayment) {
  *
  * THE FEE RULE, per Kevin 2026-09-01 and the agreement's wording: card
  * payments taken remotely (online checkout or keyed here) carry the 99 cent
- * customer-paid service fee as its own line item, so the customer was
+ * customer-paid order fee as its own line item, so the customer was
  * quoted the true total and her ledger shows the line. Cash carries no fee:
- * it is a card service fee, and a cash drawer holding 99 unexplained cents
- * helps nobody.
+ * the fee rides remote card payments only, and a cash drawer holding 99
+ * unexplained cents helps nobody.
  */
 
 type BoardOrderLine = { name: string; qty: number; each: number };
@@ -132,7 +132,7 @@ export async function chargeBoardOrder(
   }));
   if (feeCents > 0) {
     lineItems.push({
-      name: "Service fee",
+      name: "Order fee",
       quantity: "1",
       base_price_money: { amount: feeCents, currency: "USD" },
     });

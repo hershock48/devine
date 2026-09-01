@@ -48,7 +48,7 @@ function recordText(a: AgreementAcceptance): string {
     `  month after launch. Edit allowance ${agreement.editAllowance}. Additional work`,
     `  ${money(agreement.hourlyRate)}/hour, quoted and approved in advance. Remote card`,
     `  payments (phone orders keyed by the shop now, online checkout when enabled in`,
-    `  writing) carry a $0.99 customer-paid service fee retained by Glazed Web; cash`,
+    `  writing) carry a $0.99 customer-paid order fee retained by Glazed Web; cash`,
     `  and in-person register sales never do. ${agreement.timeline}`,
     ``,
     ...agreement.scope.map((s, i) => `  Scope ${i + 1}. ${s}`),

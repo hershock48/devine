@@ -8,7 +8,7 @@
  *
  * SURFACES THAT CANNOT READ FROM HERE: the letter at public/pitch/devine/
  * index.html is static HTML and repeats the build fee, monthly fee, and the
- * 99 cent service fee in prose. If a number here changes, the letter changes
+ * 99 cent order fee in prose. If a number here changes, the letter changes
  * by hand in the same commit.
  *
  * The general terms are NOT restated here or on the acceptance page. They are
@@ -42,7 +42,7 @@ export const agreement = {
     "Online order intake: checkout that takes the order and emails the shop a ticket, with payment taken on the confirming call. No card is charged online in this phase.",
     "The workroom at /workroom, included in the monthly fee: the order board, stem and shrink tracking, the wedding quote builder, the funeral pad, plant par sheet, and the weekly order screen.",
     "The Square register link: the product catalog pushed onto the shop's existing Square register, and completed register sales flowing back into the workroom automatically. Connected with the owner's own one-click authorization; the shop's Square account stays the shop's.",
-    "Card payments taken remotely run through the shop's own Square account at Square's published processing rate. That covers phone orders keyed by the shop in the workroom (available now), and online checkout when both parties agree in writing to turn it on. Each such card payment carries a $0.99 service fee paid by the customer, shown as its own line item on the order, retained by Glazed Web as the ordering platform fee. It is never charged to the Client, and sales rung in person on the register never carry it.",
+    "Card payments taken remotely run through the shop's own Square account at Square's published processing rate. That covers phone orders keyed by the shop in the workroom (available now), and online checkout when both parties agree in writing to turn it on. Each such card payment carries a $0.99 order fee paid by the customer, shown as its own line item on the order, retained by Glazed Web as the ordering platform fee. It is never charged to the Client, and sales rung in person on the register never carry it.",
   ],
 
   timeline:

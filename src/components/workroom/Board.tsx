@@ -380,7 +380,7 @@ function OrderCard({
         {o.payment && o.payment.feeCents > 0 && (
           <>
             <li style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Service fee</span>
+              <span>Order fee</span>
               <span>{money(o.payment.feeCents / 100)}</span>
             </li>
             <li style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>

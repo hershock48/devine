@@ -176,7 +176,7 @@ export default function PayControls({
         }}
       >
         Paid · {payment.method === "other" ? "another way" : payment.method} · {dollars(payment.totalCents)}
-        {payment.feeCents > 0 ? " (incl. service fee)" : ""}
+        {payment.feeCents > 0 ? " (incl. order fee)" : ""}
       </p>
     );
   }
@@ -229,7 +229,10 @@ export default function PayControls({
               <span>{dollars(Math.round(subtotal * 100))}</span>
             </li>
             <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <span>Service fee</span>
+              {/* "Order fee", chosen 2026-09-01 over service/convenience/
+                  technology fee: concrete labels are the best-tolerated per
+                  pricing research, and it names exactly what is bought. */}
+              <span>Order fee</span>
               <span>{dollars(fee)}</span>
             </li>
             <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 700 }}>

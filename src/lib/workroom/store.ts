@@ -60,7 +60,7 @@ export type OrderPayment = {
   method: "card" | "cash" | "register" | "other";
   squarePaymentId: string;
   totalCents: number;
-  /** The customer-paid service fee included in totalCents; 0 on cash. */
+  /** The customer-paid order fee included in totalCents; 0 on cash. */
   feeCents: number;
 };
 
