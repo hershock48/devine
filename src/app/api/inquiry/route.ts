@@ -68,6 +68,9 @@ export async function POST(req: Request) {
       id: newId("q"),
       kind: "wedding",
       status: "draft",
+      // The workroom's Quotes badge counts web-seeded quotes nobody has
+      // opened; shop-made quotes never badge (the shop made them).
+      source: "web",
       clientName: name,
       phone,
       email,

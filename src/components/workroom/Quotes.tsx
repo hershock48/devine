@@ -34,9 +34,21 @@ export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
       return;
     }
     const d = await r.json();
-    setQuotes(d.quotes ?? []);
+    const list: Quote[] = d.quotes ?? [];
+    setQuotes(list);
     setBackend(d.backend ?? "memory");
     setAuthed(true);
+    // Seeing this list is what the Quotes tab badge counts down to. The
+    // mark happens AFTER the render state is set, so the rows fetched
+    // unseen still wear their "new" tag on this visit; the badge and the
+    // tag clear on the next look.
+    if (list.some((q) => q.source === "web" && !q.seenAt)) {
+      fetch("/api/workroom/badges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seen: "quotes" }),
+      }).catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
@@ -104,6 +116,16 @@ export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
                     {q.kind === "funeral" && q.deceased
                       ? `Service for ${q.deceased}`
                       : q.clientName || `Unnamed ${q.kind} quote`}
+                    {q.source === "web" && !q.seenAt && (
+                      <span style={{
+                        marginLeft: 8, padding: "2px 7px", borderRadius: 9,
+                        background: "var(--rose-ink)", color: "var(--paper)",
+                        fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
+                        verticalAlign: "2px",
+                      }}>
+                        New, from the website
+                      </span>
+                    )}
                   </span>
                   <span className="muted" style={{ fontSize: 14 }}>
                     {q.kind}{q.eventDate ? ` · ${q.eventDate}` : ""}

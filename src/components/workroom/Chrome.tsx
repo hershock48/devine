@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { site } from "@/lib/site";
 
@@ -34,6 +35,29 @@ const TABS = [
 export default function WorkroomChrome() {
   const path = usePathname() || "/workroom";
 
+  /* The Quotes tab's count of web-seeded quotes nobody has opened, so a
+     wedding inquiry is noticed from any workroom screen instead of only by
+     whoever happens to click Quotes (Kevin's question). The endpoint
+     answers zeros when locked, so this can poll from the gate page without
+     spraying 401s into the console. */
+  const [quoteBadge, setQuoteBadge] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const check = () =>
+      fetch("/api/workroom/badges", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : { quotes: 0 }))
+        .then((d) => {
+          if (live) setQuoteBadge(d?.quotes ?? 0);
+        })
+        .catch(() => {});
+    check();
+    const t = setInterval(check, 60_000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [path]);
+
   /* /workroom matches only itself; the others own their whole subtree, so a
      single quote at /workroom/quotes/<id> still lights the Quotes tab. The
      boundary slash matters: a bare startsWith once lit the /workroom/week
@@ -62,6 +86,12 @@ export default function WorkroomChrome() {
           {TABS.map((t) => (
             <a key={t.href} href={t.href} aria-current={isActive(t.href) ? "page" : undefined}>
               {t.label}
+              {t.href === "/workroom/quotes" && quoteBadge > 0 && (
+                <span className="wr-badge">
+                  {quoteBadge}
+                  <span className="sr-only"> new from the website</span>
+                </span>
+              )}
             </a>
           ))}
         </nav>
@@ -102,6 +132,12 @@ export default function WorkroomChrome() {
         }
         .wr-tabs a:hover { color: var(--green); }
         .wr-tabs a[aria-current="page"] { color: var(--green); border-bottom-color: var(--green); }
+        .wr-badge {
+          display: inline-block; min-width: 17px; margin-left: 6px; padding: 1px 5px;
+          border-radius: 9px; text-align: center;
+          background: var(--rose-ink); color: var(--paper);
+          font-size: 10.5px; letter-spacing: 0; line-height: 1.5;
+        }
         .wr-right { display: flex; align-items: center; gap: 16px; flex: 0 0 auto; }
         .wr-right a, .wr-right button {
           font-size: 12px; font-weight: 600; letter-spacing: .04em;

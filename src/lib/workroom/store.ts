@@ -161,6 +161,13 @@ export type Quote = {
   id: string;
   kind: "wedding" | "funeral";
   status: "draft" | "sent" | "accepted" | "declined";
+  /** "web" when the quote was seeded by a site inquiry rather than typed
+      in the builder; absent on shop-made quotes and every older row. The
+      workroom's Quotes tab badge counts web quotes with no seenAt. */
+  source?: "web";
+  /** When somebody in the shop first laid eyes on a web-seeded quote (the
+      Quotes list marks its visible ones on load). Absent = unseen. */
+  seenAt?: number;
   clientName: string;
   phone: string;
   email: string;
