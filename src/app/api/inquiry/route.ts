@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
+import { site } from "@/lib/site";
 import { getStore, newId, type Quote } from "@/lib/workroom/store";
 
 /**
@@ -115,7 +116,14 @@ export async function POST(req: Request) {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const to = process.env.ORDER_TO;
+  /*
+    Inquiries are HER leads, not order tickets, so they go to the shop's
+    own published inbox by default (Kevin's ruling, 2026-09-01), not to
+    the ORDER_TO catch-all. INQUIRY_TO overrides for QA, so test
+    submissions during a build session do not land in her real business
+    Gmail; unset it and the default is the shop.
+  */
+  const to = process.env.INQUIRY_TO?.trim() || site.email;
   if (!host || !user || !pass || !to) {
     return NextResponse.json({ ok: false, reason: "unconfigured" }, { status: 503 });
   }
