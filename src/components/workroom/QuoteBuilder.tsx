@@ -61,26 +61,31 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   const [backend, setBackend] = useState("memory");
   const [stemPrices, setStemPrices] = useState<Record<string, number>>({});
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
+  const [placed, setPlaced] = useState<string | null>(null);
+  const [placeError, setPlaceError] = useState("");
+  const [placing, setPlacing] = useState(false);
   /** The serialization last known to be on the server. */
   const savedRef = useRef<string>("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pull = useCallback(async () => {
-    const r = await fetch("/api/workroom/quotes", { cache: "no-store" });
+    // One quote, not the whole table: the ?id= form exists for exactly this.
+    const r = await fetch(`/api/workroom/quotes?id=${encodeURIComponent(id)}`, { cache: "no-store" });
     if (r.status === 401) {
       setAuthed(false);
+      return;
+    }
+    if (r.status === 404) {
+      setMissing(true);
+      setAuthed(true);
       return;
     }
     const d = await r.json();
     setBackend(d.backend ?? "memory");
     setStemPrices(d.stemPrices ?? {});
-    const q = (d.quotes as Quote[] | undefined)?.find((x) => x.id === id);
-    if (!q) setMissing(true);
-    else {
-      const loaded = toDraft(q);
-      savedRef.current = JSON.stringify(loaded);
-      setDraft(loaded);
-    }
+    const loaded = toDraft(d.quote as Quote);
+    savedRef.current = JSON.stringify(loaded);
+    setDraft(loaded);
     setAuthed(true);
   }, [id]);
 
@@ -181,6 +186,55 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   };
 
   const knownVarieties = [...new Set([...Object.keys(stemPrices), ...draft.flowers.map((f) => f.variety)])].sort();
+
+  /* The wedding's own "put it on the board", mirroring the funeral pad: an
+     accepted quote becomes a confirmed order the workroom can see, months
+     ahead if need be (the board keeps open orders forever, by design, for
+     exactly this). Priced pieces only, same rule as the print. */
+  async function placeOrder() {
+    if (!draft || !pricing || placing) return;
+    setPlaceError("");
+    if (!draft.eventDate) {
+      setPlaceError("Add the wedding date first; the board sorts by it.");
+      return;
+    }
+    const lines = draft.pieces
+      .filter((p) => p.name.trim() && (pricing.perPiece.get(p.id)?.each ?? 0) > 0)
+      .map((p) => ({ name: p.name, each: pricing.perPiece.get(p.id)!.each, qty: Number(p.qty) || 1 }));
+    if (lines.length === 0) {
+      setPlaceError("Nothing on the quote carries a price yet.");
+      return;
+    }
+    if (pricing.delivery > 0) lines.push({ name: "Delivery", each: pricing.delivery, qty: 1 });
+    if (pricing.setup > 0) lines.push({ name: "Setup & installation", each: pricing.setup, qty: 1 });
+    setPlacing(true);
+    const r = await fetch("/api/workroom/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: draft.clientName || "Wedding order",
+        phone: draft.phone,
+        email: draft.email,
+        fulfillment: "delivery",
+        recipient: draft.venue,
+        street: "",
+        town: "",
+        date: draft.eventDate,
+        occasion: "Wedding",
+        cardMessage: "",
+        notes: draft.notes,
+        lines,
+      }),
+    });
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; order?: { number: string }; error?: string } | null;
+    setPlacing(false);
+    if (d?.ok && d.order) {
+      setPlaced(d.order.number);
+      set({ status: "accepted" });
+    } else {
+      setPlaceError(d?.error || "That did not reach the board. Try again, or write it up on the board directly.");
+    }
+  }
 
   async function removeQuote() {
     if (!window.confirm(`Delete this ${draft!.kind} quote${draft!.clientName ? ` for ${draft!.clientName}` : ""}? There is no undo.`)) return;
@@ -325,8 +379,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
             <section className="panel" style={{ minWidth: 0 }}>
               <h2 style={{ fontSize: 20, margin: "0 0 4px" }}>Flower prices</h2>
               <p className="muted" style={{ fontSize: 14.5, margin: "0 0 12px" }}>
-                Cost per stem, wholesale. Prefilled from what the shop has actually paid
-                when we know it; blank means the quote is waiting on a price.
+                Cost per stem, wholesale; prefilled from what the shop has paid where known.
               </p>
               {draft.flowers.length === 0 ? (
                 <p className="muted" style={{ fontSize: 14.5, margin: 0 }}>
@@ -375,7 +428,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
               <section className="panel" style={{ minWidth: 0 }}>
                 <h2 style={{ fontSize: 20, margin: "0 0 4px" }}>Flowers to order</h2>
                 <p className="muted" style={{ fontSize: 14.5, margin: "0 0 10px" }}>
-                  The wholesale order this quote implies, totalled across every piece.
+                  The wholesale order this quote implies.
                 </p>
                 <div tabIndex={0} role="region" aria-label="Flowers to order" style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", minWidth: 340, borderCollapse: "collapse", fontSize: 14.5 }}>
@@ -443,8 +496,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
             </div>
             {draft.kind === "wedding" && pricing.total > 0 && (
               <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-                Deposit to save the date: <strong>{money(pricing.deposit)}</strong> (50%, per the shop&rsquo;s
-                published wedding process).
+                Deposit to save the date: <strong>{money(pricing.deposit)}</strong> (50%).
               </p>
             )}
             {pricing.unpricedVarieties.length > 0 && (
@@ -452,7 +504,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
                 {pricing.unpricedVarieties.length === 1
                   ? `1 flower still needs a stem price: ${pricing.unpricedVarieties[0]}.`
                   : `${pricing.unpricedVarieties.length} flowers still need a stem price: ${pricing.unpricedVarieties.join(", ")}.`}{" "}
-                The total above leaves them out rather than guessing.
+                The total leaves them out rather than guessing.
               </p>
             )}
             {pricing.total > 0 && pricing.unpricedVarieties.length === 0 && (
@@ -461,6 +513,27 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
                 labor and margin.
               </p>
             )}
+
+            <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, display: "grid", gap: 8 }}>
+              {placed ? (
+                <p style={{ margin: 0, fontSize: 14.5, color: "var(--green)", fontWeight: 600 }}>
+                  On the board as {placed}. <a href="/workroom">Open the board</a>.
+                </p>
+              ) : (
+                <>
+                  <button className="btn btn--solid" type="button" onClick={placeOrder} disabled={placing || pricing.total <= 0}>
+                    {placing ? "Sending…" : "Put it on the board"}
+                  </button>
+                  <span aria-live="polite" style={{ fontSize: 13.5 }}>
+                    {placeError ? (
+                      <strong style={{ color: "var(--rose-ink)" }}>{placeError}</strong>
+                    ) : (
+                      <span className="muted">For when they say yes.</span>
+                    )}
+                  </span>
+                </>
+              )}
+            </div>
           </aside>
         </div>
 

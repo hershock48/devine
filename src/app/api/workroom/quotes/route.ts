@@ -2,35 +2,37 @@ import { NextResponse } from "next/server";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, normalizeVariety, type Quote, type QuotePiece } from "@/lib/workroom/store";
 import { QUOTE_TEMPLATES, QUOTE_DEFAULTS } from "@/lib/workroom/quote-templates";
+import { HISTORY_DAYS, costPerStemMap } from "@/lib/workroom/derive";
 
 /**
- * Quotes. GET lists them and includes the workroom's known stem prices so a
- * new quote's flower list can prefill instead of asking for numbers the shop
- * already typed once. POST creates one from a template; PUT replaces one
- * whole (the builder autosaves the full document — a quote is one thought,
- * like a recipe); DELETE removes one.
+ * Quotes. GET lists them, or with ?id= returns ONE quote plus the workroom's
+ * known stem prices so its flower list can prefill instead of asking for
+ * numbers the shop already typed once (the builders used to download the
+ * whole table to open one quote — the same scan getQuote() was built to
+ * kill). POST creates one from a template; PUT replaces one whole (the
+ * builder autosaves the full document — a quote is one thought, like a
+ * recipe); DELETE removes one.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const store = getStore();
-  const [quotes, events] = await Promise.all([store.listQuotes(), store.listStemEvents(90)]);
+  const id = new URL(req.url).searchParams.get("id");
 
-  // Average paid per stem per variety, same arithmetic as the stems page.
-  const paid = new Map<string, { cost: number; stems: number }>();
-  for (const e of events) {
-    if (e.kind !== "purchase") continue;
-    const p = paid.get(e.variety) ?? { cost: 0, stems: 0 };
-    p.cost += e.cost;
-    p.stems += e.stems;
-    paid.set(e.variety, p);
+  if (id) {
+    // The blended average over the shared history (derive.ts): the SAME
+    // number the Stems page shows for the same variety, not a fourth copy
+    // of the arithmetic over a different window.
+    const [quote, events] = await Promise.all([store.getQuote(id), store.listStemEvents(HISTORY_DAYS)]);
+    if (!quote) return NextResponse.json({ error: "No such quote." }, { status: 404 });
+    const stemPrices: Record<string, number> = {};
+    for (const [v, c] of costPerStemMap(events)) stemPrices[v] = Math.round(c * 100) / 100;
+    return NextResponse.json({ quote, stemPrices, backend: store.backend });
   }
-  const stemPrices: Record<string, number> = {};
-  for (const [v, p] of paid) if (p.stems > 0) stemPrices[v] = Math.round((p.cost / p.stems) * 100) / 100;
 
-  return NextResponse.json({ quotes, stemPrices, backend: store.backend });
+  return NextResponse.json({ quotes: await store.listQuotes(), backend: store.backend });
 }
 
 export async function POST(req: Request) {
@@ -129,7 +131,10 @@ export async function PUT(req: Request) {
     budgetTarget: num(p.budgetTarget, 1_000_000),
     flowers,
     pieces,
-    markup: Math.min(20, Math.max(1, Number(p.markup) || QUOTE_DEFAULTS.markup)),
+    // No default fallback here: the client prices a cleared/zero markup as
+    // x1 (its own floor), and storing the default instead made the same
+    // quote total differently after a reload.
+    markup: Math.min(20, Math.max(1, Number(p.markup) || 1)),
     laborPct: Math.min(300, Math.max(0, Number(p.laborPct) || 0)),
     delivery: num(p.delivery, 100_000),
     setup: num(p.setup, 100_000),

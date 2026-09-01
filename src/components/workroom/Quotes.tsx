@@ -11,9 +11,12 @@ import { money, MemoryWarning, PinGate } from "@/components/workroom/ui";
  * the quote being worked is almost always the quote touched last.
  */
 
+/* House tokens only: an invented --gold with a hex fallback is a color the
+   auditor never validated on any ground. Sent reads as ink, bold; draft as
+   muted; the two verdicts wear the two accents. */
 const STATUS_COLOR: Record<Quote["status"], string> = {
   draft: "var(--muted)",
-  sent: "var(--gold, #8a6d2f)",
+  sent: "var(--ink)",
   accepted: "var(--green)",
   declined: "var(--rose-ink)",
 };
@@ -81,11 +84,7 @@ export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
       </div>
 
       {quotes.length === 0 ? (
-        <p className="lede">
-          Nothing quoted yet. Start one above; it saves itself as you type, and the two
-          buttons carry different starting pieces because weddings and funerals are
-          different models.
-        </p>
+        <p className="lede">Nothing quoted yet. Start one above; it saves itself as you type.</p>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {quotes.map((q) => {
@@ -100,7 +99,11 @@ export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
                   }}
                 >
                   <span style={{ fontWeight: 600, fontSize: 17, flex: "1 1 180px" }}>
-                    {q.clientName || `Unnamed ${q.kind} quote`}
+                    {/* A funeral is looked up by whose service it is, not by
+                        which relative happened to be at the counter. */}
+                    {q.kind === "funeral" && q.deceased
+                      ? `Service for ${q.deceased}`
+                      : q.clientName || `Unnamed ${q.kind} quote`}
                   </span>
                   <span className="muted" style={{ fontSize: 14 }}>
                     {q.kind}{q.eventDate ? ` · ${q.eventDate}` : ""}

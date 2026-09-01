@@ -5,6 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { site } from "@/lib/site";
 import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { HISTORY_DAYS } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -112,8 +113,19 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [showDone, setShowDone] = useState(false);
   /** The find box: a caller says "order DV-0901-4226" or "it's under
       Wanda" and the counter should not have to scan a busy board by eye.
-      Matches number, name, and phone digits; empty means everything. */
+      Matches number, name, and phone digits; empty means everything.
+
+      TYPING TURNS THE PAGE INTO RESULTS. The first version filtered the
+      bucketed board in place, which failed the person it was for: an old
+      order's only match sat inside the COLLAPSED finished pile, so the page
+      said "nothing matches" while the hit existed one un-clicked toggle
+      away, and Kevin could not tell whether search worked at all. Now a
+      query shows one flat match list, finished orders open, with the count
+      said out loud; clearing the box brings the board back. */
   const [find, setFind] = useState("");
+  /** The full order history, fetched once when a search begins: the board
+      loads 60 days, and the order a caller asks about can be older. */
+  const [deep, setDeep] = useState<Order[] | null>(null);
 
   const pull = useCallback(async () => {
     const r = await fetch("/api/workroom/orders", { cache: "no-store" });
@@ -158,9 +170,24 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     pull().catch(() => {});
   }
 
+  // Widen to the full history the moment a search starts, once per visit.
+  useEffect(() => {
+    if (!find.trim() || deep !== null) return;
+    fetch(`/api/workroom/orders?days=${HISTORY_DAYS}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.orders) setDeep(d.orders);
+      })
+      .catch(() => {});
+  }, [find, deep]);
+
+  const searching = find.trim().length > 0;
   const today = todayISO();
   const buckets = useMemo(() => {
     const q = find.trim().toLowerCase();
+    // Search runs over the whole fetched history; the live board stays on
+    // its own 60-day pull so a search can never change what the board shows.
+    const base = q && deep ? deep : orders;
     // Punctuation never decides a match: dv0901, 0901-4226, and 09014226
     // all find DV-0901-4226 (Kevin's catch: the first version demanded the
     // dashes typed exactly). Numbers compare stripped to letters+digits;
@@ -172,7 +199,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       (qNorm.length >= 2 && o.number.toLowerCase().replace(/[^a-z0-9]/g, "").includes(qNorm)) ||
       o.name.toLowerCase().includes(q) ||
       (qDigits.length >= 3 && o.phone.replace(/\D/g, "").includes(qDigits));
-    const shown = orders.filter(matches);
+    const shown = base.filter(matches);
     const open = shown.filter((o) => o.status !== "done" && o.status !== "canceled");
     // Within a day, deliveries first: they own a van schedule and a hard
     // deadline; pickups wait patiently in the cooler. Date stays primary,
@@ -191,6 +218,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     // here (Kevin's edge case, 2026-09-01). One-click refunds are
     // deliberately NOT built: pushing money out of her account from behind
     // a counter PIN crosses the line the auth design drew on day one.
+    const isClosed = (o: Order) =>
+      (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
+      (o.status === "done" && !!o.payment);
     return {
       overdue: open.filter((o) => o.date < today).sort(byDate),
       today: open.filter((o) => o.date === today).sort(byDate),
@@ -199,18 +229,14 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       toRefund: shown
         .filter((o) => o.status === "canceled" && !!o.payment && !o.payment.refundedAt)
         .sort((a, b) => b.createdAt - a.createdAt),
-      closed: shown
-        .filter(
-          (o) =>
-            (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
-            (o.status === "done" && !!o.payment),
-        )
-        .sort((a, b) => b.createdAt - a.createdAt),
+      /** Search mode's one list of everything still actionable. */
+      active: shown.filter((o) => !isClosed(o)).sort(byDate),
+      closed: shown.filter(isClosed).sort((a, b) => b.createdAt - a.createdAt),
     };
     // `find` was missing from this list at first, so typing in the box
     // recomputed nothing and the filter looked dead. Kevin reported it as
     // "maybe it has to be done EXACTLY right"; it had to be done never.
-  }, [orders, today, find]);
+  }, [orders, deep, today, find]);
 
   if (!authed) {
     return (
@@ -234,12 +260,18 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
           {adding ? "Close the form" : "Write up a phone order"}
         </button>
         <input
+          type="search"
           aria-label="Find an order"
           placeholder="Find: order number, name, or phone"
           value={find}
           onChange={(e) => setFind(e.target.value)}
           style={{ ...field, width: "auto", flex: "0 1 280px", minWidth: 0 }}
         />
+        {searching && (
+          <button type="button" onClick={() => setFind("")} style={{ ...textButton, fontSize: 14 }}>
+            Clear
+          </button>
+        )}
       </p>
 
       {adding && (
@@ -252,30 +284,53 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         />
       )}
 
-      <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} />
-      <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} />
-      <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} />
-      <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} />
-      <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
+      {searching ? (
+        /* SEARCH RESULTS: one flat view, everything the query hits, finished
+           orders open. No toggles between the searcher and the answer. */
+        <>
+          <p role="status" className="muted" style={{ margin: "0 0 20px", fontSize: 14.5 }}>
+            {buckets.active.length + buckets.closed.length === 0
+              ? `Nothing matches "${find.trim()}" in ${deep ? `the last ${HISTORY_DAYS} days of orders` : "the loaded orders"}.`
+              : `${buckets.active.length + buckets.closed.length} match${
+                  buckets.active.length + buckets.closed.length === 1 ? "" : "es"
+                }${deep ? "" : "; older orders still loading"}.`}
+          </p>
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
+          {buckets.closed.length > 0 && (
+            <section>
+              <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
+                Finished &amp; canceled ({buckets.closed.length})
+              </h2>
+              <ClosedList orders={buckets.closed} />
+            </section>
+          )}
+        </>
+      ) : (
+        <>
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} />
+          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
 
-      {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
-        <p className="lede" style={{ marginTop: 8 }}>
-          {find.trim()
-            ? `Nothing matches "${find.trim()}". The finished pile below is searched too.`
-            : "Nothing open. Web orders land here on their own; phone orders get written up above."}
-        </p>
+          {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
+            <p className="lede" style={{ marginTop: 8 }}>
+              Nothing open. Web orders land here on their own; phone orders get written up above.
+            </p>
+          )}
+
+          <p style={{ marginTop: 34 }}>
+            <button
+              type="button"
+              onClick={() => setShowDone((v) => !v)}
+              style={{ ...textButton, fontSize: 15, color: "var(--muted)" }}
+            >
+              {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
+            </button>
+          </p>
+          {showDone && <ClosedList orders={buckets.closed} />}
+        </>
       )}
-
-      <p style={{ marginTop: 34 }}>
-        <button
-          type="button"
-          onClick={() => setShowDone((v) => !v)}
-          style={{ ...textButton, fontSize: 15, color: "var(--muted)" }}
-        >
-          {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
-        </button>
-      </p>
-      {showDone && <ClosedList orders={buckets.closed} />}
     </>
   );
 }

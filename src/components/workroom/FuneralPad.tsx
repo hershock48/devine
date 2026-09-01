@@ -104,11 +104,15 @@ function prettyTime(hhmm: string): string {
  * on the day at all, because the shop opens at nine.
  */
 function deadlineLine(draft: Draft): string | null {
-  const first = draft.viewingTime || draft.serviceTime;
+  // The EARLIER of the two, not viewing-first by habit: a graveside service
+  // before a later gathering happens, and the flowers answer to whichever
+  // comes first. HH:MM sorts correctly as text.
+  const times = [draft.viewingTime, draft.serviceTime].filter((t): t is string => !!t).sort();
+  const first = times[0];
   if (!draft.eventDate || !first) return null;
   const [h, m] = first.split(":").map(Number);
   const total = h * 60 + m - 60;
-  const label = draft.viewingTime ? "the viewing" : "the service";
+  const label = first === draft.viewingTime ? "the viewing" : "the service";
   if (total < 9 * 60) {
     return `${label} starts at ${prettyTime(first)}, so this has to go out the day before — the shop is not open early enough to deliver an hour ahead.`;
   }
@@ -132,20 +136,22 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pull = useCallback(async () => {
-    const r = await fetch("/api/workroom/quotes", { cache: "no-store" });
+    // One quote, not the whole table: the ?id= form exists for exactly this.
+    const r = await fetch(`/api/workroom/quotes?id=${encodeURIComponent(id)}`, { cache: "no-store" });
     if (r.status === 401) {
       setAuthed(false);
       return;
     }
+    if (r.status === 404) {
+      setMissing(true);
+      setAuthed(true);
+      return;
+    }
     const d = await r.json();
     setBackend(d.backend ?? "memory");
-    const q = (d.quotes as Quote[] | undefined)?.find((x) => x.id === id);
-    if (!q) setMissing(true);
-    else {
-      const loaded = toDraft(q);
-      savedRef.current = JSON.stringify(loaded);
-      setDraft(loaded);
-    }
+    const loaded = toDraft(d.quote as Quote);
+    savedRef.current = JSON.stringify(loaded);
+    setDraft(loaded);
     setAuthed(true);
   }, [id]);
 
@@ -255,14 +261,19 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
       possible moment.
     */
     if (!draft.eventDate) {
-      setPlaceError("Add the service date first — the board sorts by it.");
+      setPlaceError("Add the service date first; the board sorts by it.");
       return;
     }
-    setPlacing(true);
     const lines = draft.pieces
       .filter((p) => p.name.trim())
       .map((p) => ({ name: p.name + (p.ribbon ? ` — ribbon: ${p.ribbon}` : ""), each: Number(p.price) || 0, qty: Number(p.qty) || 1 }));
-    if (lines.length === 0) return;
+    /* Checked BEFORE setPlacing: an early return after it left the button
+       stuck on "Sending…" forever, reachable when every piece was unnamed. */
+    if (lines.length === 0) {
+      setPlaceError("Name the pieces first; unnamed ones cannot go on the board.");
+      return;
+    }
+    setPlacing(true);
     /*
       Delivery rides along as a line. Without it the board's subtotal came out
       $25 under the total the family was just shown and agreed to, which is
@@ -423,9 +434,8 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
             <section style={{ minWidth: 0 }}>
               <h2 style={{ fontSize: 20, margin: "0 0 4px" }}>Add a piece</h2>
               <p className="muted" style={{ fontSize: 14.5, margin: "0 0 12px" }}>
-                One tap adds it at that price. Every price is editable after, and these
-                are common industry price points standing in until DeVine&rsquo;s own are
-                in here.
+                One tap adds it at that price, editable after. These are industry price
+                points standing in until the shop&rsquo;s own replace them.
               </p>
               <div className="fp-menu">
                 {FUNERAL_MENU.map((m) => {
@@ -634,10 +644,7 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
                     {placeError ? (
                       <strong style={{ color: "var(--rose-ink)" }}>{placeError}</strong>
                     ) : (
-                      <span className="muted">
-                        Makes this a confirmed order the workroom can see. The family is
-                        standing here; nothing to re-type later.
-                      </span>
+                      <span className="muted">Makes it a confirmed order on the board.</span>
                     )}
                   </span>
                 </>
