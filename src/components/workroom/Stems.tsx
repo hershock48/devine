@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { products } from "@/lib/catalog";
 import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { HISTORY_DAYS, costPerStemMap, isoDate, mondayOf, shrinkTotals } from "@/lib/workroom/derive";
 
 /**
  * Stems, shrink, recipes, and the Monday number.
@@ -48,20 +49,16 @@ const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name)
 const productName = new Map(products.map((p) => [p.slug, p.name]));
 const productPrice = new Map(products.map((p) => [p.slug, p.price]));
 
-/** Monday-to-Sunday week containing the given yyyy-mm-dd. Falls back to the
-    current week when handed garbage: the anchor comes from a date input the
-    user can clear, and a cleared input must not print "week of NaN-NaN". */
+/** Monday-to-Sunday week containing the given yyyy-mm-dd (the shared Monday
+    anchor from derive.ts, so this page's week and the dashboard's Week range
+    can never cover different days). Falls back to the current week when
+    handed garbage: the anchor comes from a date input the user can clear,
+    and a cleared input must not print "week of NaN-NaN". */
 function weekOf(dateISO: string): { from: string; to: string } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) dateISO = todayISO();
-  const d = new Date(dateISO + "T12:00:00");
-  const day = (d.getDay() + 6) % 7; // Monday = 0
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - day);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const iso = (x: Date) =>
-    `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
-  return { from: iso(monday), to: iso(sunday) };
+  const monday = mondayOf(new Date(dateISO + "T12:00:00"));
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  return { from: isoDate(monday), to: isoDate(sunday) };
 }
 
 export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
@@ -74,7 +71,10 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
   const [anchor, setAnchor] = useState(todayISO());
 
   const pull = useCallback(async () => {
-    const r = await fetch("/api/workroom/stems", { cache: "no-store" });
+    // The full shared history, not a quarter: costing must use the same
+    // denominator as the dashboard or the same toss prices differently on
+    // two tabs. It also lets the week picker reach back a whole year.
+    const r = await fetch(`/api/workroom/stems?days=${HISTORY_DAYS}`, { cache: "no-store" });
     if (r.status === 401) {
       setAuthed(false);
       return;
@@ -94,23 +94,14 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
   }, [authed, pull]);
 
   /*
-    Cost per stem, per variety: total paid / total stems across the fetched 90
-    days. An average over the quarter, not the last invoice, so one expensive
-    holiday buy does not reprice every rose in the report.
+    Cost per stem, per variety: the shared blended average over the loaded
+    history (derive.ts). An average, not the last invoice, so one expensive
+    holiday buy does not reprice every rose in the report. BEHAVIOR CHANGE
+    2026-09-01: this page used to average over its own 90-day fetch while
+    the dashboard averaged over 400 days, and the same tossed rose could
+    carry two prices; both screens now load and average the same history.
   */
-  const costPerStem = useMemo(() => {
-    const paid = new Map<string, { cost: number; stems: number }>();
-    for (const e of events) {
-      if (e.kind !== "purchase") continue;
-      const p = paid.get(e.variety) ?? { cost: 0, stems: 0 };
-      p.cost += e.cost;
-      p.stems += e.stems;
-      paid.set(e.variety, p);
-    }
-    const out = new Map<string, number>();
-    for (const [v, p] of paid) if (p.stems > 0) out.set(v, p.cost / p.stems);
-    return out;
-  }, [events]);
+  const costPerStem = useMemo(() => costPerStemMap(events), [events]);
 
   // The master stem list first (the Inventory page's namespace), plus
   // anything the ledgers mention that the list somehow does not.
@@ -122,34 +113,32 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
 
   const week = weekOf(anchor);
   /*
-    The page loads 90 days. Pick an older week and every figure computes to a
-    perfectly convincing zero — which on a page whose whole job is giving her
-    numbers she has never had, reads as "no shrink that week" rather than "not
-    loaded". Say which it is.
+    The page loads HISTORY_DAYS. Pick an older week and every figure computes
+    to a perfectly convincing zero — which on a page whose whole job is giving
+    her numbers she has never had, reads as "no shrink that week" rather than
+    "not loaded". Say which it is.
   */
   const windowStart = (() => {
     const d = new Date();
-    d.setDate(d.getDate() - 90);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    d.setDate(d.getDate() - HISTORY_DAYS);
+    return isoDate(d);
   })();
   const outsideWindow = week.from < windowStart;
   const report = useMemo(() => {
     const inWeek = (d: string) => d >= week.from && d <= week.to;
 
     const bought = { stems: 0, cost: 0 };
-    const tossed = { stems: 0, cost: 0, unknown: 0 };
+    const weekTossed: StemEvent[] = [];
     for (const e of events) {
       if (!inWeek(e.date)) continue;
       if (e.kind === "purchase") {
         bought.stems += e.stems;
         bought.cost += e.cost;
-      } else {
-        tossed.stems += e.stems;
-        const c = costPerStem.get(e.variety);
-        if (c == null) tossed.unknown += e.stems;
-        else tossed.cost += c * e.stems;
-      }
+      } else weekTossed.push(e);
     }
+    // Priced by the shared rule (derive.ts), same as the dashboard's tile.
+    const s = shrinkTotals(weekTossed, costPerStem);
+    const tossed = { stems: s.stems, cost: s.cost, unknown: s.unpriced };
 
     const sold = new Map<string, { qty: number; revenue: number }>();
     let revenue = 0;
@@ -227,7 +216,7 @@ export default function Stems({ initialAuthed }: { initialAuthed: boolean }) {
 
         {outsideWindow && (
           <p role="status" style={{ margin: "14px 0 0", fontSize: 14.5, fontWeight: 600, color: "var(--rose-ink)" }}>
-            That week is older than the 90 days this page loads, so the figures below
+            That week is older than the {HISTORY_DAYS} days this page loads, so the figures below
             are blank rather than real. Nothing is missing from the shop&rsquo;s records.
           </p>
         )}

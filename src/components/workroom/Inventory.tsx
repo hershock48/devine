@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { products } from "@/lib/catalog";
 import { field, labelText, money, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { consumption, isoDate, saleInstantMs } from "@/lib/workroom/derive";
 
 /**
  * The cooler's ledger, derived, and the master stem list, managed.
@@ -27,7 +28,7 @@ import { field, labelText, money, textButton, MemoryWarning, PinGate } from "@/c
 type StemEvent = { id: string; kind: "purchase" | "shrink"; date: string; variety: string; stems: number; cost: number };
 type Recipe = { slug: string; parts: { variety: string; stems: number }[] };
 type Order = { id: string; status: string; date: string; lines: { slug: string | null; qty: number }[] };
-type SquareSale = { id: string; paidAt: string; workroomOrderId?: string; lines: { slug: string | null; qty: number }[] };
+type SquareSale = { id: string; paidAt: string; createdAt: number; workroomOrderId?: string; lines: { slug: string | null; qty: number }[] };
 type Variety = {
   name: string;
   kind: "flower" | "green";
@@ -74,7 +75,7 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
   const windowStart = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - days);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return isoDate(d);
   }, [days]);
 
   const ledger = useMemo(() => {
@@ -93,35 +94,24 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
       } else row(e.variety).tossed += e.stems;
     }
 
-    let unrecipedLines = 0;
-    const consume = (slug: string | null, qty: number) => {
-      const recipe = slug ? recipeBySlug.get(slug) : undefined;
-      if (!recipe) {
-        unrecipedLines += 1;
-        return;
-      }
-      for (const part of recipe.parts) row(part.variety).made += part.stems * qty;
-    };
-    for (const o of orders) {
-      // made, out, or done: the stems left the cooler when the arrangement
-      // was made. A new or confirmed order has not touched it yet.
-      if (o.status !== "made" && o.status !== "out" && o.status !== "done") continue;
-      if (o.date < windowStart) continue;
-      for (const l of o.lines) consume(l.slug, l.qty);
-    }
-    let customSales = 0;
-    for (const s of sales) {
-      // A sale linked to a board order is that order's MONEY, not a second
-      // sale: its stems are counted once, by the order's made-status above.
-      // Without this skip an arrangement written up and also rung by its
-      // product tile would decrement twice.
-      if (s.workroomOrderId) continue;
-      if ((s.paidAt || "").slice(0, 10) < windowStart) continue;
-      if (s.lines.length === 0) customSales += 1;
-      for (const l of s.lines) consume(l.slug, l.qty);
-    }
+    /*
+      Consumption is the SHARED rule (derive.ts): made/out/done orders plus
+      unlinked register sales, with the uncountables counted. Sales window
+      by their instant, not a sliced ISO string: the slice read UTC (a
+      9:30pm ring moved into tomorrow) and dropped a sale whose paidAt was
+      somehow blank instead of falling back to when the webhook stored it.
+    */
+    const windowStartMs = new Date(windowStart + "T00:00:00").getTime();
+    const consumed = consumption({
+      orders,
+      sales,
+      recipeBySlug,
+      orderInWindow: (dateISO) => dateISO >= windowStart,
+      saleInWindow: (s) => saleInstantMs((s as SquareSale).paidAt, (s as SquareSale).createdAt) >= windowStartMs,
+    });
+    for (const [variety, stems] of consumed.made) row(variety).made += stems;
 
-    return { rows, unrecipedLines, customSales };
+    return { rows, unrecipedLines: consumed.unrecipedLines, customSales: consumed.customSales };
   }, [events, orders, sales, recipeBySlug, windowStart]);
 
   const onHand = useCallback(
@@ -231,6 +221,11 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
                 {moved.map((name) => {
                   const r = ledger.rows.get(name)!;
                   const hand = r.bought - r.tossed - r.made;
+                  /* Windowed on purpose, and NOT the shared blended average
+                     (derive.ts): this column answers "what did this
+                     window's buys cost per stem", while toss pricing and
+                     recipe costing everywhere use the long blended
+                     average. Two different questions, two numbers. */
                   const cps = r.bought > 0 ? r.cost / r.bought : null;
                   return (
                     <tr key={name}>

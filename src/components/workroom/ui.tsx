@@ -8,6 +8,7 @@
  */
 
 import { useState } from "react";
+import { isoDate } from "@/lib/workroom/derive";
 
 export const field: React.CSSProperties = {
   width: "100%",
@@ -66,8 +67,7 @@ export const textButton: React.CSSProperties = {
 export function todayISO(): string {
   // The shop device's own calendar, deliberately: "today" on the board means
   // today in Marshall, where the device is.
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return isoDate(new Date());
 }
 
 export function MemoryWarning({ backend }: { backend: string }) {

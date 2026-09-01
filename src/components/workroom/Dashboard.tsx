@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MemoryWarning, PinGate, money, phoneKey, todayISO } from "@/components/workroom/ui";
+import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, mondayOf, saleInstantMs, shrinkTotals } from "@/lib/workroom/derive";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
@@ -75,15 +76,9 @@ type Summary = {
 
 type Range = "day" | "week" | "month" | "year";
 
-/**
- * How far back the ledger fetches reach, in days. The ONE copy of that fact
- * on the client: the fetch URLs, the beyond-history warning, and the
- * provenance copy all read it (glaze.md's facts-in-one-place rule). The API
- * routes clamp to the same number as their own defensive cap.
- */
-const HISTORY_DAYS = 400;
-
-const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/* HISTORY_DAYS, the date/week helpers, and the stem arithmetic live in
+   lib/workroom/derive.ts, shared with the Stems and Inventory screens so
+   one toss prices the same on every tab. */
 
 /** Whole dollars on tiles; cents stay in tooltips and the table (Square's
     own widget rounds the same way). */
@@ -130,8 +125,8 @@ function makeWindow(range: Range, back: number, anchorISO: string) {
     prevEnd = new Date(y, m, d - back - 6);
     for (let h = 0; h <= 24; h++) edges.push(new Date(begin.getFullYear(), begin.getMonth(), begin.getDate(), h).getTime());
   } else if (range === "week") {
-    const dow = (anchor.getDay() + 6) % 7; // Monday = 0
-    begin = new Date(y, m, d - dow - back * 7);
+    const monday = mondayOf(anchor);
+    begin = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - back * 7);
     end = new Date(begin.getFullYear(), begin.getMonth(), begin.getDate() + 7);
     prevBegin = new Date(begin.getFullYear(), begin.getMonth(), begin.getDate() - 7);
     prevEnd = new Date(begin.getFullYear(), begin.getMonth(), begin.getDate());
@@ -418,27 +413,13 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   const view = useMemo(() => {
     const recipeBySlug = new Map(recipes.map((r) => [r.slug, r]));
 
-    // Cost per stem per variety from the whole loaded purchase history, so
-    // a toss can be priced even when the buy was weeks earlier.
-    const costAgg = new Map<string, { stems: number; cost: number }>();
-    for (const e of events) {
-      if (e.kind !== "purchase") continue;
-      const c = costAgg.get(e.variety) ?? { stems: 0, cost: 0 };
-      c.stems += e.stems;
-      c.cost += e.cost;
-      costAgg.set(e.variety, c);
-    }
-    const costPerStem = (variety: string): number | null => {
-      const c = costAgg.get(variety);
-      return c && c.stems > 0 ? c.cost / c.stems : null;
-    };
+    // Blended cost per stem over the whole loaded history, the shared
+    // policy (derive.ts), so a toss prices the same here as on Stems.
+    const costPerStem = costPerStemMap(events);
 
     // Each sale's instant, resolved once (Date.parse per row per window
     // scan was the hottest wasted work on this screen).
-    const salesM = sales.map((s) => ({
-      s,
-      ms: Number.isFinite(Date.parse(s.paidAt)) ? Date.parse(s.paidAt) : s.createdAt,
-    }));
+    const salesM = sales.map((s) => ({ s, ms: saleInstantMs(s.paidAt, s.createdAt) }));
 
     // Earliest sighting per phone and per email, built once: the returning
     // check was O(orders x contacts) with regex normalization in the inner
@@ -455,8 +436,8 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
     /** full=false computes only what the comparison window's deltas read;
         best sellers, occasions and lead times are current-window-only. */
     const calc = (beginMs: number, endMs: number, full: boolean) => {
-      const fromISO = iso(new Date(beginMs));
-      const toISO = iso(new Date(endMs - 1));
+      const fromISO = isoDate(new Date(beginMs));
+      const toISO = isoDate(new Date(endMs - 1));
       const inMs = (ms: number) => ms >= beginMs && ms < endMs;
       const inDates = (dateISO: string) => dateISO >= fromISO && dateISO <= toISO;
 
@@ -510,42 +491,24 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         .sort((a, b) => b[1].cents - a[1].cents)
         .slice(0, 5);
 
-      /* stems */
+      /* stems, on the shared arithmetic (derive.ts) */
       const eventsIn = events.filter((e) => inDates(e.date));
       const bought = eventsIn.filter((e) => e.kind === "purchase");
-      const tossed = eventsIn.filter((e) => e.kind === "shrink");
       const boughtStems = bought.reduce((sum, e) => sum + e.stems, 0);
       const boughtCost = bought.reduce((sum, e) => sum + e.cost, 0);
-      const tossedStems = tossed.reduce((sum, e) => sum + e.stems, 0);
-      let tossedCost = 0;
-      let unpricedTossed = 0;
-      for (const e of tossed) {
-        const per = costPerStem(e.variety);
-        if (per === null) unpricedTossed += e.stems;
-        else tossedCost += per * e.stems;
-      }
+      const tossed = eventsIn.filter((e) => e.kind === "shrink");
+      const shrink = shrinkTotals(tossed, costPerStem);
       const reasons = new Map<string, number>();
       if (full) for (const e of tossed) reasons.set(e.reason || "other", (reasons.get(e.reason || "other") ?? 0) + e.stems);
 
-      let consumedStems = 0;
-      let unreciped = 0;
-      const consume = (slug: string | null, qty: number) => {
-        const r = slug ? recipeBySlug.get(slug) : undefined;
-        if (!r) {
-          unreciped += 1;
-          return;
-        }
-        for (const part of r.parts) consumedStems += part.stems * qty;
-      };
-      for (const o of orders) {
-        if (o.status !== "made" && o.status !== "out" && o.status !== "done") continue;
-        if (!inDates(o.date)) continue;
-        for (const l of o.lines) consume(l.slug, l.qty);
-      }
-      for (const { s, ms } of salesM) {
-        if (s.workroomOrderId || !inMs(ms)) continue;
-        for (const l of s.lines) consume(l.slug, l.qty);
-      }
+      const wrapped = salesM.filter(({ ms }) => inMs(ms)).map(({ s }) => s);
+      const consumed = consumption({
+        orders,
+        sales: wrapped,
+        recipeBySlug,
+        orderInWindow: inDates,
+        saleInWindow: () => true,
+      });
 
       return {
         handMarkedCount: handMarked.length, handMarkedCents,
@@ -555,10 +518,11 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         returning,
         leadMedian: leads.length ? leads[Math.floor(leads.length / 2)] : null,
         bestSellers,
-        boughtStems, boughtCost, tossedStems, tossedCost, unpricedTossed,
+        boughtStems, boughtCost,
+        tossedStems: shrink.stems, tossedCost: shrink.cost, unpricedTossed: shrink.unpriced,
         topReasons: [...reasons.entries()].sort((a, b) => b[1] - a[1]),
-        consumedStems, unreciped,
-        shrinkPct: boughtStems > 0 ? Math.round((tossedStems / boughtStems) * 100) : null,
+        consumedStems: consumed.madeTotal, unreciped: consumed.unrecipedLines,
+        shrinkPct: boughtStems > 0 ? Math.round((shrink.stems / boughtStems) * 100) : null,
       };
     };
 
