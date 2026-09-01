@@ -420,12 +420,29 @@ function OrderCard({
         )}
       </ul>
 
-      {/* overflowWrap, because a card message is customer-typed text and one
-          long unbroken run (a URL, a keysmash) must not widen the card. */}
+      {/* Labeled, because unlabeled they read as mystery text: an employee
+          has to KNOW the italic line goes on the card and the other one is
+          a customer note (Kevin's catch, first live paid order). overflowWrap
+          still, because both are customer-typed and one long unbroken run
+          (a URL, a keysmash) must not widen the card. */}
       {o.cardMessage && (
-        <p style={{ margin: "6px 0", fontSize: 14.5, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{o.cardMessage}&rdquo;</p>
+        <p style={{ margin: "6px 0", fontSize: 14.5, overflowWrap: "anywhere" }}>
+          <strong style={{ fontSize: 13, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--muted)" }}>
+            Card message
+          </strong>
+          <br />
+          <span style={{ fontStyle: "italic" }}>&ldquo;{o.cardMessage}&rdquo;</span>
+        </p>
       )}
-      {o.notes && <p style={{ margin: "6px 0", fontSize: 14.5, overflowWrap: "anywhere" }}>{o.notes}</p>}
+      {o.notes && (
+        <p style={{ margin: "6px 0", fontSize: 14.5, overflowWrap: "anywhere" }}>
+          <strong style={{ fontSize: 13, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--muted)" }}>
+            Notes
+          </strong>
+          <br />
+          {o.notes}
+        </p>
+      )}
 
       {/* A new web order says its ask out loud. Kevin walked the customer
           side, chose pay-on-call, and found the board answering with one
