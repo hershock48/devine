@@ -79,29 +79,48 @@
 */
 
 /*
-  THE SEASONAL ACCENTS (lib/seasons.ts). The demo layout stamps data-season on
-  its wrapper and these repoint the ONE accent token, so every hover, border and
-  accent in the demo turns with the year through the selectors that already
-  exist. Nothing outside the wrapper (workroom, proposal, agreement) changes.
+  THE SEASONAL PALETTE (lib/seasons.ts). The demo layout stamps data-season on
+  its wrapper and these repoint the accent token AND the three grounds plus the
+  hairline, so the paper the whole site sits on turns with the year: golden in
+  fall, green-white in spring, cool and quiet in winter. Nothing outside the
+  wrapper (workroom, proposal, agreement, og-card) changes.
 
-  Summer is the site's own rose on purpose: this build was designed in summer,
-  so the default look IS the summer look, and the token's name stays --rose-ink
-  even though three seasons repoint it, because renaming it would touch forty
-  files to say the same thing.
+  The first version repointed only the accent, which lives in hovers and links,
+  and Kevin's review said the true thing: at a glance nothing felt seasonal.
+  Tinting the grounds is the fix that respects the design system's own rule,
+  because the research palette note above says the interface stays neutral and
+  the flowers stay the only saturated thing, and a tinted neutral is still a
+  neutral. The furniture (ink buttons, ink text) does not change color.
 
-  Contrast, computed (glaze/scripts territory: measured, not judged), every
-  accent on every ground it can land on, AA needs 4.5:
-    spring #6A4C86  paper 6.57  paper-2 6.02  paper-3 5.56
-    summer #8A3F56  paper 6.71  paper-2 6.16  paper-3 5.68  (the root token)
-    fall   #7C4222  paper 7.38  paper-2 6.77  paper-3 6.25
-    winter #33584B  paper 7.44  paper-2 6.83  paper-3 6.30
-  The solid-button hover pairing (--paper on accent) is the same ratio as the
-  accent on --paper, so every row above covers it. Failures: 0.
+  Summer is the site's own cream and rose on purpose: this build was designed
+  in summer, so the default look IS the summer look and its override sets only
+  the accent. The token names stay --paper/--rose-ink even though seasons
+  repoint them; renaming would touch forty files to say the same thing.
+
+  Every tint holds the original lightness closely, so every ratio in the table
+  above survives within a few hundredths. Computed per season anyway (measured,
+  not judged), ink/muted/green/accent on all three grounds, AA needs 4.5:
+    spring  worst pairing muted on paper-3  4.83, accent #6A4C86 on paper 6.59
+    summer  worst pairing muted on paper-3  4.83, accent #8A3F56 on paper 6.71
+    fall    worst pairing muted on paper-3  4.58, accent #7C4222 on paper 7.21
+    winter  worst pairing muted on paper-3  4.77, accent #33584B on paper 7.38
+  The solid-button hover (--paper on accent) equals accent-on-paper, covered
+  above. The plate's drip tracks var(--paper-2) (see the plate block at the end
+  of this file); the chocolate plate holds a 14.74 to 15.26 step against every
+  seasonal footer. Failures: 0.
+
+  The kicker takes the seasonal accent inside the wrapper (smallest text on the
+  page, so the strictest bar: the accents' worst ground is 5.55). It is the one
+  piece of furniture that turns color, deliberately: it sits above the fold on
+  every page, and at 10.5px tracked uppercase it reads as a colored thread, not
+  colored furniture.
 */
-[data-season="spring"] { --rose-ink: #6a4c86; }
+[data-season] { background: var(--paper); }
+[data-season] .kicker { color: var(--rose-ink); }
+[data-season="spring"] { --rose-ink: #6a4c86; --paper: #f7f9ec; --paper-2: #edf1da; --paper-3: #e2e8c8; --line: #d5deb6; }
 [data-season="summer"] { --rose-ink: #8a3f56; }
-[data-season="fall"] { --rose-ink: #7c4222; }
-[data-season="winter"] { --rose-ink: #33584b; }
+[data-season="fall"] { --rose-ink: #7c4222; --paper: #fbf4e4; --paper-2: #f5ead2; --paper-3: #eeddc0; --line: #e5d2ae; }
+[data-season="winter"] { --rose-ink: #33584b; --paper: #f4f7f4; --paper-2: #e9efe9; --paper-3: #dce6de; --line: #cbd9d0; }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -1276,10 +1295,16 @@ main:has(> :last-child.band) + .site-foot { margin-top: 0; }
      footer #f3ede1   vs chocolate-2 #201712   15.10   <- chosen, ink at 16.41
                       vs cream       #FDF6EC    1.09
 
-   --gw-above must equal .site-foot's background EXACTLY. If that colour ever
-   changes, re-run the script; do not adjust these by hand.               */
+   --gw-above must equal .site-foot's background EXACTLY — which is why it is
+   now the token itself rather than a copy of its value: the footer's paper-2
+   turns with the seasons (the seasonal palette block near the top), and a
+   hardcoded copy would open a seam for three quarters of the year. The
+   chocolate plate choice holds against all four seasonal footers, computed:
+   14.74 (fall) to 15.26 (spring). If paper-2 ever changes to something that is
+   not light, re-run the script; the inversion decision is the part a variable
+   cannot make.                                                            */
 .gw-plate {
-  --gw-above: #f3ede1;
+  --gw-above: var(--paper-2);
   --gw-plate: #201712;
   --gw-plate-ink: #FDF6EC;
 }

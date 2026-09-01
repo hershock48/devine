@@ -145,9 +145,15 @@ Each one is visible in the code as `PLACEHOLDER` and must be closed before launc
       Spring, summer and winter each lean on three photographed plants because
       only 20 of 57 products have photographs; recompose those lists toward the
       arrangements when the photos land.
-- [ ] **The four seasonal accent colors are ours**, chosen to sit inside the
-      placeholder palette above. If she supplies brand colors, re-derive all four
-      and re-run the contrast numbers in `globals.css`.
+- [ ] **The four seasonal accents AND ground tints are ours**, chosen to sit
+      inside the placeholder palette above. If she supplies brand colors,
+      re-derive all of them and re-run the contrast numbers in `globals.css`.
+- [ ] **Four seasonal hero photographs, from the owner.** The homepage hero is
+      a per-season slot (`HeroPhoto` in `lib/seasons.ts`) and every season
+      currently falls back to the same summer photograph. One photo per season
+      from her, processed like any product photo, and the site visibly turns
+      four times a year. Note HeroTrace only arms over the original photo; a
+      seasonal photo needs its own trace or none.
 
 ## The design system, in one paragraph
 

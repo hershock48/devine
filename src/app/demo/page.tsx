@@ -2,7 +2,7 @@ import ProductCard from "@/components/ProductCard";
 import HeroTrace from "@/components/HeroTrace";
 import { bySlug, categories, inCategory, priceRange, money, products } from "@/lib/catalog";
 import { site, formatHours } from "@/lib/site";
-import { currentSeasonal } from "@/lib/seasons";
+import { currentSeasonal, heroFor } from "@/lib/seasons";
 import { photoFirst } from "@/lib/order";
 import { href } from "@/lib/nav";
 
@@ -33,6 +33,7 @@ import { href } from "@/lib/nav";
  */
 export default async function Home() {
   const { season } = await currentSeasonal();
+  const hero = heroFor(season);
   // photoFirst: this grid is a sample, so her real photographs lead it. The
   // seasonal lists are built half-photographed (see lib/seasons.ts); this puts
   // that half in the front row.
@@ -63,19 +64,24 @@ export default async function Home() {
             </p>
           </div>
           <div className="hero-art draws">
+            {/* The seasonal hero slot: today every season falls back to the same
+                photograph; each fills in when the owner's photo for it lands.
+                See HeroPhoto in lib/seasons.ts. */}
             <img
-              src="/img/shop/shop-4.webp"
-              width={1000}
-              height={1100}
-              alt="A hand-tied arrangement of purple lisianthus, delphinium and pink alstroemeria, made at DeVine's"
+              src={hero.src}
+              width={hero.width}
+              height={hero.height}
+              alt={hero.alt}
               loading="eager"
               decoding="async"
               fetchPriority="high"
             />
-            {/* Four blooms out of this exact photograph, drawn on and then let go.
-                Renders nothing visible unless the page arms it, and never arms
-                under reduced motion. See components/HeroTrace.tsx. */}
-            <HeroTrace />
+            {/* Four blooms out of the DEFAULT photograph's exact pixels, drawn on
+                and then let go. Armed only over that photograph (hero.traced);
+                over any other image the strokes would outline flowers that are
+                not there. Never arms under reduced motion either. See
+                components/HeroTrace.tsx. */}
+            {hero.traced && <HeroTrace />}
           </div>
         </div>
       </section>

@@ -79,6 +79,12 @@ function nthWeekday(y: number, m: number, weekday: number, n: number): YMD {
   return { y, m, d: 1 + ((weekday - first + 7) % 7) + (n - 1) * 7 };
 }
 
+/** e.g. Memorial Day, the last Monday of May: lastWeekday(y, 5, 1). */
+function lastWeekday(y: number, m: number, weekday: number): YMD {
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { y, m, d: last - ((weekdayOf({ y, m, d: last }) - weekday + 7) % 7) };
+}
+
 /** Easter Sunday, Gregorian, by the anonymous Computus (Meeus/Jones/Butcher). */
 function easter(y: number): YMD {
   const a = y % 19, b = Math.floor(y / 100), c = y % 100;
@@ -92,6 +98,46 @@ function easter(y: number): YMD {
 /* ---- the four seasons ----------------------------------------------------- */
 
 export type SeasonSlug = "spring" | "summer" | "fall" | "winter";
+
+/**
+ * The homepage hero photograph, as a slot the seasons can fill.
+ *
+ * Every season's `hero` is null today because the four photographs do not
+ * exist: they are the owner's to take, and a guess written as a plain value is
+ * worse than a blank (glaze.md). When one lands, fill the entry: process the
+ * image like any product photo, put the real pixel size here (width and height
+ * are required so nothing reflows while it loads), and write alt text that
+ * describes THAT photograph. On the README checklist.
+ *
+ * A config slot rather than a filesystem scan, deliberately. Scanning
+ * public/img for spring.webp would mean a misnamed file silently changes the
+ * homepage, and there would be nowhere to keep the photo's true size and its
+ * alt text. One edit per photo, next to the season it belongs to.
+ *
+ * `traced` exists because of HeroTrace: the four blooms it draws are traced
+ * out of the default photograph's exact pixels (lib/hero-trace.json). Over any
+ * other image those strokes would outline flowers that are not there, so only
+ * the photo the trace was made from may arm it. A seasonal photo gets
+ * traced: false until someone re-traces against its own pixels.
+ */
+export type HeroPhoto = {
+  src: string;
+  width: number;
+  height: number;
+  alt: string;
+  traced: boolean;
+};
+
+/** The photograph the site shipped with, and the one the trace belongs to. */
+const DEFAULT_HERO: HeroPhoto = {
+  src: "/img/shop/shop-4.webp",
+  width: 1000,
+  height: 1100,
+  alt: "A hand-tied arrangement of purple lisianthus, delphinium and pink alstroemeria, made at DeVine's",
+  traced: true,
+};
+
+export const heroFor = (season: Season): HeroPhoto => season.hero ?? DEFAULT_HERO;
 
 export type Season = {
   slug: SeasonSlug;
@@ -123,6 +169,8 @@ export type Season = {
    * recomposed toward the arrangements. On the checklist.
    */
   featuredSlugs: string[];
+  /** This season's hero photograph, or null for the default. See HeroPhoto. */
+  hero: HeroPhoto | null;
 };
 
 /**
@@ -142,6 +190,7 @@ export const SEASONS: Record<SeasonSlug, Season> = {
     // Her photographs: "three bright butterflies" (Beautiful Memory), the dove
     // garden (Peaceful Garden), the white-blooming peace lily.
     featuredSlugs: ["butterfly-kisses", "hanna", "eliza", "beautiful-memory", "peaceful-garden-2", "6-peace-lily"],
+    hero: null, // PLACEHOLDER until her spring photo lands; see HeroPhoto
   },
   summer: {
     slug: "summer",
@@ -155,6 +204,7 @@ export const SEASONS: Record<SeasonSlug, Season> = {
     // Lovely). Photographed: the earthy Terra Bowl, the sun-happy succulents,
     // and the wind chime whose own copy is about a garden and the breeze.
     featuredSlugs: ["clementine", "nicole", "looking-lovely", "terra-bowel", "succulent-garden", "cylinder-wind-chime"],
+    hero: null, // the default photograph IS the summer photograph
   },
   fall: {
     slug: "fall",
@@ -167,6 +217,7 @@ export const SEASONS: Record<SeasonSlug, Season> = {
     // autumn out loud, and all six are photographed. This is the set the
     // catalog used to export as `featured` before the seasons took over.
     featuredSlugs: ["helene", "maeve", "ginger", "gwendolyn", "harper-2", "della"],
+    hero: null, // PLACEHOLDER until her fall photo lands; see HeroPhoto
   },
   winter: {
     slug: "winter",
@@ -180,6 +231,7 @@ export const SEASONS: Record<SeasonSlug, Season> = {
     // lilies and roses, the slow-down basket, then the photographed living
     // things for the months when something alive is the whole point.
     featuredSlugs: ["dozen-roses", "serena", "mindful-moments-basket", "8-peace-lily", "rustic-box-planter", "large-ceramic-dish-garden"],
+    hero: null, // PLACEHOLDER until her winter photo lands; see HeroPhoto
   },
 };
 
@@ -227,12 +279,38 @@ const HOLIDAYS: HolidayDef[] = [
     cta: { label: "Shop plants", path: "/shop/plants" },
   },
   {
+    // One of the real business flower days, and it points at her business
+    // audience. Wednesday of the last FULL (Sunday to Saturday) week of April:
+    // the last Saturday of the month, minus three. Verified against the
+    // published 2024 to 2027 dates.
+    slug: "admin-professionals",
+    name: "Administrative Professionals Day",
+    day: (y) => {
+      const sat = lastWeekday(y, 4, 6);
+      return { y, m: 4, d: sat.d - 3 };
+    },
+    leadDays: 8,
+    note: "For the people who keep the place running.",
+    cta: { label: "Shop arrangements", path: "/shop" },
+  },
+  {
     slug: "mothers-day",
     name: "Mother's Day",
     day: (y) => nthWeekday(y, 5, 0, 2), // second Sunday of May
     leadDays: 16,
     note: "The biggest flower day of the year.",
     cta: { label: "Shop arrangements", path: "/shop" },
+  },
+  {
+    // Graveside flowers in small-town Michigan. Her own category blurb wrote
+    // the note's register: "a service, a graveside, or a kitchen table that
+    // needs softening." Last Monday of May.
+    slug: "memorial-day",
+    name: "Memorial Day",
+    day: (y) => lastWeekday(y, 5, 1),
+    leadDays: 12,
+    note: "For a graveside, and for remembering.",
+    cta: { label: "Celebration of Life", path: "/celebration-of-life" },
   },
   {
     // A Great Lakes holiday most of the country has never heard of, and a real
