@@ -11,13 +11,49 @@
   "h": 931,
   "w": 1000
  },
+ "product/bears-baby-box": {
+  "w": 1000,
+  "h": 1041
+ },
  "product/beautiful-memory": {
   "h": 1170,
   "w": 1000
  },
+ "product/blooming-candle": {
+  "w": 1000,
+  "h": 887
+ },
+ "product/blossom-and-blooms": {
+  "w": 1000,
+  "h": 982
+ },
+ "product/bohemian-breakfast-tea": {
+  "w": 1000,
+  "h": 750
+ },
  "product/bridget": {
   "h": 960,
   "w": 1000
+ },
+ "product/butterfly-kisses": {
+  "w": 1000,
+  "h": 1023
+ },
+ "product/claire-the-cat": {
+  "w": 1000,
+  "h": 1041
+ },
+ "product/classic-bridal-bouquet": {
+  "w": 701,
+  "h": 712
+ },
+ "product/clementine": {
+  "w": 727,
+  "h": 711
+ },
+ "product/crystal-cross": {
+  "w": 1000,
+  "h": 840
  },
  "product/cylinder-wind-chime": {
   "h": 1250,
@@ -27,13 +63,41 @@
   "h": 750,
   "w": 750
  },
+ "product/dozen-roses": {
+  "w": 1000,
+  "h": 1028
+ },
+ "product/duke-the-dog": {
+  "w": 1000,
+  "h": 972
+ },
+ "product/eden": {
+  "w": 1000,
+  "h": 1106
+ },
+ "product/eliza": {
+  "w": 1000,
+  "h": 1139
+ },
+ "product/gayles-garden": {
+  "w": 1000,
+  "h": 1334
+ },
  "product/ginger": {
   "h": 750,
   "w": 750
  },
+ "product/grand-collection-of-chocolates": {
+  "w": 1000,
+  "h": 931
+ },
  "product/gwendolyn": {
   "h": 750,
   "w": 750
+ },
+ "product/hanna": {
+  "w": 1000,
+  "h": 1221
  },
  "product/harper-2": {
   "h": 750,
@@ -43,25 +107,85 @@
   "h": 750,
   "w": 750
  },
+ "product/honey-bee": {
+  "w": 1000,
+  "h": 1103
+ },
  "product/large-ceramic-dish-garden": {
   "h": 1274,
   "w": 1000
+ },
+ "product/lil-lovey": {
+  "w": 1000,
+  "h": 914
+ },
+ "product/looking-lovely": {
+  "w": 1000,
+  "h": 1046
  },
  "product/maeve": {
   "h": 750,
   "w": 750
  },
+ "product/magic-hour-balance-tea": {
+  "w": 1000,
+  "h": 749
+ },
+ "product/magic-hour-rest-tea": {
+  "w": 1000,
+  "h": 794
+ },
+ "product/magic-hour-vitality-tea": {
+  "w": 1000,
+  "h": 797
+ },
+ "product/mary": {
+  "w": 895,
+  "h": 1022
+ },
  "product/medium-ceramic-dish-garden": {
   "h": 990,
   "w": 1000
+ },
+ "product/mindful-moments-basket": {
+  "w": 1000,
+  "h": 993
+ },
+ "product/mixed-dozen-of-roses": {
+  "w": 1000,
+  "h": 951
+ },
+ "product/natures-home": {
+  "w": 1000,
+  "h": 1275
+ },
+ "product/nicole": {
+  "w": 1000,
+  "h": 1388
  },
  "product/peaceful-garden-2": {
   "h": 989,
   "w": 1000
  },
+ "product/petite-box-of-chocolates": {
+  "w": 1000,
+  "h": 878
+ },
+ "product/piper-the-puppy": {
+  "w": 1000,
+  "h": 1031
+ },
+ "product/roxanne": {
+  "w": 1000,
+  "h": 1011
+ },
  "product/rustic-box-planter": {
   "h": 1046,
   "w": 1000
+ },
+ "product/serena": {
+  "w": 1000,
+  "h": 1167
  },
  "product/small-ceramic-dish-garden": {
   "h": 1166,
