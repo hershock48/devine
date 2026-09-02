@@ -243,6 +243,15 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
       setStatus(`Stems per bunch first, for: ${missing.map((l) => l.variety).join(", ")}. It is asked once and remembered.`);
       return;
     }
+    // Mirrors the API's refusal so the shop hears it before the confirm
+    // dialog, not after: a truck line with no price would write a $0 lot,
+    // and the ledger refuses purchases guessed at zero (the stems form's
+    // rule, applied to this path 2026-09-02).
+    const unpriced = lines.filter((l) => l.variety.trim() && !(Number(l.unitPrice) > 0));
+    if (unpriced.length > 0) {
+      setStatus(`A price first, for: ${unpriced.map((l) => l.variety).join(", ")}. Off the prebook or the invoice; the ledger refuses $0 purchases.`);
+      return;
+    }
     if (!window.confirm(`Log the ${deliveryDate} truck? Every line becomes a purchase in the cooler ledger.`)) return;
     const savedId = await save();
     if (!savedId) return;

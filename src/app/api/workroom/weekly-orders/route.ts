@@ -123,6 +123,19 @@ export async function PUT(req: Request) {
     );
   }
 
+  /* The stems form's own rule, applied to the OTHER purchase constructor
+     (found by the 2026-09-02 constructor audit): "a purchase needs what was
+     paid for it." This path used to write $0 lots from blank prebook
+     prices, and a zero-cost lot poisons cost/stem and margins silently -
+     the exact guessed-as-zero the ledger refuses everywhere else. */
+  const unpriced = order.lines.filter((l) => !(l.unitPrice > 0)).map((l) => l.variety);
+  if (unpriced.length > 0) {
+    return NextResponse.json(
+      { error: `A price is needed first for: ${unpriced.join(", ")}. The ledger refuses purchases guessed at zero.`, unpriced },
+      { status: 400 },
+    );
+  }
+
   const varieties = new Map((await store.listVarieties()).map((v) => [v.name, v]));
   // Refuse BEFORE the first purchase is written, so a failed receive leaves
   // the ledger untouched instead of half a truck logged.
