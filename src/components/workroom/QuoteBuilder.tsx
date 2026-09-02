@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Quote } from "@/lib/workroom/store";
 import { priceQuote, type QuotePricing } from "@/lib/workroom/quote-math";
 import { site, addressOneLine } from "@/lib/site";
-import { field, labelText, money, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { field, labelText, longDate, money, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 
 /**
  * The quote builder. One page that IS the quote: type into it and the price
@@ -693,7 +693,7 @@ function PrintDoc({ draft, pricing }: { draft: Draft; pricing: QuotePricing }) {
         {draft.clientName || "—"}
       </p>
       <p style={{ margin: "0 0 6mm", fontSize: "11pt" }}>
-        {[draft.eventDate, draft.venue].filter(Boolean).join(" · ") || " "}
+        {[draft.eventDate ? longDate(draft.eventDate) : "", draft.venue].filter(Boolean).join(" · ") || " "}
         <span style={{ float: "right" }}>Prepared {today}</span>
       </p>
 

@@ -5,7 +5,7 @@ import type { Quote } from "@/lib/workroom/store";
 import { priceQuote, type QuotePricing } from "@/lib/workroom/quote-math";
 import { FUNERAL_MENU, RIBBON_WORDS } from "@/lib/workroom/quote-templates";
 import { site, addressOneLine } from "@/lib/site";
-import { field, labelText, money, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { field, labelText, longDate, money, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 
 /**
  * THE FUNERAL PAD. A different tool from the wedding builder, because the
@@ -265,6 +265,38 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
     void pid;
   }
 
+  /** Stems-on-the-quote count for one menu chip: pieces matching this name
+      and price, quantities included, so the chip can wear what it already
+      put on the quote. */
+  function chipCount(name: string, price: number): number {
+    return draft!.pieces
+      .filter((p) => p.name === name && Number(p.price) === price)
+      .reduce((s, p) => s + (Number(p.qty) || 1), 0);
+  }
+
+  /*
+    The chip's undo, one tap away from the mistake (Kevin, 2026-09-02: a
+    second tap on $175 quietly added ANOTHER spray, and the only way out
+    was scrolling to the piece list). The chip itself still always ADDS,
+    because two matching sprays flanking a casket are real; this minus
+    appears only once something is selected. It decrements a quantity
+    before it removes a piece, so a x2 comes back to x1 instead of
+    vanishing with its ribbon wording.
+  */
+  function removeFromMenu(name: string, price: number) {
+    setDraft((d) => {
+      if (!d) return d;
+      const matches = d.pieces.map((p, i) => ({ p, i })).filter(({ p }) => p.name === name && Number(p.price) === price);
+      const last = matches[matches.length - 1];
+      if (!last) return d;
+      const q = Number(last.p.qty) || 1;
+      if (q > 1) {
+        return { ...d, pieces: d.pieces.map((x, i) => (i === last.i ? { ...x, qty: String(q - 1) } : x)) };
+      }
+      return { ...d, pieces: d.pieces.filter((_, i) => i !== last.i) };
+    });
+  }
+
   async function placeOrder() {
     if (!draft || placing) return; // `placing` also stops a double tap
     setPlaceError("");
@@ -278,9 +310,17 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
       setPlaceError("Add the service date first; the board sorts by it.");
       return;
     }
+    /* Ribbon and who-from ride the LINE, where the maker builds from. They
+       used to also land in cardMessage, so the board card said card message:
+       "daughter" - but a ribbon is not a card, and Kevin read it as exactly
+       that confusion (2026-09-02). A funeral order carries no card message. */
     const lines = draft.pieces
       .filter((p) => p.name.trim())
-      .map((p) => ({ name: p.name + (p.ribbon ? ` — ribbon: ${p.ribbon}` : ""), each: Number(p.price) || 0, qty: Number(p.qty) || 1 }));
+      .map((p) => ({
+        name: [p.name, p.ribbon ? `ribbon: ${p.ribbon}` : "", p.from ? `from ${p.from}` : ""].filter(Boolean).join(" · "),
+        each: Number(p.price) || 0,
+        qty: Number(p.qty) || 1,
+      }));
     /* Checked BEFORE setPlacing: an early return after it left the button
        stuck on "Sending…" forever, reachable when every piece was unnamed. */
     if (lines.length === 0) {
@@ -320,7 +360,7 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
         town: "",
         date: draft.eventDate,
         occasion: "Sympathy or funeral",
-        cardMessage: draft.pieces.map((p) => p.ribbon).filter(Boolean).join(" / "),
+        cardMessage: "",
         notes,
         lines,
       }),
@@ -350,6 +390,9 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
         .fp-chip { border: 1px solid var(--line); background: var(--paper); border-radius: 3px;
           font: inherit; font-size: 14.5px; padding: 6px 12px; cursor: pointer; color: var(--ink); }
         .fp-chip:hover { border-color: var(--green); color: var(--green); }
+        /* Selected: the shop's green, border and text both, so the state
+           survives any ground; nothing moves on tap (the iOS rule). */
+        .fp-chip--on { border-color: var(--green); color: var(--green); font-weight: 700; }
         .fp-bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between;
           align-items: center; gap: 12px; padding: 10px 18px; background: var(--paper-2);
           border-top: 1px solid var(--line); font-size: 15px; z-index: 5; }
@@ -468,12 +511,38 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
                         {m.note && <span className="muted" style={{ fontWeight: 400 }}> · {m.note}</span>}
                         {fits && <span style={{ fontWeight: 700, color: "var(--green)" }}> · fits</span>}
                       </p>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {m.prices.map((price) => (
-                          <button key={price} type="button" className="fp-chip" onClick={() => addFromMenu(m.name, price, m.hardgoods)}>
-                            {money(price)}
-                          </button>
-                        ))}
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                        {m.prices.map((price) => {
+                          const count = chipCount(m.name, price);
+                          return (
+                            /* The chip wears its own state: quiet until
+                               tapped, then marked with a count. The tap
+                               keeps ADDING (two matching sprays are real);
+                               the minus beside it is the undo. */
+                            <span key={price} style={{ display: "inline-flex", gap: 3 }}>
+                              <button
+                                type="button"
+                                className={count > 0 ? "fp-chip fp-chip--on" : "fp-chip"}
+                                onClick={() => addFromMenu(m.name, price, m.hardgoods)}
+                              >
+                                {money(price)}
+                                {count > 0 && <span aria-hidden="true"> · {count} on</span>}
+                                <span className="sr-only">, {count} on the quote, tap to add another</span>
+                              </button>
+                              {count > 0 && (
+                                <button
+                                  type="button"
+                                  className="fp-chip fp-chip--on"
+                                  aria-label={`Take one ${money(price)} ${m.name} back off`}
+                                  onClick={() => removeFromMenu(m.name, price)}
+                                  style={{ paddingLeft: 9, paddingRight: 9, fontWeight: 700 }}
+                                >
+                                  &minus;
+                                </button>
+                              )}
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -546,6 +615,7 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
                                 <span className="muted" style={{ whiteSpace: "nowrap" }}>Ribbon</span>
                                 <input
                                   aria-label={`Ribbon on ${p.name || "piece"}`}
+                                  placeholder="what the sash will say"
                                   value={p.ribbon}
                                   onChange={(e) => setPiece(p.id, { ribbon: e.target.value })}
                                   style={{ ...field, minWidth: 0 }}
@@ -563,6 +633,12 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
                             </div>
                             {open && (
                               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {/* One line of what a ribbon IS, because the
+                                    first person Kevin put in front of this
+                                    did not know (himself). */}
+                                <p className="muted" style={{ margin: "0 0 2px", fontSize: 13, width: "100%" }}>
+                                  The sash across the piece; this wording is printed on it.
+                                </p>
                                 {RIBBON_WORDS.map((w) => (
                                   <button key={w} type="button" className="fp-chip" style={{ fontSize: 13.5, padding: "5px 10px" }} onClick={() => setPiece(p.id, { ribbon: w })}>
                                     {w}
@@ -574,11 +650,12 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
                         )}
 
                         <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 13.5 }}>
-                          {pp?.stemBudget != null && (
-                            <span className="muted">
-                              {money(pp.stemBudget)} of flowers to work with{pp.hardgoods > 0 ? `, after ${money(pp.hardgoods)} hardgoods` : ""}
-                            </span>
-                          )}
+                          {/* The per-piece flower budget used to sit here in
+                              every card. Kevin's question was the right one:
+                              the person ringing this up, with the family
+                              watching, does not need build arithmetic under
+                              each line. It lives in the For-the-workroom
+                              drawer in the rail now, closed by default. */}
                           <button type="button" style={{ ...textButton, fontSize: 13.5 }} onClick={() => setOpenPiece(open ? null : p.id)}>
                             {open ? "Done" : "Ribbon & who it's from"}
                           </button>
@@ -639,10 +716,34 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
               <input inputMode="decimal" value={draft.delivery} onChange={(e) => set({ delivery: e.target.value })} style={field} />
             </label>
 
-            <p className="muted" style={{ margin: 0, fontSize: 13.5, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
-              For the workroom: about <strong>{money(pricing.stemCost)}</strong> of flowers across the
-              whole service, at ×{Number(draft.markup) || 1} and {Number(draft.laborPct) || 0}% labor.
-            </p>
+            {/* Build arithmetic, closed by default: the designer opens it in
+                the workroom later; the family across the counter never sees
+                flower budgets or markup while the quote is being agreed
+                (Kevin, 2026-09-02: "is that something the employee really
+                needs to know?" - not in this moment, no). */}
+            <details style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+              <summary className="muted" style={{ cursor: "pointer", fontSize: 13.5, fontWeight: 600 }}>
+                For the workroom
+              </summary>
+              <div style={{ display: "grid", gap: 6, margin: "8px 0 0", fontSize: 13.5 }} className="muted">
+                <p style={{ margin: 0 }}>
+                  About <strong>{money(pricing.stemCost)}</strong> of flowers across the whole service,
+                  at ×{Number(draft.markup) || 1} and {Number(draft.laborPct) || 0}% labor.
+                </p>
+                {draft.pieces
+                  .filter((p) => p.name.trim())
+                  .map((p) => {
+                    const pp = pricing.perPiece.get(p.id);
+                    if (!pp || pp.stemBudget == null) return null;
+                    return (
+                      <p key={p.id} style={{ margin: 0 }}>
+                        {p.name}{(Number(p.qty) || 1) > 1 ? ` ×${Number(p.qty)}` : ""}: {money(pp.stemBudget)} of flowers
+                        {pp.hardgoods > 0 ? ` after ${money(pp.hardgoods)} hardgoods` : ""}
+                      </p>
+                    );
+                  })}
+              </div>
+            </details>
 
             <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, display: "grid", gap: 8 }}>
               {placed ? (
@@ -711,7 +812,7 @@ function FuneralPrint({ draft, pricing }: { draft: Draft; pricing: QuotePricing 
         {draft.deceased ? `In memory of ${draft.deceased}` : draft.clientName || "—"}
       </p>
       <p style={{ margin: "0 0 6mm", fontSize: "11pt" }}>
-        {[draft.venue, draft.eventDate, draft.serviceTime ? prettyTime(draft.serviceTime) : ""].filter(Boolean).join(" · ") || " "}
+        {[draft.venue, draft.eventDate ? longDate(draft.eventDate) : "", draft.serviceTime ? prettyTime(draft.serviceTime) : ""].filter(Boolean).join(" · ") || " "}
         <span style={{ float: "right" }}>{today}</span>
       </p>
 

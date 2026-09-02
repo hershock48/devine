@@ -28,7 +28,18 @@ export default function WorkroomLayout({ children }: { children: React.ReactNode
           bar already says, and the Dashboard had shrunk its own h1 in
           protest, so the seven pages disagreed. Still the serif, still the
           first thing on the page, just sized for work. */}
-      <style>{`.wr-main h1 { font-size: clamp(30px, 4.6vw, 46px); }`}</style>
+      {/* Print isolation for the whole workroom: the quote builders print a
+          family-facing document (#quote-doc) and hide their own app, but the
+          chrome lives OUTSIDE their wrappers, so the tab bar printed at the
+          top of a funeral quote handed across the counter (Kevin caught it,
+          2026-09-02). Nothing back-of-house reaches paper. */}
+      <style>{`
+        .wr-main h1 { font-size: clamp(30px, 4.6vw, 46px); }
+        @media print {
+          .wr-chrome { display: none !important; }
+          .wr-main { padding: 0 !important; }
+        }
+      `}</style>
     </>
   );
 }
