@@ -97,21 +97,26 @@ export const site = {
 
   delivery: {
     sameDay: "Same-day delivery whenever possible.",
-    cutoff: null as string | null, // PLACEHOLDER: ask the owner
+    // No fixed cutoff exists, confirmed by Katy 2026-09-02: "It's rare we
+    // don't accept an order for same day." null is the answer, not a gap.
+    cutoff: null as string | null,
     hospitalNote: "Please include the patient's full name and room information when ordering.",
     funeralNote: "Our team coordinates delivery timing directly with the service location.",
   },
 
   /**
-   * Names are from their team page. It publishes photographs and names and no roles
-   * at all, so roles stay null rather than being guessed. "Gayle's Garden" shares a
-   * first name with Gayle Scantlen, which is a hint and not a fact.
+   * Names are from their team page; roles are from Katy's own printed
+   * Team & Responsibilities chart, texted 2026-09-02. Headline role only,
+   * per person; the full duty lists (delivery, corporate accounts, wedding
+   * consult and so on) live in glaze/clients/devine.md for the bio pass.
+   * Katy wants the portraits retaken, bios added, and HERSELF added as a
+   * card; that redesign waits for her materials, so only the roles land now.
    */
   team: [
-    { name: "Gayle Scantlen", role: null }, // PLACEHOLDER: role
-    { name: "Becky Moore", role: null }, // PLACEHOLDER: role
-    { name: "Lacey Andrews", role: null }, // PLACEHOLDER: role
-    { name: "Shawna Wilcox", role: null }, // PLACEHOLDER: role
+    { name: "Gayle Scantlen", role: "Floral artist, silk & dried expert" },
+    { name: "Becky Moore", role: "Certified floral artist & plant expert" },
+    { name: "Lacey Andrews", role: "Plant expert & floral artist" },
+    { name: "Shawna Wilcox", role: "Grower & floral artist" },
   ],
 
   /** Their wedding process, verbatim, from /wedding-florists/. */

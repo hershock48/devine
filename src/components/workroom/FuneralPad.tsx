@@ -500,8 +500,8 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
             <section style={{ minWidth: 0 }}>
               <h2 style={{ fontSize: 20, margin: "0 0 4px" }}>Add a piece</h2>
               <p className="muted" style={{ fontSize: 14.5, margin: "0 0 12px" }}>
-                One tap adds it at that price, editable after. These are industry price
-                points standing in until the shop&rsquo;s own replace them.
+                One tap adds it at that price, editable after. The ranges are the
+                shop&rsquo;s own, from Katy, September 2026.
               </p>
               <div className="fp-menu">
                 {FUNERAL_MENU.map((m) => {

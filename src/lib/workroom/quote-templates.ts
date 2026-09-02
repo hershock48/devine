@@ -11,16 +11,16 @@ import type { QuotePiece } from "@/lib/workroom/store";
  *             model get rewritten from it. Pieces start with no stems, so no
  *             quantity here is ever mistaken for one of hers.
  *
- *   funeral   THERE IS NO DOCUMENT TO COPY. She quotes funerals on the spot,
- *             in person, no spreadsheet. So the funeral side is not a
- *             transcription — it is built from how funeral work is sold
- *             everywhere: by naming a piece and a price, with the flowers
- *             worked out afterwards in the workroom. The price points below
- *             come from published 2026 industry ranges (Kremp, funeral.com,
- *             Ever Loved: standing sprays $125–$350, half-couch $150–$400,
- *             full-couch $300–$600, baskets from ~$50), NOT from DeVine's.
- *             Every one is editable at the counter, and swapping them for
- *             hers is the first thing to do after the meeting.
+ *   funeral   She quotes funerals on the spot, in person, no spreadsheet, so
+ *             the menu is one tap per piece per price. THE RANGES ARE NOW
+ *             HERS, from Katy's own texts, 2026-09-02: funeral vases
+ *             $75-$250ish; easels and casket sprays $150-$550; urn surrounds
+ *             $125-$350. The price points below are spread inside those
+ *             ranges; rows she did not name (insert, basket, table piece,
+ *             boutonniere, corsage) keep the published 2026 industry
+ *             stand-ins they launched with. Every price is editable at the
+ *             counter either way, and watching her quote one live funeral
+ *             remains the calibration that matters.
  */
 
 const piece = (name: string, qty: number): Omit<QuotePiece, "id"> => ({
@@ -68,14 +68,20 @@ export type FuneralPreset = {
 };
 
 export const FUNERAL_MENU: FuneralPreset[] = [
-  { name: "Casket spray, half couch", prices: [175, 250, 350], hardgoods: 0, note: "Open casket", casket: "open" },
-  { name: "Casket spray, full couch", prices: [300, 450, 600], hardgoods: 0, note: "Closed casket", casket: "closed" },
+  // Casket sprays and easel pieces sit inside her $150-$550; the half couch
+  // takes the lower half of the range, the full couch the upper.
+  { name: "Casket spray, half couch", prices: [150, 250, 350], hardgoods: 0, note: "Open casket", casket: "open" },
+  { name: "Casket spray, full couch", prices: [350, 450, 550], hardgoods: 0, note: "Closed casket", casket: "closed" },
   { name: "Casket insert / pillow", prices: [95, 150], hardgoods: 0 },
-  { name: "Standing spray on easel", prices: [150, 225, 325], hardgoods: 25, note: "Easel included" },
-  { name: "Wreath on easel", prices: [150, 225, 300], hardgoods: 25, note: "Easel included" },
-  { name: "Cross on easel", prices: [175, 250], hardgoods: 25, note: "Easel included" },
-  { name: "Urn surround", prices: [125, 200], hardgoods: 0, note: "Cremation" },
-  { name: "Pedestal arrangement", prices: [75, 125, 175], hardgoods: 0 },
+  { name: "Standing spray on easel", prices: [150, 250, 350], hardgoods: 25, note: "Easel included" },
+  { name: "Wreath on easel", prices: [150, 250, 350], hardgoods: 25, note: "Easel included" },
+  { name: "Cross on easel", prices: [175, 275, 375], hardgoods: 25, note: "Easel included" },
+  // Her words: urn surrounds "range $125-$350 usually".
+  { name: "Urn surround", prices: [125, 225, 350], hardgoods: 0, note: "Cremation" },
+  // "Funeral vases range from $75-$250ish" - her own name for the piece, so
+  // the row wears it (this was "Pedestal arrangement", an industry label no
+  // one at her counter uses).
+  { name: "Funeral vase", prices: [75, 125, 175, 250], hardgoods: 0 },
   { name: "Sympathy basket", prices: [60, 90, 125], hardgoods: 0 },
   { name: "Table arrangement", prices: [55, 85, 120], hardgoods: 0 },
   { name: "Pallbearer boutonniere", prices: [12], hardgoods: 0 },
