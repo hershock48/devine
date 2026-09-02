@@ -72,15 +72,17 @@ export default function Weddings() {
       </section>
 
       {/*
-        A generated Bloom print used to sit beside this list as decoration.
-        Cut, same reasoning as the Visit page: generated art stands in for
-        products awaiting photographs, and a couple reading how their wedding
-        flowers get made should not be looking at fake ones while they do.
-        The measure below keeps the list readable at full width; a real
-        photograph of her wedding work takes the old spot the day it exists.
+        The old Bloom-print spot, FILLED 2026-09-02 with the real thing, as
+        this comment always promised: her classic bridal bouquet photograph
+        from the photo drop, linked to its product page. The couple reading
+        how their wedding flowers get made now looks at her actual work
+        while they do. The image renders at its native 701px and no wider,
+        because upscaling her photograph to fill a column would trade the
+        honesty that made it better than the print.
       */}
       <section className="section">
-        <div className="wrap" style={{ maxWidth: 720 }}>
+        <div className="wrap split split--wide-left" style={{ alignItems: "start" }}>
+          <div style={{ maxWidth: 720 }}>
           <p className="kicker">The process</p>
           <h2>How it works</h2>
           <ol className="steps" style={{ marginTop: "calc(var(--u) * 4)" }}>
@@ -89,6 +91,18 @@ export default function Weddings() {
             ))}
           </ol>
           <p className="muted small" style={{ margin: 0 }}>{site.weddingFollowUp}</p>
+          </div>
+          <a href={href("/product/classic-bridal-bouquet")} style={{ display: "block", maxWidth: 480, justifySelf: "end" }}>
+            <img
+              src="/img/product/classic-bridal-bouquet.webp"
+              width={701}
+              height={712}
+              alt="Classic bridal bouquet by DeVine's: white roses, baby's breath and eucalyptus, held in hand"
+              loading="lazy"
+              decoding="async"
+              style={{ width: "100%", height: "auto" }}
+            />
+          </a>
         </div>
       </section>
 
