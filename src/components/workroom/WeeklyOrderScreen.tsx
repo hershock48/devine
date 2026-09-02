@@ -494,11 +494,18 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
               The truck came — log it
             </button>
           </p>
-          <p aria-live="polite" style={{ margin: "10px 0 0", fontSize: 14, fontWeight: 600, color: status.includes("saved") || status.includes("logged") ? "var(--green)" : "var(--rose-ink)", minHeight: "1.3em" }}>
-            {status}
-          </p>
         </section>
       )}
+
+      {/* OUTSIDE the composer block, deliberately: receive() sets the
+          "Truck logged: N purchases" payoff and then closes the composer,
+          and when this line lived inside {open && ...} the confirmation
+          unmounted the same frame it was set. The shop tapped the biggest
+          button on the page and nothing visibly answered (2026-09-02 debug
+          pass; the flow test's timeout was the symptom). */}
+      <p aria-live="polite" style={{ margin: "10px 0 0", fontSize: 14, fontWeight: 600, color: status.includes("saved") || status.includes("logged") ? "var(--green)" : "var(--rose-ink)", minHeight: "1.3em" }}>
+        {status}
+      </p>
 
       {/* ---------------- the record ---------------- */}
       {orders.length > 0 && (

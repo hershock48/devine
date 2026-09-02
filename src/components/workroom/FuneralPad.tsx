@@ -225,6 +225,20 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
     );
   }
 
+  /* The wedding builder has had this since day one; the pad did not, so a
+     mis-started or abandoned funeral quote sat on the Quotes list forever
+     (the 2026-09-02 debug pass found it by trying to clean up after
+     itself). Same confirm wording, same route, same landing. */
+  async function removeQuote() {
+    if (!window.confirm(`Delete this funeral quote${draft!.deceased ? ` for ${draft!.deceased}` : ""}? There is no undo.`)) return;
+    await fetch("/api/workroom/quotes", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    window.location.href = "/workroom/quotes";
+  }
+
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
   const setPiece = (pid: string, patch: Partial<DraftPiece>) =>
     setDraft((d) => (d ? { ...d, pieces: d.pieces.map((p) => (p.id === pid ? { ...p, ...patch } : p)) } : d));
@@ -652,6 +666,12 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
             </div>
           </aside>
         </div>
+
+        <p style={{ margin: "18px 0 0" }}>
+          <button type="button" onClick={removeQuote} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+            Delete this quote
+          </button>
+        </p>
 
         <div className="fp-bar">
           <span aria-hidden="true" className="muted">
