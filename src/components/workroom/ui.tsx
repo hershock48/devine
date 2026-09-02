@@ -284,8 +284,10 @@ export function VarietyGate({
   );
 }
 
-/** The PIN gate. One field, big enough to tap with a thumb. */
-export function PinGate({ onAuthed }: { onAuthed: () => void }) {
+/** The PIN gate. One field, big enough to tap with a thumb. The callback
+    receives what the login said, so a screen that cares about the owner
+    tier can read `info.owner`; every other caller ignores the argument. */
+export function PinGate({ onAuthed }: { onAuthed: (info?: { owner?: boolean }) => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
 
@@ -306,8 +308,9 @@ export function PinGate({ onAuthed }: { onAuthed: () => void }) {
       setError(body?.error || "Wrong PIN.");
       return;
     }
+    const d = (await r.json().catch(() => null)) as { owner?: boolean } | null;
     setPin("");
-    onAuthed();
+    onAuthed({ owner: !!d?.owner });
   }
 
   return (

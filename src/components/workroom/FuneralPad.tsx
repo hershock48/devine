@@ -121,8 +121,12 @@ function deadlineLine(draft: Draft): string | null {
   return `Deliver by ${prettyTime(`${String(dh).padStart(2, "0")}:${String(dm).padStart(2, "0")}`)} on ${draft.eventDate}, an hour before ${label}.`;
 }
 
-export default function FuneralPad({ id, initialAuthed }: { id: string; initialAuthed: boolean }) {
+export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: string; initialAuthed: boolean; initialOwner: boolean }) {
   const [authed, setAuthed] = useState(initialAuthed);
+  /* Build math (flower budgets, markup, labor) is owner-tier, same ruling
+     as the dashboard: the drawer simply does not render for a staff
+     sign-in. Everything else on the pad is the counter's. */
+  const [owner, setOwner] = useState(initialOwner);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [missing, setMissing] = useState(false);
   const [backend, setBackend] = useState<string | null>(null);
@@ -201,7 +205,12 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
     return (
       <>
         <h1>Funeral quote</h1>
-        <PinGate onAuthed={() => pull().catch(() => {})} />
+        <PinGate
+          onAuthed={(info) => {
+            setOwner(!!info?.owner);
+            pull().catch(() => {});
+          }}
+        />
       </>
     );
   }
@@ -637,7 +646,7 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
                                     first person Kevin put in front of this
                                     did not know (himself). */}
                                 <p className="muted" style={{ margin: "0 0 2px", fontSize: 13, width: "100%" }}>
-                                  The sash across the piece; this wording is printed on it.
+                                  The sash across the piece; this wording is printed on it. Type anything the family wants, or tap one:
                                 </p>
                                 {RIBBON_WORDS.map((w) => (
                                   <button key={w} type="button" className="fp-chip" style={{ fontSize: 13.5, padding: "5px 10px" }} onClick={() => setPiece(p.id, { ribbon: w })}>
@@ -716,11 +725,11 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
               <input inputMode="decimal" value={draft.delivery} onChange={(e) => set({ delivery: e.target.value })} style={field} />
             </label>
 
-            {/* Build arithmetic, closed by default: the designer opens it in
-                the workroom later; the family across the counter never sees
-                flower budgets or markup while the quote is being agreed
-                (Kevin, 2026-09-02: "is that something the employee really
-                needs to know?" - not in this moment, no). */}
+            {/* Build arithmetic, closed by default AND owner-tier: the
+                family across the counter never sees flower budgets or
+                markup, and neither does a staff sign-in (Kevin, 2026-09-02:
+                "is that something the employee really needs to know?"). */}
+            {owner && (
             <details style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
               <summary className="muted" style={{ cursor: "pointer", fontSize: 13.5, fontWeight: 600 }}>
                 For the workroom
@@ -744,6 +753,7 @@ export default function FuneralPad({ id, initialAuthed }: { id: string; initialA
                   })}
               </div>
             </details>
+            )}
 
             <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, display: "grid", gap: 8 }}>
               {placed ? (

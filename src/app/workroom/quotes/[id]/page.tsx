@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import QuoteBuilder from "@/components/workroom/QuoteBuilder";
 import FuneralPad from "@/components/workroom/FuneralPad";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { getStore } from "@/lib/workroom/store";
 
 export const metadata: Metadata = { title: "Quote" };
@@ -24,5 +24,9 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
     const q = await getStore().getQuote(id);
     if (q) kind = q.kind;
   }
-  return kind === "funeral" ? <FuneralPad id={id} initialAuthed={authed} /> : <QuoteBuilder id={id} initialAuthed={authed} />;
+  // The owner flag feeds the funeral pad's For-the-workroom drawer (build
+  // math is owner-tier); the wedding builder does not take it, because its
+  // markup and labor inputs ARE the tool a staff member composes with.
+  const owner = await isWorkroomOwner();
+  return kind === "funeral" ? <FuneralPad id={id} initialAuthed={authed} initialOwner={owner} /> : <QuoteBuilder id={id} initialAuthed={authed} />;
 }

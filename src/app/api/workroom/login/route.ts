@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { setWorkroomCookie, workroomPin } from "@/lib/workroom/auth";
+import { setWorkroomCookie, workroomOwnerPin, workroomPin } from "@/lib/workroom/auth";
 
 /**
  * The workroom door, with a bouncer.
@@ -58,13 +58,17 @@ export async function POST(req: Request) {
   }
 
   const body = (await req.json().catch(() => ({}))) as { pin?: unknown };
-  if (typeof body.pin !== "string" || body.pin !== pin) {
+  // One field, two PINs: staff or owner. The cookie holds whichever was
+  // typed, and the auth helpers decide per request what it is worth.
+  const owner = workroomOwnerPin();
+  const isOwner = owner !== null && body.pin === owner;
+  if (typeof body.pin !== "string" || (body.pin !== pin && !isOwner)) {
     bucket.failures.push(now);
     buckets().set(key, bucket);
     return NextResponse.json({ error: "Wrong PIN." }, { status: 401 });
   }
 
   buckets().delete(key);
-  await setWorkroomCookie(pin);
-  return NextResponse.json({ ok: true });
+  await setWorkroomCookie(body.pin);
+  return NextResponse.json({ ok: true, owner: isOwner });
 }

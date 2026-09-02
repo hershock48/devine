@@ -21,6 +21,8 @@ import { cookies } from "next/headers";
 const COOKIE = "devine_workroom";
 /** Local development only. See workroomPin(). */
 const PIN_FALLBACK = "0830";
+/** Local development only, same contract as PIN_FALLBACK. */
+const OWNER_FALLBACK = "0831";
 
 /**
  * The PIN, or null meaning "this deployment has no workroom".
@@ -43,11 +45,40 @@ export function workroomPin(): string | null {
   return process.env.NODE_ENV === "production" ? null : PIN_FALLBACK;
 }
 
+/**
+ * The owner's PIN, or null meaning "this deployment has no owner tier".
+ *
+ * TWO TIERS, ONE DOOR (Kevin, 2026-09-02: "maybe the owner doesn't really
+ * want just any employee seeing that"). The staff PIN opens the working
+ * screens: the board, the weekly order, inventory, quotes. The owner's PIN
+ * opens everything the staff PIN does PLUS the money: the dashboard, and
+ * the build-math drawers. One login field accepts either; the server
+ * decides what the cookie is worth. Unset in production means the owner
+ * tier is closed to everyone, same closed-door rule as WORKROOM_PIN: a
+ * privacy control that silently stops applying is worse than a dark screen.
+ */
+export function workroomOwnerPin(): string | null {
+  const set = process.env.WORKROOM_OWNER_PIN;
+  if (set && set.trim()) return set.trim();
+  return process.env.NODE_ENV === "production" ? null : OWNER_FALLBACK;
+}
+
 export async function isWorkroomAuthed(): Promise<boolean> {
   const pin = workroomPin();
   if (pin === null) return false;
   const jar = await cookies();
-  return jar.get(COOKIE)?.value === pin;
+  const held = jar.get(COOKIE)?.value;
+  // The owner's cookie opens every staff door too; a second sign-in to see
+  // the board would teach the owner to stay signed in as staff.
+  const owner = workroomOwnerPin();
+  return held === pin || (owner !== null && held === owner);
+}
+
+export async function isWorkroomOwner(): Promise<boolean> {
+  const owner = workroomOwnerPin();
+  if (owner === null) return false;
+  const jar = await cookies();
+  return jar.get(COOKIE)?.value === owner;
 }
 
 export async function setWorkroomCookie(pin: string): Promise<void> {

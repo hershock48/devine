@@ -307,8 +307,13 @@ function SectionHead({ label, href, linkText }: { label: string; href?: string; 
 
 /* ------------------------------------------------------------------ */
 
-export default function Dashboard({ initialAuthed }: { initialAuthed: boolean }) {
+export default function Dashboard({ initialAuthed, initialOwner }: { initialAuthed: boolean; initialOwner: boolean }) {
   const [authed, setAuthed] = useState(initialAuthed);
+  /* The whole screen is owner-tier (Kevin, 2026-09-02): takings, margins
+     and averages are the owner's business, not every counter sign-in's.
+     The summary API enforces the same line server-side with a 403. */
+  const [owner, setOwner] = useState(initialOwner);
+  const [ownerHint, setOwnerHint] = useState("");
   const [events, setEvents] = useState<StemEvent[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -329,9 +334,10 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-    // authed: the div does not exist while the gate is up, so a run-once
-    // effect would observe nothing and the width would stay the default.
-  }, [authed]);
+    // authed AND owner: the div does not exist while either gate is up, so
+    // a run-once effect would observe nothing and the width would stay the
+    // default.
+  }, [authed, owner]);
   /** The local calendar day the windows hang from; flipped by the refresh
       interval when midnight passes so "Today" rolls over. */
   const [anchorISO, setAnchorISO] = useState(todayISO);
@@ -405,15 +411,18 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
     }
   }, []);
 
+  // owner in every guard below: while the owner gate is up the screen must
+  // fetch nothing, or a staff sign-in would spray 403s from the summary
+  // endpoint into the console every 90 seconds.
   useEffect(() => {
-    if (!authed) return;
+    if (!authed || !owner) return;
     pull().catch(() => {});
-  }, [authed, pull]);
+  }, [authed, owner, pull]);
 
   useEffect(() => {
-    if (!authed) return;
+    if (!authed || !owner) return;
     pullSummary(win).catch(() => {});
-  }, [authed, win, pullSummary]);
+  }, [authed, owner, win, pullSummary]);
 
   // A counter screen sits open all day; a gentle refresh keeps "Today"
   // honest without anyone thinking to reload. When midnight passes, the
@@ -422,7 +431,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   // year of Square payments per pass, and a year-scale chart does not need
   // 90-second freshness (it still refetches on any interaction).
   useEffect(() => {
-    if (!authed || back !== 0) return;
+    if (!authed || !owner || back !== 0) return;
     const t = setInterval(() => {
       pull().catch(() => {});
       const today = todayISO();
@@ -430,7 +439,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
       else if (range !== "year") pullSummary(win).catch(() => {});
     }, 90_000);
     return () => clearInterval(t);
-  }, [authed, back, range, anchorISO, win, pull, pullSummary]);
+  }, [authed, owner, back, range, anchorISO, win, pull, pullSummary]);
 
   /* ---------------- the florist-side arithmetic ---------------- */
 
@@ -623,7 +632,40 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
     return (
       <>
         <h1>Dashboard</h1>
-        <PinGate onAuthed={() => setAuthed(true)} />
+        <PinGate
+          onAuthed={(info) => {
+            setAuthed(true);
+            setOwner(!!info?.owner);
+          }}
+        />
+      </>
+    );
+  }
+
+  if (!owner) {
+    /* Signed in as staff. The same one-field gate, but this door only the
+       owner's PIN opens; a staff PIN succeeding at LOGIN while opening
+       nothing here would read as broken, so the hint says which PIN it was. */
+    return (
+      <>
+        <h1>Dashboard</h1>
+        <p className="lede" style={{ margin: "4px 0 10px" }}>
+          Takings, margins and averages live here, so this one screen asks for the owner&rsquo;s PIN.
+          Everything else in the workroom is open as usual.
+        </p>
+        <PinGate
+          onAuthed={(info) => {
+            if (info?.owner) {
+              setOwner(true);
+              setOwnerHint("");
+            } else {
+              setOwnerHint("That is the staff PIN; it opens the rest of the workroom, but this screen needs the owner's.");
+            }
+          }}
+        />
+        <p aria-live="polite" style={{ color: "var(--rose-ink)", fontWeight: 600, minHeight: "1.4em", maxWidth: 420 }}>
+          {ownerHint}
+        </p>
       </>
     );
   }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { square, type SquareConfig } from "@/lib/square/client";
 import { resolveSquare } from "@/lib/square/oauth";
 import { getStore } from "@/lib/workroom/store";
@@ -127,6 +127,12 @@ const num = (v: string | null): number | null => {
 
 export async function GET(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  // The register's money is owner-tier (Kevin, 2026-09-02). Gated at the
+  // data, not only the screen, so a staff cookie cannot read takings by
+  // calling the endpoint directly.
+  if (!(await isWorkroomOwner())) {
+    return NextResponse.json({ error: "The owner's PIN opens the dashboard." }, { status: 403 });
+  }
 
   const url = new URL(req.url);
   const begin = num(url.searchParams.get("begin"));

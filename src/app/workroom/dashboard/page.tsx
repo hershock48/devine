@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Dashboard from "@/components/workroom/Dashboard";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 
 /**
  * The dashboard: what the ledgers and the register add up to, over any
@@ -12,5 +12,5 @@ export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  return <Dashboard initialAuthed={await isWorkroomAuthed()} />;
+  return <Dashboard initialAuthed={await isWorkroomAuthed()} initialOwner={await isWorkroomOwner()} />;
 }
