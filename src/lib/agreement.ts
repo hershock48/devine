@@ -21,7 +21,7 @@ export const agreement = {
   version: "Glazed Web Client Agreement v1.0",
   termsUrl: "https://glazedweb.com/agreement",
   pdfUrl: "https://glazedweb.com/glazed-web-agreement-v1.pdf",
-  exhibit: "Exhibit A: DeVine's Flowers & Botanicals, prepared 2026-08-31",
+  exhibit: "Exhibit A: DeVine's Flowers & Botanicals, prepared 2026-08-31, revised 2026-09-02",
 
   client: "DeVine's Flowers & Botanicals",
   clientAddress: "800 Industrial Rd., Marshall, MI 49068",
@@ -40,13 +40,18 @@ export const agreement = {
   scope: [
     "The website at devinesflowersandbotanicals.com, replacing the current site: home, shop with the full product catalog, product pages, weddings, celebration of life, greening, workshops, about, delivery, and cart.",
     "Online order intake: checkout that takes the order and emails the shop a ticket, with payment taken on the confirming call. No card is charged online in this phase.",
-    "The workroom at /workroom, included in the monthly fee: the order board, stem and shrink tracking, the wedding quote builder, the funeral pad, plant par sheet, and the weekly order screen.",
+    "The workroom at /workroom, included in the monthly fee: the order board, the owner's dashboard (takings, margins, averages, behind an owner-only PIN), inventory with stem and shrink tracking, the wedding quote builder, the funeral pad, the plant par sheet, and the weekly order screen.",
     "The Square register link: the product catalog pushed onto the shop's existing Square register, and completed register sales flowing back into the workroom automatically. Connected with the owner's own one-click authorization; the shop's Square account stays the shop's.",
     "Card payments taken remotely run through the shop's own Square account at Square's published processing rate. That covers phone orders keyed by the shop in the workroom (available now), and online checkout when both parties agree in writing to turn it on. Each such card payment carries a $0.99 order fee paid by the customer, shown as its own line item on the order, retained by Glazed Web as the ordering platform fee. It is never charged to the Client, and sales rung in person on the register never carry it.",
   ],
 
+  /* Revised 2026-09-02: the original parenthetical (photography permission,
+     logo file, delivery fee, same-day cutoff) had every item DELIVERED by
+     the owner's 2026-09-02 text-and-photo drop, and an agreement that lists
+     already-sent materials as outstanding reads as stale the moment she
+     compares it to her own texts. */
   timeline:
-    "Target launch date and the date Client materials are due will be agreed in writing after acceptance. The build is substantially complete; the schedule waits mostly on Client materials (photography permission, logo file, delivery fee, same-day cutoff).",
+    "Target launch date will be agreed in writing after acceptance. The build is substantially complete; what remains from the shop's side is small: team photos and bios, the one-click Square authorization, and the inbox order emails should land in.",
 } as const;
 
 export const money = (n: number) => `$${n.toLocaleString("en-US")}`;
