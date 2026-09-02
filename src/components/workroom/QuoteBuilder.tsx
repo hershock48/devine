@@ -28,11 +28,12 @@ import { field, labelText, longDate, money, textButton, MemoryWarning, PinGate }
    mid-edit ("2." on the way to "2.5") never fights the keyboard. */
 type DraftPart = { variety: string; stems: string };
 type DraftPiece = { id: string; name: string; qty: string; hardgoods: string; parts: DraftPart[] };
-type Draft = Omit<Quote, "pieces" | "flowers" | "markup" | "laborPct" | "delivery" | "setup"> & {
+type Draft = Omit<Quote, "pieces" | "flowers" | "markup" | "laborPct" | "taxPct" | "delivery" | "setup"> & {
   pieces: DraftPiece[];
   flowers: { variety: string; costPerStem: string }[];
   markup: string;
   laborPct: string;
+  taxPct: string;
   delivery: string;
   setup: string;
 };
@@ -48,6 +49,8 @@ const toDraft = (q: Quote): Draft => ({
   flowers: q.flowers.map((f) => ({ variety: f.variety, costPerStem: f.costPerStem ? String(f.costPerStem) : "" })),
   markup: String(q.markup),
   laborPct: String(q.laborPct),
+  // Older rows have no taxPct; 0 keeps a sent quote's total exactly as sent.
+  taxPct: q.taxPct != null ? String(q.taxPct) : "0",
   delivery: q.delivery ? String(q.delivery) : "",
   setup: q.setup ? String(q.setup) : "",
 });
@@ -173,8 +176,8 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   /* A variety typed into a piece prices itself exactly once: on blur it joins
-     the flower list, prefilled from the cooler's 90-day average if the shop
-     has bought it before, flagged for a price if not. */
+     the flower list, prefilled from the stem library's sell price (her own
+     retail list) when one exists, flagged for a price if not. */
   const ensureFlower = (varietyRaw: string) => {
     const v = norm(varietyRaw);
     if (!v) return;
@@ -205,6 +208,10 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
       setPlaceError("Nothing on the quote carries a price yet.");
       return;
     }
+    // Tax rides to the board as its own line, or the board's subtotal would
+    // disagree with the total the couple just agreed to (the funeral pad
+    // learned the same lesson with its delivery line).
+    if (pricing.tax > 0) lines.push({ name: `Sales tax (${pricing.taxPct}%)`, each: pricing.tax, qty: 1 });
     if (pricing.delivery > 0) lines.push({ name: "Delivery", each: pricing.delivery, qty: 1 });
     if (pricing.setup > 0) lines.push({ name: "Setup & installation", each: pricing.setup, qty: 1 });
     setPlacing(true);
@@ -379,7 +386,8 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
             <section className="panel" style={{ minWidth: 0 }}>
               <h2 style={{ fontSize: 20, margin: "0 0 4px" }}>Flower prices</h2>
               <p className="muted" style={{ fontSize: 14.5, margin: "0 0 12px" }}>
-                Cost per stem, wholesale; prefilled from what the shop has paid where known.
+                Price per stem, the shop&rsquo;s own list; prefilled from the stem library where a
+                sell price exists.
               </p>
               {draft.flowers.length === 0 ? (
                 <p className="muted" style={{ fontSize: 14.5, margin: 0 }}>
@@ -398,7 +406,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
                         <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 14.5 }}>
                           <span className="muted">$</span>
                           <input
-                            aria-label={`Cost per stem, ${f.variety}`}
+                            aria-label={`Price per stem, ${f.variety}`}
                             inputMode="decimal"
                             placeholder="0.00"
                             value={f.costPerStem}
@@ -427,14 +435,17 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
             {pricing.buyList.length > 0 && (
               <section className="panel" style={{ minWidth: 0 }}>
                 <h2 style={{ fontSize: 20, margin: "0 0 4px" }}>Flowers to order</h2>
+                {/* "At list price", not "est. cost": per-stem prices are her
+                    RETAIL list under the sheet model, so this column is what
+                    the stems sell for, not what the truck will charge. */}
                 <p className="muted" style={{ fontSize: 14.5, margin: "0 0 10px" }}>
-                  The wholesale order this quote implies.
+                  The stems this quote needs, at her list price.
                 </p>
                 <div tabIndex={0} role="region" aria-label="Flowers to order" style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", minWidth: 340, borderCollapse: "collapse", fontSize: 14.5 }}>
                     <thead>
                       <tr>
-                        {["Variety", "Stems", "Est. cost"].map((h, i) => (
+                        {["Variety", "Stems", "At list price"].map((h, i) => (
                           <th key={h} style={{ textAlign: i === 0 ? "left" : "right", padding: "6px 8px", borderBottom: "1px solid var(--line)", fontSize: 12.5, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)" }}>{h}</th>
                         ))}
                       </tr>
@@ -463,14 +474,18 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
           {/* -------- the dials & the total -------- */}
           <aside className="qb-side panel" style={{ display: "grid", gap: 12, minWidth: 0 }}>
             <h2 style={{ fontSize: 20, margin: 0 }}>The price</h2>
+            {/* HER DIALS (2026-09-02, from the wedding sheet): labor and tax.
+                The markup dial left this rail when per-stem prices became her
+                retail list; the field still exists on the quote (funerals use
+                it) and old quotes keep whatever they stored. */}
             <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
-              <label style={{ minWidth: 0 }}>
-                <span style={labelText}>Flower markup ×</span>
-                <input inputMode="decimal" value={draft.markup} onChange={(e) => set({ markup: e.target.value })} style={field} />
-              </label>
               <label style={{ minWidth: 0 }}>
                 <span style={labelText}>Labor %</span>
                 <input inputMode="decimal" value={draft.laborPct} onChange={(e) => set({ laborPct: e.target.value })} style={field} />
+              </label>
+              <label style={{ minWidth: 0 }}>
+                <span style={labelText}>Sales tax %</span>
+                <input inputMode="decimal" value={draft.taxPct} onChange={(e) => set({ taxPct: e.target.value })} style={field} />
               </label>
               <label style={{ minWidth: 0 }}>
                 <span style={labelText}>Delivery $</span>
@@ -483,10 +498,10 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
             </div>
 
             <dl style={{ margin: 0, fontSize: 14.5, display: "grid", gap: 5 }}>
-              <Row label="Flowers, wholesale" val={money(pricing.stemCost)} muted />
-              <Row label={`× ${Number(draft.markup) || 1} markup`} val={money(pricing.flowerRetail)} />
-              <Row label={`Labor, ${Number(draft.laborPct) || 0}%`} val={money(pricing.labor)} />
+              <Row label="Flowers" val={money(pricing.flowerRetail)} />
               <Row label="Hardgoods" val={money(pricing.hardgoods)} />
+              <Row label={`Labor, ${Number(draft.laborPct) || 0}%`} val={money(pricing.labor)} />
+              {pricing.tax > 0 && <Row label={`Sales tax, ${pricing.taxPct}%`} val={money(pricing.tax)} />}
               {pricing.delivery > 0 && <Row label="Delivery" val={money(pricing.delivery)} />}
               {pricing.setup > 0 && <Row label="Setup" val={money(pricing.setup)} />}
             </dl>
@@ -509,8 +524,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
             )}
             {pricing.total > 0 && pricing.unpricedVarieties.length === 0 && (
               <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>
-                After flowers and hardgoods the quote keeps {money(Math.max(0, pricing.total - pricing.stemCost - pricing.hardgoods))} for
-                labor and margin.
+                {money(pricing.labor)} of this is labor, her two-thirds rule.
               </p>
             )}
 
@@ -723,6 +737,12 @@ function PrintDoc({ draft, pricing }: { draft: Draft; pricing: QuotePricing }) {
                 </tr>
               );
             })}
+          {pricing.tax > 0 && (
+            <tr>
+              <td colSpan={3} style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6" }}>Sales tax ({pricing.taxPct}%)</td>
+              <td style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6", textAlign: "right" }}>{money(pricing.tax)}</td>
+            </tr>
+          )}
           {pricing.delivery > 0 && (
             <tr>
               <td colSpan={3} style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6" }}>Delivery</td>

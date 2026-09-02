@@ -2,32 +2,41 @@
  * The quote arithmetic, in one place with no imports, so the list page, the
  * builder and the printed quote can never disagree on a number.
  *
- * THE MODEL RUNS BOTH WAYS, because the two rooms work in opposite
- * directions and one file has to serve both.
+ * THE MODEL IS KATY'S OWN, rewritten 2026-09-02 from her 2026WeddingQuotes
+ * sheet (screenshots of the Grace 5-30-26 tab; Kevin's call to rebuild from
+ * what she sent rather than wait for sheet access). Verified against her own
+ * numbers to the cent: every labor cell is exactly 2/3 of its materials,
+ * flat-priced boutonnieres carry no labor, tax is Michigan's 6% on the piece
+ * money and NOT on pickup/delivery, and her grand total (4998.02) only
+ * reproduces when tax is computed on the UNROUNDED sum - so this file keeps
+ * raw precision internally and rounds at the edges.
  *
- * FORWARD, stems decide the price. How a wedding is quoted: a wish list of
- * pieces, costed up.
+ * FORWARD, stems decide the price (weddings):
  *
- *   stem cost      what the flowers cost the shop, per piece: stems × cost/stem
- *   flower retail  stem cost × markup            (dial, default ×3)
- *   labor          flower retail × labor%        (dial, default 25%)
- *   hardgoods      typed at retail, per piece    (vase, foam, ribbon, easel)
- *   piece each     flower retail + labor + hardgoods
+ *   materials      stems × price/stem × markup + hardgoods
+ *                  (per-stem prices are HER RETAIL list - peony 13, ruscus 7,
+ *                  seeded eucalyptus 4.50 - so wedding markup defaults to ×1;
+ *                  the old wholesale-times-3 reading of this field is retired)
+ *   labor          materials × labor%   (default 66.67, her exact 2/3, and it
+ *                  applies to hardgoods too: her 268 of bridal materials
+ *                  INCLUDES the vase and ribbon, and 178.67 is 268 × 2/3)
+ *   piece each     materials + labor
  *
- * REVERSE, the price decides the stems. How funeral work is actually sold:
- * "a standing spray at $225", said across a counter, with the flowers worked
- * out later. Set `price` on a piece and the same relationship is solved for
- * the flower budget instead:
+ * REVERSE, the price decides the stems (funerals, and her flat-priced
+ * boutonnieres): set `price` on a piece and the relationship solves for the
+ * flower budget instead:
  *
- *   stem budget    (price − hardgoods) ÷ (markup × (1 + labor%))
+ *   materials budget   price ÷ (1 + labor%)
+ *   stem budget        (materials budget − hardgoods) ÷ markup
  *
- * So a $225 spray with a $25 easel at ×3 and 25% leaves $53.33 of flowers to
- * design with — the number the workroom needs and the counter never has to
- * think about. If stems ARE entered on a priced piece, the two are compared
- * and the overage reported, which is the same discipline as the shrink page
- * pointed at design instead of waste.
+ * Funerals keep their own dials (markup ×3 over wholesale, labor 25%) until
+ * her funeral cost structure is observed; the dials live on the quote, not
+ * here.
  *
- *   total          Σ (each × qty) + delivery + setup
+ *   tax            Σ piece money × tax%   (6 for weddings, her sheet; 0 for
+ *                  funerals until Friday says otherwise; delivery and setup
+ *                  ride untaxed, exactly like her Pick Up line)
+ *   total          Σ (each × qty) + tax + delivery + setup
  *   deposit        weddings only: 50%, their own published process
  *
  * Every input tolerates the string a half-typed <input> holds; garbage counts
@@ -60,6 +69,9 @@ export type DraftQuote = {
   pieces: DraftPiece[];
   markup: NumLike;
   laborPct: NumLike;
+  /** Sales tax percent on the piece money. Absent (older rows) means 0, so a
+      quote already sent never reprices itself under the new model. */
+  taxPct?: NumLike;
   delivery: NumLike;
   setup: NumLike;
   budgetTarget?: NumLike;
@@ -90,6 +102,9 @@ export type QuotePricing = {
   labor: number;
   hardgoods: number;
   piecesTotal: number;
+  /** The sales-tax line: taxPct% of the piece money, never of delivery. */
+  tax: number;
+  taxPct: number;
   delivery: number;
   setup: number;
   total: number;
@@ -148,30 +163,37 @@ export function priceQuote(q: DraftQuote): QuotePricing {
     }
     const pHard = num(piece.hardgoods);
     const setPrice = num(piece.price);
-    const factor = markup * (1 + laborPct / 100); // stem cost -> retail, less hardgoods
 
     let pRetail: number;
     let pLabor: number;
-    let each: number;
+    /** UNROUNDED. Her grand total only reproduces when the qty multiply and
+        the tax happen on raw values; `each` is the rounded display twin. */
+    let eachRaw: number;
     let stemBudget: number | null = null;
     let overBudget: number | null = null;
 
     if (setPrice > 0) {
-      // REVERSE: the price is the fact; solve for the flower budget.
-      each = cents(setPrice);
-      stemBudget = cents(Math.max(0, (setPrice - pHard) / (factor || 1)));
-      const budgetRetail = stemBudget * markup;
-      pRetail = budgetRetail;
-      pLabor = budgetRetail * (laborPct / 100);
+      // REVERSE: the price is the fact; solve for the flower budget. Labor
+      // comes off the whole price first (her labor base includes hardgoods),
+      // then hardgoods, then the markup unwinds to a stem budget.
+      eachRaw = setPrice;
+      const materialsBudget = setPrice / (1 + laborPct / 100);
+      stemBudget = cents(Math.max(0, (materialsBudget - pHard) / (markup || 1)));
+      pRetail = stemBudget * markup;
+      pLabor = setPrice - materialsBudget;
       // Stems entered anyway: say whether the design fits what was sold.
       if (pStem > 0) overBudget = cents(pStem - stemBudget);
     } else {
-      // FORWARD: the flowers are the fact; they decide the price.
+      // FORWARD: the flowers are the fact; they decide the price. Labor is
+      // laborPct of ALL materials, hardgoods included: her bridal column
+      // takes 2/3 of 268, and the 268 already holds the vase and ribbon.
       pRetail = pStem * markup;
-      pLabor = pRetail * (laborPct / 100);
-      each = cents(pRetail + pLabor + pHard);
+      const materials = pRetail + pHard;
+      pLabor = materials * (laborPct / 100);
+      eachRaw = materials + pLabor;
     }
-    const total = cents(each * qty);
+    const each = cents(eachRaw);
+    const total = cents(eachRaw * qty);
 
     perPiece.set(piece.id, {
       mode: setPrice > 0 ? "price" : "stems",
@@ -196,12 +218,16 @@ export function priceQuote(q: DraftQuote): QuotePricing {
     flowerRetail += pRetail * qty;
     labor += pLabor * qty;
     hardgoods += pHard * qty;
-    piecesTotal += total;
+    piecesTotal += eachRaw * qty; // raw, so the tax below matches her sheet
   }
 
+  const taxPct = num(q.taxPct);
+  const tax = piecesTotal * (taxPct / 100);
   const delivery = num(q.delivery);
   const setup = num(q.setup);
-  const total = cents(piecesTotal + delivery + setup);
+  // Tax rides the piece money only; delivery and setup are untaxed, exactly
+  // like the Pick Up line on her sheet.
+  const total = cents(piecesTotal + tax + delivery + setup);
   const target = num(q.budgetTarget);
 
   return {
@@ -213,6 +239,8 @@ export function priceQuote(q: DraftQuote): QuotePricing {
     labor: cents(labor),
     hardgoods: cents(hardgoods),
     piecesTotal: cents(piecesTotal),
+    tax: cents(tax),
+    taxPct,
     delivery: cents(delivery),
     setup: cents(setup),
     total,

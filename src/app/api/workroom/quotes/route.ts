@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, normalizeVariety, type Quote, type QuotePiece } from "@/lib/workroom/store";
 import { QUOTE_TEMPLATES, QUOTE_DEFAULTS } from "@/lib/workroom/quote-templates";
-import { HISTORY_DAYS, lastUnitCostMap } from "@/lib/workroom/derive";
 
 /**
  * Quotes. GET lists them, or with ?id= returns ONE quote plus the workroom's
@@ -22,13 +21,18 @@ export async function GET(req: Request) {
   const id = new URL(req.url).searchParams.get("id");
 
   if (id) {
-    // The most recent invoice price per stem (derive.ts lot costing): a
-    // quote prices flowers that will be bought for the event, so the last
-    // price paid is the basis, not an average over a year of buys.
-    const [quote, events] = await Promise.all([store.getQuote(id), store.listStemEvents(HISTORY_DAYS)]);
+    // The prefill is her RETAIL per-stem list (the stem library's sell
+    // price), since 2026-09-02: her wedding sheet prices stems at retail
+    // (peony 13, ruscus 7) and the model marks up ×1 on top of it. The old
+    // prefill was the last WHOLESALE invoice price, which under her model
+    // would quote a wedding at a third of her sheet. A variety with no shop
+    // price prefills nothing, honestly.
+    const [quote, varieties] = await Promise.all([store.getQuote(id), store.listVarieties()]);
     if (!quote) return NextResponse.json({ error: "No such quote." }, { status: 404 });
     const stemPrices: Record<string, number> = {};
-    for (const [v, c] of lastUnitCostMap(events)) stemPrices[v] = Math.round(c * 100) / 100;
+    for (const v of varieties) {
+      if (v.sellStem != null && v.sellStem > 0) stemPrices[v.name] = Math.round(v.sellStem * 100) / 100;
+    }
     return NextResponse.json({ quote, stemPrices, backend: store.backend });
   }
 
@@ -57,7 +61,7 @@ export async function POST(req: Request) {
     budgetTarget: 0,
     flowers: [],
     pieces: QUOTE_TEMPLATES[kind].map((t) => ({ ...t, id: newId("pc"), parts: [...t.parts] })),
-    ...QUOTE_DEFAULTS,
+    ...QUOTE_DEFAULTS[kind],
     createdAt: now,
     updatedAt: now,
   };
@@ -136,6 +140,7 @@ export async function PUT(req: Request) {
     // quote total differently after a reload.
     markup: Math.min(20, Math.max(1, Number(p.markup) || 1)),
     laborPct: Math.min(300, Math.max(0, Number(p.laborPct) || 0)),
+    taxPct: num(p.taxPct, 30),
     delivery: num(p.delivery, 100_000),
     setup: num(p.setup, 100_000),
     updatedAt: Date.now(),

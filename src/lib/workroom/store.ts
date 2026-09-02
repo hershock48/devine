@@ -194,6 +194,10 @@ export type Quote = {
   pieces: QuotePiece[];
   markup: number;
   laborPct: number;
+  /** Sales tax percent on piece money (2026-09-02, from her wedding sheet:
+      6 for weddings, 0 for funerals). Absent on older rows means 0, so a
+      quote already sent never reprices itself. */
+  taxPct?: number;
   delivery: number;
   setup: number;
   createdAt: number;

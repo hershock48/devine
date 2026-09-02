@@ -7,9 +7,12 @@ import type { QuotePiece } from "@/lib/workroom/store";
  *
  * PROVISIONAL, in two different ways:
  *
- *   wedding   she is sending her real spreadsheet. This list and the pricing
- *             model get rewritten from it. Pieces start with no stems, so no
- *             quantity here is ever mistaken for one of hers.
+ *   wedding   REWRITTEN 2026-09-02 from her 2026WeddingQuotes sheet (the
+ *             Grace tab, via Kevin's screenshots). The piece list below is
+ *             her sheet's own column vocabulary; quantities are gentle
+ *             starters, not hers - each tab's counts are that wedding's.
+ *             Pieces start with no stems, so no quantity here is ever
+ *             mistaken for one of hers.
  *
  *   funeral   She quotes funerals on the spot, in person, no spreadsheet, so
  *             the menu is one tap per piece per price. THE RANGES ARE NOW
@@ -34,10 +37,13 @@ export const QUOTE_TEMPLATES: Record<"wedding" | "funeral", Omit<QuotePiece, "id
   wedding: [
     piece("Bridal bouquet", 1),
     piece("Bridesmaid bouquet", 4),
+    piece("Groom boutonniere", 1),
     piece("Boutonniere", 6),
     piece("Corsage", 2),
-    piece("Ceremony arrangement", 2),
-    piece("Reception centerpiece", 10),
+    piece("Centerpiece", 10),
+    piece("Aisle basket", 2),
+    piece("Seating table flowers", 1),
+    piece("Cocktail table flowers", 1),
     piece("Cake flowers", 1),
     piece("Toss bouquet", 1),
   ],
@@ -47,8 +53,23 @@ export const QUOTE_TEMPLATES: Record<"wedding" | "funeral", Omit<QuotePiece, "id
   funeral: [],
 };
 
-/** markup ×3 and labor 25% are industry-common stand-ins, dials not truths. */
-export const QUOTE_DEFAULTS = { markup: 3, laborPct: 25, delivery: 0, setup: 0 };
+/**
+ * Per kind since 2026-09-02, because the two rooms price differently:
+ *
+ *   wedding  HER MODEL, from the sheet: per-stem prices are her retail list
+ *            so markup is ×1; labor is 66.67 (her exact 2/3 of materials);
+ *            tax 6 (Michigan, on piece money only). The old ×3-over-wholesale
+ *            defaults produced the right ballpark for the wrong reason and
+ *            are retired for weddings.
+ *   funeral  price-first at the counter; ×3 and 25% remain the reverse
+ *            dials for the workroom's flower budget until her funeral cost
+ *            structure is observed. Tax 0 until Friday answers whether her
+ *            counter prices are out-the-door.
+ */
+export const QUOTE_DEFAULTS: Record<"wedding" | "funeral", { markup: number; laborPct: number; taxPct: number; delivery: number; setup: number }> = {
+  wedding: { markup: 1, laborPct: 66.67, taxPct: 6, delivery: 0, setup: 0 },
+  funeral: { markup: 3, laborPct: 25, taxPct: 0, delivery: 0, setup: 0 },
+};
 
 /**
  * The counter menu. Each row is one tap: a piece at a price the shop sells it
