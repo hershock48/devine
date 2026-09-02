@@ -503,7 +503,7 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
       {/* ---------------- the record ---------------- */}
       {orders.length > 0 && (
         <section>
-          <h2 style={{ fontSize: 20, margin: "0 0 10px" }}>Past orders</h2>
+          <h2 style={{ fontSize: 22, margin: "0 0 10px" }}>Past orders</h2>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 14.5 }}>
             {orders.map((o) => {
               const total = o.lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);

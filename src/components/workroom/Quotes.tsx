@@ -86,7 +86,10 @@ export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
 
       <MemoryWarning backend={backend} />
 
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "6px 0 30px" }}>
+      {/* .btnrow, not a bare flex: below 480 it turns the hairline secondary
+          into an outline pill beside the solid one, the house pairing rule,
+          instead of an underlined line floating under a pill. */}
+      <div className="btnrow" style={{ margin: "6px 0 30px" }}>
         <button className="btn btn--solid" type="button" disabled={starting !== null} onClick={() => start("wedding")}>
           {starting === "wedding" ? "Starting…" : "Start a wedding quote"}
         </button>

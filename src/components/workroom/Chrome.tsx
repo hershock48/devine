@@ -147,13 +147,17 @@ export default function WorkroomChrome() {
         }
         .wr-right a:hover, .wr-right button:hover { color: var(--rose-ink); }
         /* On a phone the brand and the door out share the first line and the
-           tabs take the second, rather than three things fighting for one. */
+           tabs take the second, rather than three things fighting for one.
+           The tab row is sized so all five fit ONE line at 390 (11.5px with
+           .08em tracking wrapped QUOTES onto a lonely second row, which read
+           as a mistake, not a layout); at 320 they wrap after INVENTORY into
+           two balanced rows instead. Measured, not assumed. */
         @media (max-width: 700px) {
           .wr-chrome-in { padding: 6px 20px; gap: 0 14px; }
           .wr-brand { order: 1; }
           .wr-right { order: 2; margin-left: auto; }
-          .wr-tabs { order: 3; width: 100%; gap: 14px; }
-          .wr-tabs a { font-size: 11.5px; letter-spacing: .08em; padding: 7px 1px; }
+          .wr-tabs { order: 3; width: 100%; gap: 10px; }
+          .wr-tabs a { font-size: 10px; letter-spacing: .05em; padding: 8px 1px; }
         }
       `}</style>
     </header>

@@ -19,9 +19,16 @@ export default function WorkroomLayout({ children }: { children: React.ReactNode
   return (
     <>
       <WorkroomChrome />
-      <main id="main" className="section" style={{ paddingTop: "calc(var(--u) * 4)" }}>
+      <main id="main" className="section wr-main" style={{ paddingTop: "calc(var(--u) * 4)" }}>
         <div className="wrap" style={{ maxWidth: 1080 }}>{children}</div>
       </main>
+      {/* The workroom's page titles at TOOL scale, once, for every screen.
+          The shop's display h1 (up to 92px) is a marketing voice; on a
+          counter screen it spent the top third of a phone on a word the tab
+          bar already says, and the Dashboard had shrunk its own h1 in
+          protest, so the seven pages disagreed. Still the serif, still the
+          first thing on the page, just sized for work. */}
+      <style>{`.wr-main h1 { font-size: clamp(30px, 4.6vw, 46px); }`}</style>
     </>
   );
 }

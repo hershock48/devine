@@ -317,6 +317,21 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   const [backend, setBackend] = useState<string | null>(null);
   const [range, setRange] = useState<Range>("week");
   const [back, setBack] = useState(0);
+  /** The chart scroll region's real inner width, so the SVG can draw at
+      native scale instead of letterboxing (see the CW note below). */
+  const chartBox = useRef<HTMLDivElement>(null);
+  const [chartW, setChartW] = useState(720);
+  useEffect(() => {
+    const el = chartBox.current;
+    if (!el) return;
+    const measure = () => setChartW(Math.max(240, Math.floor(el.clientWidth)));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // authed: the div does not exist while the gate is up, so a run-once
+    // effect would observe nothing and the width would stay the default.
+  }, [authed]);
   /** The local calendar day the windows hang from; flipped by the refresh
       interval when midnight passes so "Today" rolls over. */
   const [anchorISO, setAnchorISO] = useState(todayISO);
@@ -642,7 +657,13 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
   const labels = bucketLabels(range, win);
   const buckets = (cur?.buckets ?? []).slice(0, labels.all.length);
   const maxCents = niceMax(Math.max(0, ...buckets));
-  const CW = 720;
+  /* The chart draws at the width its container actually has, measured. The
+     old fixed 720 viewBox with width:100% letterboxed on a phone: the SVG
+     box stayed 150px tall while the drawing scaled to half size inside it,
+     so a week of sales rendered as a sliver with 5px axis text (the glaze
+     pass caught it in a 390 screenshot). Day and month views still insist
+     on room per bar and scroll instead of shrinking below a thumb. */
+  const CW = Math.max(buckets.length > 12 ? 480 : 300, chartW);
   const CH = 150;
   const PADL = 44;
   const plotH = CH - 20 - 8;
@@ -652,7 +673,10 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
 
   return (
     <>
-      <h1 style={{ fontSize: "clamp(26px, 3vw, 34px)", marginBottom: 8 }}>Dashboard</h1>
+      {/* Sized by the layout's .wr-main rule like every other tab; this h1
+          carried its own smaller clamp until the 2026-09-01 glaze pass made
+          the scale a layout concern. */}
+      <h1>Dashboard</h1>
       <MemoryWarning backend={backend} />
 
       {/* One range control governs everything below it. */}
@@ -729,10 +753,12 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
           {/* tabIndex + role because a scrollable region a keyboard cannot
               reach cannot be scrolled by keyboard (the Stems catch; axe
               calls it at 390 where the chart actually scrolls). */}
-          <div tabIndex={0} role="region" aria-label="Register money chart" style={{ overflowX: "auto" }}>
-            {/* 7 or 12 bars compress onto a phone whole; 24 or 31 need room
-                and scroll instead of shrinking below a thumb. */}
-            <svg viewBox={`0 0 ${CW} ${CH}`} width="100%" height={CH} role="img" style={{ minWidth: buckets.length > 12 ? 480 : 0, display: "block" }}
+          <div ref={chartBox} tabIndex={0} role="region" aria-label="Register money chart" style={{ overflowX: "auto" }}>
+            {/* 7 or 12 bars draw at the container's own width; 24 or 31
+                insist on room per bar and scroll instead of shrinking below
+                a thumb. Width is the measured CW, never 100%: percent width
+                against a fixed height letterboxed the drawing on phones. */}
+            <svg viewBox={`0 0 ${CW} ${CH}`} width={CW} height={CH} role="img" style={{ display: "block" }}
               aria-label={`Register money ${range === "day" ? "by hour" : range === "year" ? "by month" : "by day"}: ${
                 buckets.length ? `${centsDollars(Math.max(...buckets))} at the peak` : "no sales in this window"
               }. Full values in the table below.`}>
@@ -868,7 +894,7 @@ export default function Dashboard({ initialAuthed }: { initialAuthed: boolean })
         </div>
       )}
 
-      <SectionHead label="Stems" href="/workroom/inventory" linkText="Open Inventory" />
+      <SectionHead label="Stems" href="/workroom/inventory" linkText="Open the inventory" />
       <div style={grid}>
         <Tile label="Bought" value={String(now.boughtStems)} sub={`stems · ${money(now.boughtCost)} paid`} delta={<Delta basis={basis} cur={now.boughtStems} prev={prev.boughtStems} />} />
         <Tile

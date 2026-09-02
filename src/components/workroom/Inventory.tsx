@@ -301,7 +301,11 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
         summary={
           varieties.length === 0
             ? "empty; load the price lists to start"
-            : `${varieties.length} varieties, ${pricedCount} priced`
+            : /* "with a shop price", not "priced": sell prices live in the
+                 library, wholesale cost/stem lives in the cooler table right
+                 below, and the bare word read as a contradiction next to a
+                 column full of costs. */
+              `${varieties.length} varieties, ${pricedCount} with a shop price`
         }
         defaultOpen={varieties.length === 0}
       >
@@ -760,7 +764,9 @@ function EventForm({
   const list = `varieties-${kind}`;
   return (
     <form onSubmit={submit} className="panel" style={{ display: "grid", gap: 12 }}>
-      <h2 style={{ fontSize: 20, margin: 0 }}>{kind === "purchase" ? "Log a buy" : "Log a toss"}</h2>
+      {/* 22 to match the Block headers either side; the page's section
+          heads sit on one scale whether or not the section collapses. */}
+      <h2 style={{ fontSize: 22, margin: 0 }}>{kind === "purchase" ? "Log a buy" : "Log a toss"}</h2>
       <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>
         {kind === "purchase" ? (
           <>The Tuesday truck logs itself from <a href="/workroom/weekly-order">Weekly order</a>; this is for the odd buy.</>
@@ -1256,7 +1262,7 @@ function RecentEvents({ events, onDeleted }: { events: StemEvent[]; onDeleted: (
 
   return (
     <section style={{ marginTop: 34 }}>
-      <h2 style={{ fontSize: 20, margin: "0 0 10px" }}>Recent entries</h2>
+      <h2 style={{ fontSize: 22, margin: "0 0 10px" }}>Recent entries</h2>
       <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 14.5 }}>
         {recent.map((e) => (
           <li key={e.id} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "7px 0", borderBottom: "1px solid var(--line)", flexWrap: "wrap" }}>

@@ -263,7 +263,7 @@ export default function PlantsSection({ authed }: { authed: boolean }) {
 
       {needs.length > 0 && (
         <section className="panel" style={{ marginBottom: 26 }}>
-          <h2 style={{ fontSize: 20, margin: "0 0 8px" }}>The plant order</h2>
+          <h2 style={{ fontSize: 22, margin: "0 0 8px" }}>The plant order</h2>
           <p className="muted" style={{ margin: "0 0 10px", fontSize: 14 }}>
             {needs.some((x) => x.p.cost != null)
               ? `The Need column, ready to read to the supplier: about ${money(
