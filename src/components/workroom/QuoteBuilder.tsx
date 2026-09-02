@@ -499,6 +499,12 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
 
             <dl style={{ margin: 0, fontSize: 14.5, display: "grid", gap: 5 }}>
               <Row label="Flowers" val={money(pricing.flowerRetail)} />
+              {/* Only an OLDER quote can carry a markup above x1 (the dial
+                  left the rail with the sheet model); when one does, it must
+                  say so rather than multiply invisibly. */}
+              {(Number(draft.markup) || 1) > 1 && (
+                <Row label={`includes × ${Number(draft.markup)} markup, an older quote`} val={money(pricing.flowerRetail - pricing.stemCost)} muted />
+              )}
               <Row label="Hardgoods" val={money(pricing.hardgoods)} />
               <Row label={`Labor, ${Number(draft.laborPct) || 0}%`} val={money(pricing.labor)} />
               {pricing.tax > 0 && <Row label={`Sales tax, ${pricing.taxPct}%`} val={money(pricing.tax)} />}

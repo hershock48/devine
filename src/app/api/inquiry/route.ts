@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { site } from "@/lib/site";
 import { getStore, newId, type Quote } from "@/lib/workroom/store";
+import { QUOTE_DEFAULTS } from "@/lib/workroom/quote-templates";
 
 /**
  * The site's two business inquiries, landed for real: the wedding form and
@@ -14,10 +15,10 @@ import { getStore, newId, type Quote } from "@/lib/workroom/store";
  * A sent WEDDING inquiry also seeds a draft quote on /workroom/quotes with
  * the couple's details, because the owner's own process turns every
  * inquiry into a quote and the builder should not start blank. Best
- * effort: a quote miss is a log line; the email is the record. The
- * provisional dials (markup x3, labor 25%) are the quote model's own
- * stand-ins. Greening seeds nothing; it is recurring service work with no
- * workroom shape yet.
+ * effort: a quote miss is a log line; the email is the record. The dials
+ * come from QUOTE_DEFAULTS.wedding (her sheet model), one source of truth.
+ * Greening seeds nothing; it is recurring service work with no workroom
+ * shape yet.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,10 +82,12 @@ export async function POST(req: Request) {
         .join("\n"),
       flowers: [],
       pieces: [],
-      markup: 3,
-      laborPct: 25,
-      delivery: 0,
-      setup: 0,
+      // The wedding model's own defaults, never dial values typed here:
+      // this route hardcoded markup 3 / labor 25 and survived the
+      // 2026-09-02 model rewrite unnoticed, so every WEB inquiry would have
+      // opened under the retired wholesale-x3 model with no tax and no
+      // visible dial - the debug pass caught it the same night.
+      ...QUOTE_DEFAULTS.wedding,
       createdAt: now,
       updatedAt: now,
     };
