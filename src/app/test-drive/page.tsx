@@ -102,9 +102,9 @@ const MISSIONS: Mission[] = [
     href: "/workroom/inventory",
     body: (
       <>
-        In the cooler table, tap <em>Toss</em> on a variety, count a few stems, pick why. That
-        toss now has a dollar figure attached, drawn from what those exact stems cost when they
-        came in.
+        In the cooler table, tap <em>Toss</em> on a variety from your mission-five truck, count
+        a few stems, pick why. The toss is priced from what those exact stems cost when they
+        came in, and the dollar figure waits for you on the dashboard in mission eight.
       </>
     ),
     payoff: "The shrink numbers you said you wished you had start right here.",
@@ -145,9 +145,10 @@ export default function TestDrivePage() {
       <p className="td-kicker">DeVine&rsquo;s Flowers &amp; Botanicals</p>
       <h1>Go ahead. Try to break it.</h1>
       <p className="lede">
-        Eight things to try, in any order. This is the live system, not a slideshow: what you
-        make is saved, what you send arrives, and the order board is the same one your team
-        would work from. You cannot hurt anything, and Kevin clears the test orders after.
+        Eight things to try, best taken top to bottom: the truck you receive in five is the
+        stems you toss in six. This is the live system, not a slideshow: what you make is
+        saved, what you send arrives, and the order board is the same one your team would work
+        from. You cannot hurt anything, and Kevin clears the test orders after.
       </p>
       <p className="lede">
         The two PINs are in Kevin&rsquo;s text: one opens the workroom for the whole team, the
