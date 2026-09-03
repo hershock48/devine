@@ -1,0 +1,100 @@
+/* The owner's test drive. Same materials as the photo drop (globals.css
+   tokens, one measured column, no site chrome); the fun is carried by the
+   big serif mission numerals and the payoff lines, not by novelty type,
+   per the house rule against wobbly display faces. */
+
+.td {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 56px 24px 96px;
+}
+.td-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--rose-ink);
+  margin: 0 0 14px;
+}
+.td h1 {
+  font-size: clamp(38px, 7.4vw, 54px);
+  margin-bottom: 18px;
+  text-wrap: balance;
+}
+.td .lede {
+  font-size: 17px;
+  color: var(--muted);
+  margin: 0 0 10px;
+  max-width: 58ch;
+}
+
+.td-missions {
+  list-style: none;
+  margin: 40px 0 0;
+  padding: 0;
+  counter-reset: none;
+}
+.td-mission {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  border-top: 1px solid var(--line);
+  padding: 26px 0 28px;
+}
+/* The numeral is the page's one flourish: display-size serif, the shop's
+   rose, sitting in the margin like a chapter number. */
+.td-num {
+  flex: 0 0 44px;
+  font-family: var(--serif);
+  font-size: 44px;
+  line-height: .9;
+  color: var(--rose-ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.td-where { margin: 0 0 2px; }
+.td-where a {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+  display: inline-block;
+  padding: 4px 0;
+}
+.td-where a:hover { color: var(--rose-ink); }
+.td-mission h2 {
+  font-size: clamp(22px, 3.4vw, 27px);
+  margin: 0 0 8px;
+}
+.td-body {
+  margin: 0 0 10px;
+  font-size: 15.5px;
+  line-height: 1.55;
+  max-width: 56ch;
+}
+.td-body em { font-style: normal; font-weight: 600; }
+.td-payoff {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--green);
+  max-width: 56ch;
+}
+
+.td-aside {
+  margin-top: 44px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--rose-ink);
+  padding: 16px 20px;
+  border-radius: 0 2px 2px 0;
+  font-size: 15px;
+}
+.td-aside p { margin: 0 0 10px; }
+.td-aside p:last-child { margin: 0; }
+
+@media (max-width: 480px) {
+  .td-mission { gap: 14px; }
+  .td-num { flex-basis: 34px; font-size: 34px; }
+}
