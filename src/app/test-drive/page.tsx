@@ -36,8 +36,9 @@ const MISSIONS: Mission[] = [
     body: (
       <>
         On your phone, like a customer would: pick an arrangement (those are your photographs),
-        add it to the cart, and check out. No card is asked for anywhere. The site says payment
-        is settled on the confirming call, which is exactly how your phone orders already work.
+        add it to the cart, and check out. Sending it with no payment is the everyday flow, and
+        the site says so: settled on the confirming call, like your phone orders. Or try the
+        card option with the practice card below; it rings a pretend register, never a real one.
       </>
     ),
     payoff: "The order emails itself to the shop the moment you tap send.",
@@ -173,9 +174,12 @@ export default function TestDrivePage() {
 
       <div className="td-aside">
         <p>
-          <strong>The one practice corner:</strong> the card buttons (Take card, Record cash)
-          ring a practice register until your own Square is connected, which is a single Allow
-          click on your login whenever you are ready. Everything else here is the real thing.
+          <strong>The practice credit card:</strong> anywhere a card is asked for, use{" "}
+          <strong>4111 1111 1111 1111</strong>, CVV <strong>111</strong>, any future date, any
+          zip. Every charge rings a pretend register, never a real one, and a real card would
+          be refused; that stays true until your own Square is connected, which is a single
+          Allow click on your login whenever you are ready. Everything else here is the real
+          thing.
         </p>
         <p>
           <strong>Found something confusing, slow, or just wrong?</strong> That is the most
