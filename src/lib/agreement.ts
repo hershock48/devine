@@ -12,15 +12,15 @@
  * by hand in the same commit.
  *
  * The general terms are NOT restated here or on the acceptance page. They are
- * the Glazed Web Client Agreement v1.0, published at glazedweb.com/agreement,
+ * the glazedweb Client Agreement v1.1, published at glazedweb.com/agreement,
  * and the acceptance incorporates them by reference the same way the menu
  * order clickwrap does. One text, one home, no drift.
  */
 
 export const agreement = {
-  version: "Glazed Web Client Agreement v1.0",
+  version: "glazedweb Client Agreement v1.1",
   termsUrl: "https://glazedweb.com/agreement",
-  pdfUrl: "https://glazedweb.com/glazed-web-agreement-v1.pdf",
+  pdfUrl: "https://glazedweb.com/glazed-web-agreement-v1-1.pdf",
   exhibit: "Exhibit A: DeVine's Flowers & Botanicals, prepared 2026-08-31, revised 2026-09-02",
 
   client: "DeVine's Flowers & Botanicals",

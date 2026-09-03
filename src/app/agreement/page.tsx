@@ -32,7 +32,7 @@ export default function AgreementPage() {
         Two documents make the whole deal, and both are on this page or one tap from it. The first
         is the{" "}
         <a href={agreement.termsUrl} target="_blank" rel="noopener noreferrer">
-          Glazed Web Client Agreement v1.0
+          glazedweb Client Agreement v1.1
         </a>
         , the same published terms every Glazed Web client gets: you own the site outright when the
         build fee is paid, month to month after launch, thirty days&rsquo; notice, no penalty,
