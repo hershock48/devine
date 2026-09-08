@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveSquare } from "@/lib/square/oauth";
 import { appFeeCents } from "@/lib/square/payments";
+import { site } from "@/lib/site";
 
 /**
  * What the public checkout needs to know about card payment. Unauthenticated
@@ -30,5 +31,8 @@ export async function GET() {
     locationId: cfg.locationId,
     env: cfg.env,
     feeCents: appFeeCents(),
+    // The shop's own card fee percent; the browser combines it with
+    // feeCents into the single Convenience fee line it displays.
+    cardPct: site.cardFeePct,
   });
 }

@@ -69,7 +69,7 @@ type Outcome =
   | { state: "invalid"; message: string }
   | { state: "unreached"; reason: "unconfigured" | "send-failed" };
 
-type CardConfig = { cards: boolean; applicationId?: string; locationId?: string; env?: string; feeCents?: number };
+type CardConfig = { cards: boolean; applicationId?: string; locationId?: string; env?: string; feeCents?: number; cardPct?: number };
 
 /**
  * The cart's add-on strip. Three small things a flower buyer adds at the
@@ -228,9 +228,14 @@ export default function CartView() {
     };
   }, [payMethod, cfg]);
 
-  const feeCents = cfg.feeCents ?? 99;
+  /* The single Convenience fee line (Kevin, 2026-09-04): the shop's card
+     fee percent on subtotal plus delivery, plus the flat platform fee.
+     The server computes the same arithmetic in the order route; Square's
+     own order-total check would catch any drift between the two. */
   const deliveryCents = deliveryFee !== undefined ? Math.round(deliveryFee * 100) : 0;
-  const cardTotalCents = Math.round(subtotal * 100) + (delivering0 ? deliveryCents : 0) + feeCents;
+  const baseCents = Math.round(subtotal * 100) + (delivering0 ? deliveryCents : 0);
+  const convenienceCents = Math.round((baseCents * (cfg.cardPct ?? 3)) / 100) + (cfg.feeCents ?? 99);
+  const cardTotalCents = baseCents + convenienceCents;
 
   // Client date, not build date: a statically frozen "today" once sold birds for
   // the wrong year (glaze.md failure log). This runs per visit, in the browser.
@@ -721,8 +726,8 @@ export default function CartView() {
 
                   {/* Pay-on-call gets its breakdown too (Kevin's ask): the
                       buyer deserves the same arithmetic whichever way the
-                      money moves. No Order fee row here, honestly: the fee
-                      exists only on remote card payments, and this buyer
+                      money moves. No Convenience fee row here, honestly:
+                      the fee exists only on card payments, and this buyer
                       might pay cash at pickup; the note says which. */}
                   {payMethod === "call" && (!delivering || deliveryFee !== undefined) && (
                     <div style={{ border: "1px solid var(--line)", borderRadius: 3, padding: 14, background: "var(--paper-2)" }}>
@@ -744,7 +749,7 @@ export default function CartView() {
                       </ul>
                       {cfg.cards && (
                         <p className="muted" style={{ fontSize: 13.5, margin: "8px 0 0" }}>
-                          Paying by card adds the {money(feeCents / 100)} order fee; cash does not.
+                          Paying by card adds the {money(convenienceCents / 100)} convenience fee; cash does not.
                         </p>
                       )}
                     </div>
@@ -764,8 +769,8 @@ export default function CartView() {
                           </li>
                         )}
                         <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                          <span>Order fee</span>
-                          <span>{money(feeCents / 100)}</span>
+                          <span>Convenience fee</span>
+                          <span>{money(convenienceCents / 100)}</span>
                         </li>
                         <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
                           <span>Total</span>

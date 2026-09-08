@@ -567,7 +567,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       margins.sort((a, b) => b.cents - a.cents);
 
       const bestSellers = [...sold.entries()]
-        .filter(([name]) => name && name !== "(unnamed)" && name !== "Order fee" && name !== "Service fee" && !name.startsWith("Delivery ("))
+        .filter(([name]) => name && name !== "(unnamed)" && name !== "Order fee" && name !== "Service fee" && name !== "Convenience fee" && !name.startsWith("Card fee (") && !name.startsWith("Delivery ("))
         .sort((a, b) => b[1].cents - a[1].cents)
         .slice(0, 5);
 

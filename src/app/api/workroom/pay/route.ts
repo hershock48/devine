@@ -91,16 +91,22 @@ export async function POST(req: Request) {
   }
 
   try {
+    /* The board's fee story (Kevin, 2026-09-04 evening): the shop's own 3%
+       card fee on card payments, kept by the shop (appFeeCents 0 - the 99
+       cent platform fee rides website orders only). Cash charges exactly
+       its lines; chargeBoardOrder ignores cardFee on cash. */
+    const chargedCents = Math.round(subtotal * 100);
     const charged = await chargeBoardOrder(cfg, {
       workroomOrderId: order.id,
       orderNumber: order.number,
       lines: lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
       method,
       sourceId,
-      // No order fee here (Kevin, 2026-09-04): the fee rides orders placed
-      // through the WEBSITE only. A phone order keyed at this board is the
-      // shop's own counter work, and it charges exactly its lines.
-      applyOrderFee: false,
+      cardFee: {
+        name: `Card fee (${site.cardFeePct}%)`,
+        cents: Math.round((chargedCents * site.cardFeePct) / 100),
+        appFeeCents: 0,
+      },
     });
     const payment: OrderPayment = {
       at: Date.now(),

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
+import { sendDeliveredEmail } from "@/lib/intake";
 
 /**
  * The board's orders. GET lists the last 60 days (a wedding sits on the board
@@ -109,6 +110,17 @@ export async function PATCH(req: Request) {
 
   const status = STATUSES.includes(p.status as OrderStatus) ? (p.status as OrderStatus) : null;
   if (!id || !status) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+  // The delivered note (Kevin, 2026-09-04): a DELIVERY order marked done
+  // tells its customer so by email. Looked up before the write so we know
+  // this is a real transition into done, not a repeat tap; best-effort
+  // after the status is safely stored.
+  let deliveredNote: { number: string; name: string; email: string; recipient: string } | null = null;
+  if (status === "done") {
+    const before = await getStore().getOrder(id);
+    if (before && before.fulfillment === "delivery" && before.status !== "done" && before.email) {
+      deliveredNote = { number: before.number, name: before.name, email: before.email, recipient: before.recipient };
+    }
+  }
   if (status === "out") {
     // "out" means on the van. A pickup order cannot be en route; refusing
     // here keeps a stray client from inventing a state the flow cannot leave.
@@ -120,5 +132,6 @@ export async function PATCH(req: Request) {
     }
   }
   await getStore().setOrderStatus(id, status);
+  if (deliveredNote) await sendDeliveredEmail(deliveredNote);
   return NextResponse.json({ ok: true });
 }

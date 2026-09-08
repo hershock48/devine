@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { priceOrder, sendOrder, type PaidOnline, type PricedOrder } from "@/lib/intake";
 import { site } from "@/lib/site";
 import { resolveSquare } from "@/lib/square/oauth";
-import { chargeBoardOrder } from "@/lib/square/payments";
+import { chargeBoardOrder, appFeeCents } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/workroom/store";
 
 /**
@@ -123,6 +123,13 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
     ...order.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
     ...(deliveryFee > 0 ? [{ name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }] : []),
   ];
+  /* The website's fee story (Kevin, 2026-09-04): one Convenience fee line
+     combining the shop's 3% card fee with the 99 cent platform fee. Only
+     the 99 cents ride to the Glazed account; the 3% is the shop's. The
+     browser shows the same arithmetic (CartView) and Square's order-total
+     check would catch any drift between the two. */
+  const baseCents = chargeLines.reduce((s, l) => s + Math.round(l.each * 100) * l.qty, 0);
+  const convenienceCents = Math.round((baseCents * site.cardFeePct) / 100) + appFeeCents();
   let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
   try {
     charged = await chargeBoardOrder(cfg, {
@@ -131,9 +138,7 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
       lines: chargeLines,
       method: "card",
       sourceId,
-      // The one place the order fee applies (Kevin, 2026-09-04): an order
-      // placed through the website.
-      applyOrderFee: true,
+      cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: appFeeCents() },
     });
   } catch (err) {
     console.error(`[devine] online payment for ${order.number} failed:`, err);

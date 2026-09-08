@@ -394,7 +394,7 @@ function ClosedList({ orders }: { orders: Order[] }) {
               {o.payment && (
                 <p className="muted" style={{ margin: 0 }}>
                   Paid by {o.payment.method === "other" ? "another way" : o.payment.method}, {money(o.payment.totalCents / 100)}
-                  {o.payment.feeCents > 0 ? ` (includes the ${money(o.payment.feeCents / 100)} order fee)` : ""}
+                  {o.payment.feeCents > 0 ? ` (includes the ${money(o.payment.feeCents / 100)} ${o.source === "web" ? "convenience" : "card"} fee)` : ""}
                   {o.payment.refundedAt ? " · refunded" : ""}
                 </p>
               )}
@@ -572,7 +572,9 @@ function OrderCard({
         {o.payment && o.payment.feeCents > 0 && (
           <>
             <li style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Order fee</span>
+              {/* The web checkout's line is the combined Convenience fee;
+                  a card keyed at the board pays the shop's Card fee. */}
+              <span>{o.source === "web" ? "Convenience fee" : "Card fee"}</span>
               <span>{money(o.payment.feeCents / 100)}</span>
             </li>
             <li style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>

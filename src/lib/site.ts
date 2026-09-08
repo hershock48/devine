@@ -95,6 +95,16 @@ export const site = {
   /** Flowers subtotal a delivery order starts at (see the note above). */
   deliveryMinimums: { marshall: 45, outside: 55 },
 
+  /**
+   * The shop's own card fee, percent of the charge, on every card payment
+   * our platform takes (Kevin, 2026-09-04, from the shop's meeting). This
+   * one is DEVINE'S money - it covers her processing - unlike the 99 cent
+   * platform fee, which is Glazed Web's and rides only on website orders.
+   * Online the two combine into a single "Convenience fee" line; a phone
+   * order keyed at the board shows "Card fee (3%)" alone. Cash never fees.
+   */
+  cardFeePct: 3,
+
   delivery: {
     sameDay: "Same-day delivery whenever possible.",
     // No fixed cutoff exists, confirmed by Katy 2026-09-02: "It's rare we

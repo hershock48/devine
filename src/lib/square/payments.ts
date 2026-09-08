@@ -88,13 +88,16 @@ export async function createCardPayment(cfg: ResolvedSquare, p: CardPayment) {
  * the board order's own made-status; the webhook links the sale back by
  * reference id and inventory skips linked sales.
  *
- * THE FEE RULE, per Kevin 2026-09-04 (superseding 2026-09-01's
- * every-remote-card version): the 99 cent customer-paid order fee rides
- * ONLINE ORDERS ONLY - orders placed through the website's checkout. A
- * phone order keyed at the board carries no fee, cash never did, and
- * in-person register sales never did. The CALLER states the intent via
- * applyOrderFee, so a future third caller is forced to decide rather than
- * inherit: the web checkout passes true, the workroom pay route false.
+ * THE FEE RULE, per Kevin 2026-09-04 evening (the shop's meeting; second
+ * revision that day): every card payment carries the shop's own 3% card
+ * fee (site.cardFeePct - DEVINE'S money, covering her processing), and
+ * orders placed through the WEBSITE additionally carry the 99 cent
+ * platform fee (GLAZED WEB'S money, sent as app_fee_money). Online the
+ * two combine into one customer-facing "Convenience fee" line; at the
+ * board the line reads "Card fee (3%)". Cash carries nothing. The CALLER
+ * computes and names the fee via cardFee, so every payment path states
+ * its fee story explicitly; only appFeeCents inside it rides to the
+ * platform account.
  */
 
 type BoardOrderLine = { name: string; qty: number; each: number };
@@ -116,18 +119,25 @@ export async function chargeBoardOrder(
     method: "card" | "cash";
     /** Card only: the Web Payments SDK token from the browser. */
     sourceId?: string;
-    /** The fee rule above: true only for orders placed through the
-        website's checkout. Required, never defaulted. */
-    applyOrderFee: boolean;
+    /** Card only, per the fee rule above: the customer-paid fee line to
+        add to the charge, computed and NAMED by the caller ("Convenience
+        fee" online, "Card fee (3%)" at the board), plus how many of those
+        cents belong to the platform account. Required, never defaulted,
+        so every payment path states its fee story. Pass cents 0 to charge
+        exactly the lines. */
+    cardFee: { name: string; cents: number; appFeeCents: number };
   },
 ) {
   const subtotalCents = opts.lines.reduce((sum, l) => sum + cents(l.each) * l.qty, 0);
   if (subtotalCents <= 0) throw new Error("This order has no priced lines to charge.");
 
-  const fee = opts.applyOrderFee && opts.method === "card" ? appFeeCents() : 0;
-  const feeLegal = fee > 0 && cfg.viaOAuth && fee * 5 <= subtotalCents + fee;
-  const feeCents = feeLegal ? fee : 0;
+  const feeCents = opts.method === "card" ? Math.max(0, Math.round(opts.cardFee.cents)) : 0;
   const totalCents = subtotalCents + feeCents;
+  // Square's 60-percent rule with margin (see createCardPayment): the
+  // platform's share only rides when it is well under the total, and it
+  // can never exceed the fee line the customer actually paid.
+  const appFeeWanted = Math.min(feeCents, Math.max(0, Math.round(opts.cardFee.appFeeCents)));
+  const appFee = opts.method === "card" && cfg.viaOAuth && appFeeWanted > 0 && appFeeWanted * 5 <= totalCents ? appFeeWanted : 0;
 
   const lineItems: Record<string, unknown>[] = opts.lines.map((l) => ({
     name: l.name,
@@ -136,7 +146,7 @@ export async function chargeBoardOrder(
   }));
   if (feeCents > 0) {
     lineItems.push({
-      name: "Order fee",
+      name: opts.cardFee.name,
       quantity: "1",
       base_price_money: { amount: feeCents, currency: "USD" },
     });
@@ -172,7 +182,9 @@ export async function chargeBoardOrder(
   if (opts.method === "card") {
     if (!opts.sourceId) throw new Error("Card payment without a card token.");
     body.source_id = opts.sourceId;
-    if (feeCents > 0) body.app_fee_money = { amount: feeCents, currency: "USD" };
+    // Only the platform's share, never the whole fee line: the 3% part is
+    // the shop's own money and stays in her account.
+    if (appFee > 0) body.app_fee_money = { amount: appFee, currency: "USD" };
   } else {
     body.source_id = "CASH";
     body.cash_details = { buyer_supplied_money: { amount: totalCents, currency: "USD" } };

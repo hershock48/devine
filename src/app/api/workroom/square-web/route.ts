@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { appFeeCents } from "@/lib/square/payments";
+import { site } from "@/lib/site";
 
 /**
  * What the Web Payments SDK needs to draw a card form in the workroom: the
@@ -25,5 +26,7 @@ export async function GET() {
   }
   // The fee too, so the browser quotes the same number the server charges
   // rather than hardcoding its own copy of 99.
-  return NextResponse.json({ applicationId: appId, locationId: cfg.locationId, env: cfg.env, feeCents: appFeeCents() });
+  // cardPct is the shop's own 3% card fee; feeCents (the platform's 99)
+  // stays in the answer for compatibility but the board no longer adds it.
+  return NextResponse.json({ applicationId: appId, locationId: cfg.locationId, env: cfg.env, feeCents: appFeeCents(), cardPct: site.cardFeePct });
 }

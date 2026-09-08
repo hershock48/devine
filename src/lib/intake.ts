@@ -220,7 +220,7 @@ function customerCopy(o: PricedOrder, paid?: PaidOnline): string {
     ...o.lines.map((l) => `  ${l.qty} x ${l.name}   ${money(l.line)}`),
     `Subtotal ${money(o.subtotal)}`,
     paid && paid.deliveryCents ? `Delivery ${money(paid.deliveryCents / 100)}` : null,
-    paid ? `Order fee ${money(paid.feeCents / 100)}` : null,
+    paid ? `Convenience fee ${money(paid.feeCents / 100)}` : null,
     paid ? `Paid by card ${money(paid.totalCents / 100)}` : null,
     "",
     o.fulfillment === "delivery"
@@ -240,6 +240,46 @@ function customerCopy(o: PricedOrder, paid?: PaidOnline): string {
 }
 
 export type SendResult = "sent" | "unconfigured" | "send-failed";
+
+/**
+ * The delivered note (Kevin, 2026-09-04, from the shop's meeting): when a
+ * DELIVERY order is marked done on the board, the customer hears so by
+ * email. Best-effort and awaited (the serverless freeze rule); a missing
+ * address or unconfigured mail is a log line, never a failed status move.
+ */
+export async function sendDeliveredEmail(o: {
+  number: string;
+  name: string;
+  email: string;
+  recipient: string;
+}): Promise<void> {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  if (!host || !user || !pass || !o.email) {
+    console.log(`[devine] delivered note for ${o.number} not sent (no ${o.email ? "SMTP" : "email on the order"}).`);
+    return;
+  }
+  const transport = nodemailer.createTransport({
+    host,
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: Number(process.env.SMTP_PORT || 465) === 465,
+    auth: { user, pass },
+  });
+  await transport
+    .sendMail({
+      from: process.env.ORDER_FROM || user,
+      to: o.email,
+      replyTo: process.env.ORDER_TO || undefined,
+      subject: `Delivered: your ${site.shortName} order ${o.number}`,
+      text: [
+        `Your order ${o.number} has been delivered${o.recipient && o.recipient !== o.name ? ` to ${o.recipient}` : ""}.`,
+        "",
+        `Thank you for ordering from ${site.name}. If anything about the delivery needs a word, call the shop at ${site.phone}.`,
+      ].join("\n"),
+    })
+    .catch((err) => console.error(`[devine] delivered note for ${o.number} not sent:`, err));
+}
 
 export async function sendOrder(o: PricedOrder, paid?: PaidOnline): Promise<SendResult> {
   const host = process.env.SMTP_HOST;

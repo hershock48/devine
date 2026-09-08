@@ -32,10 +32,11 @@ export const agreement = {
   monthly: 150,
   editAllowance: "2 hours per month",
   hourlyRate: 125,
-  /** Customer-paid, on ORDERS PLACED THROUGH THE WEBSITE only (Kevin,
-      2026-09-04, narrowing the earlier every-remote-card rule), shown as
-      its own line, retained by Glazed Web. Never on phone orders keyed at
-      the board, never on cash, never on in-person register sales. */
+  /** Customer-paid, on ORDERS PLACED THROUGH THE WEBSITE only, retained
+      by Glazed Web. Online it combines with the shop's own card fee
+      (site.cardFeePct, HER money) into one Convenience fee line; a card
+      keyed at the board carries the shop's fee alone; cash and in-person
+      register sales carry nothing. Kevin, 2026-09-04, both revisions. */
   serviceFeeCents: 99,
 
   scope: [
@@ -43,7 +44,7 @@ export const agreement = {
     "Online order intake: checkout that takes the order and emails the shop a ticket, with payment taken on the confirming call. No card is charged online in this phase.",
     "The workroom at /workroom, included in the monthly fee: the order board, the owner's dashboard (takings, margins, averages, behind an owner-only PIN), inventory with stem and shrink tracking, the wedding quote builder, the funeral pad, the plant par sheet, and the weekly order screen.",
     "The Square register link: the product catalog pushed onto the shop's existing Square register, and completed register sales flowing back into the workroom automatically. Connected with the owner's own one-click authorization; the shop's Square account stays the shop's.",
-    "Card payments taken remotely run through the shop's own Square account at Square's published processing rate. That covers phone orders keyed by the shop in the workroom (available now), and online checkout when both parties agree in writing to turn it on. Orders placed through the website carry a $0.99 order fee paid by the customer, shown as its own line item on the order, retained by Glazed Web as the ordering platform fee. It is never charged to the Client and applies nowhere else: not to phone orders keyed in the workroom, not to sales rung in person on the register.",
+    "Card payments taken remotely run through the shop's own Square account at Square's published processing rate. That covers phone orders keyed by the shop in the workroom (available now), and online checkout when both parties agree in writing to turn it on. Every such card payment carries a 3% card fee paid by the customer, charged by and kept by the Client to cover processing. Orders placed through the website additionally carry a $0.99 platform fee retained by Glazed Web; online the two appear as a single Convenience fee line. Neither fee is ever charged to the Client's own account, and sales rung in person on the register carry neither.",
   ],
 
   /* Revised 2026-09-02: the original parenthetical (photography permission,
