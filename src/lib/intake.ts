@@ -185,7 +185,7 @@ export function shopTicket(o: PricedOrder, paid?: PaidOnline): string {
     ...lines,
     "",
     paid
-      ? `Subtotal ${money(o.subtotal)}${paid.deliveryCents ? ` + ${money(paid.deliveryCents / 100)} delivery` : ""} + ${money(paid.feeCents / 100)} order fee = ${money(paid.totalCents / 100)} PAID`
+      ? `Subtotal ${money(o.subtotal)}${paid.deliveryCents ? ` + ${money(paid.deliveryCents / 100)} delivery` : ""} + ${money(paid.feeCents / 100)} convenience fee = ${money(paid.totalCents / 100)} PAID`
       : `Subtotal ${money(o.subtotal)} (no tax or delivery on this figure; settled on the confirm call)`,
     "",
     `Card message: ${o.cardMessage || "(none)"}`,

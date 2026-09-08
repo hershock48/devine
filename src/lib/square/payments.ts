@@ -18,8 +18,9 @@ import type { ResolvedSquare } from "./oauth";
  * amountCents, the shop's account receives amountCents minus processing
  * minus the fee, and the fee accrues to the Glazed account that owns the
  * app. So the checkout that wants the customer to pay the fee (the model:
- * a visible "Order fee $0.99" line, never a hidden markup) must ADD the
- * fee to the order total it charges, then name the same number here.
+ * a visible fee line such as "Convenience fee", never a hidden markup)
+ * must ADD the fee to the order total it charges, then name the platform's
+ * share of it here.
  *
  * Two hard rules from Square, enforced here rather than discovered in a
  * 400: the fee is only legal on an OAuth-token payment made with the

@@ -40,16 +40,20 @@ function recordText(a: AgreementAcceptance): string {
     `Record id:  ${a.id}`,
     `From IP:    ${a.ip}`,
     ``,
-    `Terms: ${agreement.termsUrl} (v1.0), incorporated by reference.`,
+    // The version comes from the one constant, never retyped: a hardcoded
+    // "(v1.0)" here survived the v1.1 bump and would have misquoted the
+    // record (caught by the 2026-09-04 wording pass).
+    `Terms: ${agreement.termsUrl} (${agreement.version}), incorporated by reference.`,
     `Exhibit A as shown at devine.glazedweb.com/agreement on the acceptance date:`,
     ``,
     `  Build fee ${money(agreement.buildFee)}, deposit ${money(agreement.deposit)} due on acceptance,`,
     `  balance on launch. Monthly service fee ${money(agreement.monthly)} from the first of the`,
     `  month after launch. Edit allowance ${agreement.editAllowance}. Additional work`,
-    `  ${money(agreement.hourlyRate)}/hour, quoted and approved in advance. Remote card`,
-    `  payments (phone orders keyed by the shop now, online checkout when enabled in`,
-    `  writing) carry a $0.99 customer-paid order fee retained by Glazed Web; cash`,
-    `  and in-person register sales never do. ${agreement.timeline}`,
+    `  ${money(agreement.hourlyRate)}/hour, quoted and approved in advance. Card payments`,
+    `  carry a 3% customer-paid card fee kept by the Client; orders placed through the`,
+    `  website additionally carry a $0.99 platform fee retained by Glazed Web (shown`,
+    `  online as one Convenience fee line). Cash and in-person register sales carry`,
+    `  neither. ${agreement.timeline}`,
     ``,
     ...agreement.scope.map((s, i) => `  Scope ${i + 1}. ${s}`),
   ].join("\n");

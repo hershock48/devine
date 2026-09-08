@@ -40,7 +40,7 @@ import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
  * charging a number that a fee might later change would be this checkout
  * lying. When the switch is off, or Square is unconnected, none of this
  * renders and the flow above is exactly what it was. The fee is shown as
- * its own Order fee line before the button quotes the total; the server
+ * its own Convenience fee line before the button quotes the total; the server
  * recomputes everything and the browser's numbers decide nothing.
  */
 

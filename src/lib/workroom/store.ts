@@ -60,7 +60,8 @@ export type OrderPayment = {
   method: "card" | "cash" | "register" | "other";
   squarePaymentId: string;
   totalCents: number;
-  /** The customer-paid order fee included in totalCents; 0 on cash. */
+  /** The customer-paid fee line included in totalCents (the Convenience
+      fee on web orders, the shop's card fee at the board); 0 on cash. */
   feeCents: number;
   /** Set when the shop attests the Square refund happened (canceled paid
       orders). The workroom cannot see refunds itself and does not
