@@ -131,6 +131,9 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
       lines: chargeLines,
       method: "card",
       sourceId,
+      // The one place the order fee applies (Kevin, 2026-09-04): an order
+      // placed through the website.
+      applyOrderFee: true,
     });
   } catch (err) {
     console.error(`[devine] online payment for ${order.number} failed:`, err);

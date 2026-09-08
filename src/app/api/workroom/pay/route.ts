@@ -97,6 +97,10 @@ export async function POST(req: Request) {
       lines: lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
       method,
       sourceId,
+      // No order fee here (Kevin, 2026-09-04): the fee rides orders placed
+      // through the WEBSITE only. A phone order keyed at this board is the
+      // shop's own counter work, and it charges exactly its lines.
+      applyOrderFee: false,
     });
     const payment: OrderPayment = {
       at: Date.now(),

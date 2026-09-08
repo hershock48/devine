@@ -9,9 +9,11 @@ import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
  * "Take card" and "Record cash". Card entry is Square's Web Payments SDK
  * drawing its own iframe field, so no card number ever exists in our page
  * or on our server; we see a one-use token. The charge lands in the shop's
- * own Square account, itemized with a service-fee line on card, linked to
- * this order by id, and the webhook + inventory treat it as the board
- * order's money rather than a second sale.
+ * own Square account, itemized, linked to this order by id, and the
+ * webhook + inventory treat it as the board order's money rather than a
+ * second sale. No order fee here since 2026-09-04: the fee rides orders
+ * placed through the website only, and a phone order keyed at this board
+ * charges exactly its lines.
  *
  * The SDK loads lazily, only when someone opens card entry: the board is a
  * counter tool that polls all day, and Square's script has no business on
@@ -41,7 +43,6 @@ export default function PayControls({
   const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual">("idle");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [fee, setFee] = useState(99);
   /** True once Square's card field is attached and typeable. The charge
       button stays disabled until then, because the first live test clicked
       into "The card field is not ready yet.", which is the code scolding
@@ -51,7 +52,6 @@ export default function PayControls({
   const holderRef = useRef<HTMLDivElement | null>(null);
 
   const baseTotal = Math.round(subtotal * 100) + deliveryCents;
-  const cardTotal = baseTotal + fee;
 
   // Mount Square's card field when card mode opens; tear it down when it
   // closes, because a destroyed iframe beats a leaked one on a page that
@@ -80,7 +80,6 @@ export default function PayControls({
         if (!r.ok || !cfgJson.applicationId || !cfgJson.locationId) {
           throw new Error(cfgJson.error || "Card entry is unavailable.");
         }
-        if (typeof cfgJson.feeCents === "number") setFee(cfgJson.feeCents);
         await loadSquareSdk(cfgJson.env ?? "sandbox");
         if (dead || !window.Square) return;
         const payments = await window.Square.payments(cfgJson.applicationId, cfgJson.locationId);
@@ -188,38 +187,35 @@ export default function PayControls({
 
       {mode === "card" && (
         <div className="panel" style={{ padding: 12, marginTop: 4 }}>
-          {/* A receipt, not a sentence: the earlier version explained the fee
-              apologetically and then nagged staff to disclose it (Kevin's
-              read, near verbatim: "this is the price and then there's a
-              service fee... sorry... and make sure you tell them"). Rows say
-              it plainly; the button quotes the total. */}
+          {/* A receipt, not a sentence. The Order fee row lived here from
+              2026-09-01 to 2026-09-04, when Kevin narrowed the fee to
+              website orders only; a phone order keyed at this board now
+              charges exactly its lines. */}
           <ul style={{ listStyle: "none", padding: 0, margin: "0 0 10px", fontSize: 14.5 }}>
-            <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <span>Subtotal</span>
-              <span>{dollars(Math.round(subtotal * 100))}</span>
-            </li>
+            {/* Subtotal only earns a row when delivery makes it differ from
+                the total; two identical lines is a receipt talking to
+                itself. */}
             {deliveryCents > 0 && (
-              <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                <span>Delivery</span>
-                <span>{dollars(deliveryCents)}</span>
-              </li>
+              <>
+                <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span>Subtotal</span>
+                  <span>{dollars(Math.round(subtotal * 100))}</span>
+                </li>
+                <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span>Delivery</span>
+                  <span>{dollars(deliveryCents)}</span>
+                </li>
+              </>
             )}
-            <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              {/* "Order fee", chosen 2026-09-01 over service/convenience/
-                  technology fee: concrete labels are the best-tolerated per
-                  pricing research, and it names exactly what is bought. */}
-              <span>Order fee</span>
-              <span>{dollars(fee)}</span>
-            </li>
-            <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
+            <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: deliveryCents > 0 ? "1px solid var(--line)" : "none", marginTop: deliveryCents > 0 ? 4 : 0, paddingTop: deliveryCents > 0 ? 4 : 0, fontWeight: 700 }}>
               <span>Total</span>
-              <span>{dollars(cardTotal)}</span>
+              <span>{dollars(baseTotal)}</span>
             </li>
           </ul>
           <div ref={holderRef} />
           <p style={{ margin: "10px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
             <button type="button" className="btn btn--solid" disabled={busy || !ready} onClick={() => pay("card")}>
-              {!ready ? "Opening card field…" : busy ? "Charging…" : `Charge ${dollars(cardTotal)}`}
+              {!ready ? "Opening card field…" : busy ? "Charging…" : `Charge ${dollars(baseTotal)}`}
             </button>
             <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
               Never mind

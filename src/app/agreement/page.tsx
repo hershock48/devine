@@ -92,11 +92,11 @@ export default function AgreementPage() {
             <td>
               Remote card payments run through your own Square account at Square&rsquo;s published
               rate: phone orders keyed by your staff on the order board now, and online checkout
-              when we both agree in writing to turn it on. Each remote card payment carries a $0.99
-              order fee paid by the customer, shown as its own line on the order, retained by
-              Glazed Web. It is never charged to you, and sales rung in person on your register
-              never carry it. Web checkout otherwise takes the order and payment happens on the
-              confirming call.
+              when we both agree in writing to turn it on. Orders placed through the website carry
+              a $0.99 order fee paid by the customer, shown as its own line on the order, retained
+              by Glazed Web. It is never charged to you and applies nowhere else: not to phone
+              orders your staff key on the board, not to sales rung in person on your register.
+              Web checkout otherwise takes the order and payment happens on the confirming call.
             </td>
           </tr>
           <tr>

@@ -88,12 +88,13 @@ export async function createCardPayment(cfg: ResolvedSquare, p: CardPayment) {
  * the board order's own made-status; the webhook links the sale back by
  * reference id and inventory skips linked sales.
  *
- * THE FEE RULE, per Kevin 2026-09-01 and the agreement's wording: card
- * payments taken remotely (online checkout or keyed here) carry the 99 cent
- * customer-paid order fee as its own line item, so the customer was
- * quoted the true total and her ledger shows the line. Cash carries no fee:
- * the fee rides remote card payments only, and a cash drawer holding 99
- * unexplained cents helps nobody.
+ * THE FEE RULE, per Kevin 2026-09-04 (superseding 2026-09-01's
+ * every-remote-card version): the 99 cent customer-paid order fee rides
+ * ONLINE ORDERS ONLY - orders placed through the website's checkout. A
+ * phone order keyed at the board carries no fee, cash never did, and
+ * in-person register sales never did. The CALLER states the intent via
+ * applyOrderFee, so a future third caller is forced to decide rather than
+ * inherit: the web checkout passes true, the workroom pay route false.
  */
 
 type BoardOrderLine = { name: string; qty: number; each: number };
@@ -115,12 +116,15 @@ export async function chargeBoardOrder(
     method: "card" | "cash";
     /** Card only: the Web Payments SDK token from the browser. */
     sourceId?: string;
+    /** The fee rule above: true only for orders placed through the
+        website's checkout. Required, never defaulted. */
+    applyOrderFee: boolean;
   },
 ) {
   const subtotalCents = opts.lines.reduce((sum, l) => sum + cents(l.each) * l.qty, 0);
   if (subtotalCents <= 0) throw new Error("This order has no priced lines to charge.");
 
-  const fee = opts.method === "card" ? appFeeCents() : 0;
+  const fee = opts.applyOrderFee && opts.method === "card" ? appFeeCents() : 0;
   const feeLegal = fee > 0 && cfg.viaOAuth && fee * 5 <= subtotalCents + fee;
   const feeCents = feeLegal ? fee : 0;
   const totalCents = subtotalCents + feeCents;
