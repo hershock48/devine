@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
-import { sendDeliveredEmail } from "@/lib/intake";
+import { sendDeliveredEmail, sendWorkroomReceipt } from "@/lib/intake";
 
 /**
  * The board's orders. GET lists the last 60 days (a wedding sits on the board
@@ -91,6 +91,9 @@ export async function POST(req: Request) {
   };
 
   await getStore().createOrder(order);
+  // The form asks for an email "for their receipt"; this is the receipt.
+  // Best-effort and awaited; a bounced copy never fails the write-up.
+  if (order.email) await sendWorkroomReceipt(order);
   return NextResponse.json({ ok: true, order });
 }
 

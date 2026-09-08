@@ -281,6 +281,57 @@ export async function sendDeliveredEmail(o: {
     .catch((err) => console.error(`[devine] delivered note for ${o.number} not sent:`, err));
 }
 
+/**
+ * The phone-order receipt (found by Kevin's double-check, 2026-09-04): the
+ * write-up form asks for an email "for their receipt", and until this
+ * function nothing sent one - web orders emailed a copy, phone orders
+ * emailed nothing. Best-effort and awaited, same rules as every send.
+ */
+export async function sendWorkroomReceipt(o: {
+  number: string;
+  name: string;
+  email: string;
+  date: string;
+  fulfillment: string;
+  recipient: string;
+  lines: { name: string; qty: number; each: number }[];
+  subtotal: number;
+}): Promise<void> {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  if (!host || !user || !pass || !o.email) {
+    if (o.email) console.log(`[devine] receipt for ${o.number} not sent: SMTP incomplete.`);
+    return;
+  }
+  const transport = nodemailer.createTransport({
+    host,
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: Number(process.env.SMTP_PORT || 465) === 465,
+    auth: { user, pass },
+  });
+  const text = [
+    `Thanks, ${o.name}. Here is your ${site.shortName} order, written up by the shop.`,
+    "",
+    `Order ${o.number}`,
+    `${o.fulfillment === "delivery" ? "Delivery" : "Pickup"} on ${o.date}${o.recipient && o.recipient !== o.name ? `, for ${o.recipient}` : ""}`,
+    "",
+    ...o.lines.map((l) => `  ${l.qty} x ${l.name}  ${money(l.each * l.qty)}`),
+    `  Subtotal ${money(o.subtotal)}`,
+    "",
+    `Questions or changes: call the shop at ${site.phone}.`,
+  ].join("\n");
+  await transport
+    .sendMail({
+      from: process.env.ORDER_FROM || user,
+      to: o.email,
+      replyTo: process.env.ORDER_TO || undefined,
+      subject: `Your ${site.shortName} order ${o.number}`,
+      text,
+    })
+    .catch((err) => console.error(`[devine] receipt for ${o.number} not sent:`, err));
+}
+
 export async function sendOrder(o: PricedOrder, paid?: PaidOnline): Promise<SendResult> {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
