@@ -128,7 +128,7 @@ export default async function Home() {
           loading="lazy"
           decoding="async"
         />
-        <figcaption>Designed daily, from whatever came in fresh that morning</figcaption>
+        <figcaption>Designed daily, from whatever came in fresh</figcaption>
       </figure>
 
       {/* 5. OCCASIONS, as an index rather than eight boxes. */}

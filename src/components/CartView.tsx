@@ -341,8 +341,7 @@ export default function CartView() {
               Paid: <strong>{money(outcome.paid.totalCents / 100)}</strong> by card.{" "}
               {date === today ? (
                 <>
-                  It&rsquo;s wanted <strong>today</strong>, so we&rsquo;ll call you to confirm
-                  timing.
+                  It&rsquo;s wanted <strong>today</strong>, and we&rsquo;ll handle it from here.
                 </>
               ) : delivering ? (
                 <>
@@ -508,7 +507,7 @@ export default function CartView() {
                 value={cardMessage}
                 onChange={(e) => setCardMessage(e.target.value)}
                 rows={3}
-                placeholder="Written on the card exactly as you type it, handwriting ours."
+                placeholder="Printed on the card exactly as you type it."
                 style={{ ...field, maxWidth: 560 }}
               />
             </label>

@@ -352,19 +352,56 @@ function ClosedList({ orders }: { orders: Order[] }) {
   return (
     <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0", maxWidth: 720 }}>
       {orders.map((o) => (
-        <li
-          key={o.id}
-          style={{
-            display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap",
-            padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 14,
-            opacity: o.status === "canceled" ? 0.6 : 1,
-          }}
-        >
-          <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)", whiteSpace: "nowrap" }}>{o.number}</span>
-          <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.name}</span>
-          <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{o.date}</span>
-          <span style={{ whiteSpace: "nowrap" }}>{o.status === "canceled" ? "canceled" : "done"}</span>
-          <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{moneyWord(o)}</span>
+        <li key={o.id} style={{ borderBottom: "1px solid var(--line)", opacity: o.status === "canceled" ? 0.6 : 1 }}>
+          {/* Each row OPENS since 2026-09-04 (the shop's meeting, via Kevin:
+              "you can look up the order, but you can't see the details").
+              The line stays a line; the record inside is one tap. */}
+          <details>
+            <summary
+              style={{
+                display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap",
+                padding: "8px 0", fontSize: 14, cursor: "pointer", listStyle: "none",
+              }}
+            >
+              <span aria-hidden="true" style={{ color: "var(--muted)", fontSize: 11 }}>&#9656;</span>
+              <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)", whiteSpace: "nowrap" }}>{o.number}</span>
+              <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.name}</span>
+              <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{o.date}</span>
+              <span style={{ whiteSpace: "nowrap" }}>{o.status === "canceled" ? "canceled" : "done"}</span>
+              <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{moneyWord(o)}</span>
+            </summary>
+            <div style={{ padding: "2px 0 14px 23px", fontSize: 14, display: "grid", gap: 6, maxWidth: 480 }}>
+              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                {o.lines.map((l, i) => (
+                  <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <span>{l.qty} &times; {l.name}</span>
+                    <span style={{ whiteSpace: "nowrap" }}>{money(l.each * l.qty)}</span>
+                  </li>
+                ))}
+                <li style={{ display: "flex", justifyContent: "space-between", gap: 10, fontWeight: 600, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4 }}>
+                  <span>Subtotal</span>
+                  <span>{money(o.subtotal)}</span>
+                </li>
+              </ul>
+              <p className="muted" style={{ margin: 0 }}>
+                {o.source} order &middot; {o.fulfillment}
+                {o.fulfillment === "delivery" && (o.street || o.recipient)
+                  ? ` to ${[o.recipient, o.street, o.town].filter(Boolean).join(", ")}`
+                  : ""}
+                {o.phone ? ` · ${o.phone}` : ""}
+                {o.email ? ` · ${o.email}` : ""}
+              </p>
+              {o.payment && (
+                <p className="muted" style={{ margin: 0 }}>
+                  Paid by {o.payment.method === "other" ? "another way" : o.payment.method}, {money(o.payment.totalCents / 100)}
+                  {o.payment.feeCents > 0 ? ` (includes the ${money(o.payment.feeCents / 100)} order fee)` : ""}
+                  {o.payment.refundedAt ? " · refunded" : ""}
+                </p>
+              )}
+              {o.cardMessage && <p style={{ margin: 0, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{o.cardMessage}&rdquo;</p>}
+              {o.notes && <p className="muted" style={{ margin: 0, overflowWrap: "anywhere" }}>{o.notes}</p>}
+            </div>
+          </details>
         </li>
       ))}
     </ul>
@@ -687,6 +724,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
    */
   const [typed, setTyped] = useState({ name: false, phone: false });
   const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">("delivery");
+  const [email, setEmail] = useState("");
   const [recipient, setRecipient] = useState("");
   const [street, setStreet] = useState("");
   const [town, setTown] = useState("");
@@ -708,11 +746,14 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
     e.preventDefault();
     setError("");
     const payload = {
-      name, phone, fulfillment, date, occasion, cardMessage, notes,
+      name, phone, email, fulfillment, date, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
-      street: fulfillment === "delivery" ? street : "",
-      town: fulfillment === "delivery" ? town : "",
-      zip: fulfillment === "delivery" ? zip.trim() : "",
+      // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
+      // from the shop's meeting): it is the customer's own address, kept
+      // for their file, house accounts and mileage later.
+      street: street,
+      town: town,
+      zip: zip.trim(),
       lines: lines
         .filter((l) => l.slug || l.custom.trim())
         .map((l) =>
@@ -772,6 +813,12 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
             }}
             style={field}
           />
+        </label>
+        <label>
+          <span style={labelText}>
+            Email <span className="muted" style={{ fontWeight: 400 }}>(for their receipt)</span>
+          </span>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={field} />
         </label>
       </div>
 
@@ -876,30 +923,38 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       </fieldset>
 
       {delivering && (
-        <>
-          <label>
-            <span style={labelText}>Recipient (if not the customer)</span>
-            <input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={field} />
-          </label>
-          {/* minWidth: 0 on every grid label, or the inputs' intrinsic ~170px
-              minimum wins over the fr columns and the whole form pushes the
-              page sideways at 390px. Caught by the authed-state audit. */}
-          <div style={{ display: "grid", gap: 14, gridTemplateColumns: "2fr 1fr minmax(70px, 110px)" }}>
-            <label style={{ minWidth: 0 }}>
-              <span style={labelText}>Street</span>
-              <input value={street} onChange={(e) => setStreet(e.target.value)} style={field} />
-            </label>
-            <label style={{ minWidth: 0 }}>
-              <span style={labelText}>Town</span>
-              <input value={town} onChange={(e) => setTown(e.target.value)} style={field} />
-            </label>
-            <label style={{ minWidth: 0 }}>
-              <span style={labelText}>Zip</span>
-              <input value={zip} onChange={(e) => setZip(e.target.value)} inputMode="numeric" style={field} />
-            </label>
-          </div>
-        </>
+        <label>
+          <span style={labelText}>Recipient (if not the customer)</span>
+          <input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={field} />
+        </label>
       )}
+      {/* The address block renders for BOTH fulfillments since 2026-09-04
+          (Kevin, from the shop's meeting): on a delivery it is where the
+          flowers go; on a pickup it is the customer's own address, kept
+          for their file. The heading says which so nobody wonders. */}
+      <div>
+        <span style={labelText}>
+          {delivering ? "Delivery address" : "Customer address"}
+          {!delivering && <span className="muted" style={{ fontWeight: 400 }}> (optional, for their file)</span>}
+        </span>
+        {/* minWidth: 0 on every grid label, or the inputs' intrinsic ~170px
+            minimum wins over the fr columns and the whole form pushes the
+            page sideways at 390px. Caught by the authed-state audit. */}
+        <div style={{ display: "grid", gap: 14, gridTemplateColumns: "2fr 1fr minmax(70px, 110px)" }}>
+          <label style={{ minWidth: 0 }}>
+            <span style={labelText}>Street</span>
+            <input value={street} onChange={(e) => setStreet(e.target.value)} style={field} />
+          </label>
+          <label style={{ minWidth: 0 }}>
+            <span style={labelText}>Town</span>
+            <input value={town} onChange={(e) => setTown(e.target.value)} style={field} />
+          </label>
+          <label style={{ minWidth: 0 }}>
+            <span style={labelText}>Zip</span>
+            <input value={zip} onChange={(e) => setZip(e.target.value)} inputMode="numeric" style={field} />
+          </label>
+        </div>
+      </div>
 
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         <label>
