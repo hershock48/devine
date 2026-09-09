@@ -89,9 +89,9 @@ export async function createCardPayment(cfg: ResolvedSquare, p: CardPayment) {
  * the board order's own made-status; the webhook links the sale back by
  * reference id and inventory skips linked sales.
  *
- * THE FEE RULE, per Kevin 2026-09-04 evening (the shop's meeting; second
- * revision that day): every card payment carries the shop's own 3% card
- * fee (site.cardFeePct - DEVINE'S money, covering her processing), and
+ * THE FEE RULE, per Kevin 2026-09-09 (third revision; see site.cardFeePct
+ * for the register half): every card payment carries the shop's own 3%
+ * card fee (site.cardFeePct - DEVINE'S money, covering her processing), and
  * orders placed through the WEBSITE additionally carry the 99 cent
  * platform fee (GLAZED WEB'S money, sent as app_fee_money). Online the
  * two combine into one customer-facing "Convenience fee" line; at the

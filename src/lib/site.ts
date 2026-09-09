@@ -96,12 +96,15 @@ export const site = {
   deliveryMinimums: { marshall: 45, outside: 55 },
 
   /**
-   * The shop's own card fee, percent of the charge, on every card payment
-   * our platform takes (Kevin, 2026-09-04, from the shop's meeting). This
-   * one is DEVINE'S money - it covers her processing - unlike the 99 cent
-   * platform fee, which is Glazed Web's and rides only on website orders.
-   * Online the two combine into a single "Convenience fee" line; a phone
-   * order keyed at the board shows "Card fee (3%)" alone. Cash never fees.
+   * The shop's own card fee, percent of the charge, on EVERY card payment
+   * (Kevin, 2026-09-09, superseding the 09-04 remote-only reading): our
+   * platform applies it on phone and website orders; register swipes carry
+   * it too, applied by the shop at her own POS, which our code cannot
+   * reach. This one is DEVINE'S money - it covers her processing - unlike
+   * the 99 cent platform fee, which is Glazed Web's and rides only on
+   * website orders. Online the two combine into a single "Convenience fee"
+   * line; a phone order keyed at the board shows "Card fee (3%)" alone.
+   * Cash alone never fees.
    */
   cardFeePct: 3,
 

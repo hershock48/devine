@@ -90,14 +90,16 @@ export default function AgreementPage() {
           <tr>
             <td>Card payments</td>
             <td>
-              Remote card payments run through your own Square account at Square&rsquo;s published
-              rate: phone orders keyed by your staff on the order board now, and online checkout
+              Card payments run through your own Square account at Square&rsquo;s published rate:
+              phone orders keyed by your staff on the order board now, and online checkout
               when we both agree in writing to turn it on. Every card payment carries a 3% card
-              fee paid by the customer; that fee is yours, covering your processing. Orders placed
-              through the website additionally carry a $0.99 platform fee retained by Glazed Web,
-              and online the two show as one Convenience fee line. Neither is ever charged to you,
-              and sales rung in person on your register carry neither. Web checkout otherwise
-              takes the order and payment happens on the confirming call.
+              fee paid by the customer, wherever the card is used: the system adds it on phone
+              and website orders, and you apply it at your own register. That fee is yours,
+              covering your processing. Orders placed through the website additionally carry a
+              $0.99 platform fee retained by Glazed Web, and online the two show as one
+              Convenience fee line. Cash sales carry no fee, and neither fee is ever charged to
+              you. Web checkout otherwise takes the order and payment happens on the confirming
+              call.
             </td>
           </tr>
           <tr>
