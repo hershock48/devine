@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getStore } from "@/lib/workroom/store";
 import { resolveSquare } from "@/lib/square/oauth";
+import { agreement } from "@/lib/agreement";
 import "../agreement/agreement.css";
 import "./launch.css";
 
@@ -40,9 +41,14 @@ export const metadata: Metadata = {
 
 async function readLights() {
   // Booleans only, agreement-GET style: the page says whether, never what.
+  // Only an acceptance of the CURRENT version counts: the store also holds
+  // a test acceptance from proving the flow (v1.0 era), and the first
+  // production render of this page showed Signed lit before anyone signed.
+  // A signature on a superseded version is not the current signed state
+  // anyway, so the honest filter and the bug fix are the same line.
   let signed = false;
   try {
-    signed = (await getStore().listAgreementAcceptances()).length > 0;
+    signed = (await getStore().listAgreementAcceptances()).some((a) => a.version === agreement.version);
   } catch {
     // An unreachable store reads as not-yet, never as an error page.
   }
