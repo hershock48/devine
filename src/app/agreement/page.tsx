@@ -23,11 +23,42 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function AgreementPage() {
+/**
+ * The pay rail's return notes. The pay buttons land on glazedweb.com's
+ * /api/pay/devine, which opens Stripe Checkout and sends every return trip
+ * back HERE with a word in the query: session_id after a completed payment
+ * (Stripe only redirects there once the charge went through), or pay= for
+ * the honest failure and already-paid cases. Unknown values render nothing.
+ */
+function payNote(sp: { [k: string]: string | string[] | undefined }): string | null {
+  if (typeof sp.session_id === "string" && sp.session_id.startsWith("cs_")) {
+    return sp.what === "half"
+      ? "Payment made; the card receipt is on its way to your email. If that was the deposit, the balance is due at launch through the same deposit button."
+      : "Payment made; the card receipt is on its way to your email.";
+  }
+  const pay = typeof sp.pay === "string" ? sp.pay : "";
+  if (pay === "cancelled") return "No charge was made. The payment links are here whenever you are ready.";
+  if (pay === "failed" || pay === "off") return "The card page could not be opened just now. Try again in a minute, or email kevin@glazedweb.com.";
+  if (pay === "paid") return "The build fee is already paid in full; nothing more is owed on it.";
+  if (pay === "half-paid") return "The deposit is already paid. Only the balance remains, due at launch, through the same deposit link below.";
+  return null;
+}
+
+export default async function AgreementPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [k: string]: string | string[] | undefined }>;
+}) {
+  const note = payNote((await searchParams) || {});
   return (
     <main className="agr">
       <p className="agr-kicker">Glazed Web × {agreement.client}</p>
       <h1>The agreement, in plain English.</h1>
+      {note && (
+        <p className="agr-note" role="status" style={{ fontWeight: 700 }}>
+          {note}
+        </p>
+      )}
       <p>
         Two documents make the whole deal, and both are on this page or one tap from it. The first
         is the{" "}

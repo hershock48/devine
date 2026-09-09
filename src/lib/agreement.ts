@@ -34,16 +34,20 @@ export const agreement = {
       agreement page - the $1,000 deposit with the balance due on launch,
       the full $2,000 up front, or the full $2,000 with the $150 monthly
       started right away instead of waiting for launch, so everything is
-      set up in one sitting and she never has to come back. These are the
-      checkout links for each choice, from GLAZED'S own account (the build
-      fee is Glazed's money, never the shop's Square; the third link is a
-      checkout that also opens the subscription). Empty means not created
-      yet: the page then says the payment link arrives with the signed
-      copy, which stays true because Kevin sends it by hand until these
-      are filled. */
-  payDepositUrl: "",
-  payFullUrl: "",
-  payFullMonthlyUrl: "",
+      set up in one sitting and she never has to come back. The links are
+      the studio's own pay rail (glazedweb repo: /api/pay/{slug}, backed by
+      lib/buildfee.js and lib/monthly.js on GLAZED'S Stripe - the build fee
+      is Glazed's money, never the shop's Square). Each opens a Stripe
+      Checkout with the registry's numbers: ?what=half is the $1,000 door,
+      used once for the deposit and once more for the balance at launch;
+      ?what=build is the full fee; ?what=both carries the build fee and the
+      $150 monthly in one card form. Double payment is refused rail-side
+      from Stripe's own records, and every return trip lands back on THIS
+      host's /agreement (the registry's agreementUrl), which reads the
+      ?pay= and ?session_id= notes Stripe and the rail send back. */
+  payDepositUrl: "https://www.glazedweb.com/api/pay/devine?what=half",
+  payFullUrl: "https://www.glazedweb.com/api/pay/devine?what=build",
+  payFullMonthlyUrl: "https://www.glazedweb.com/api/pay/devine?what=both",
   editAllowance: "2 hours per month",
   hourlyRate: 125,
   /** Customer-paid, on ORDERS PLACED THROUGH THE WEBSITE only, retained
