@@ -62,19 +62,29 @@ export default function AgreementPage() {
             <td>Build fee</td>
             <td>
               {money(agreement.buildFee)}, one time, and the pace is your choice on acceptance:
-              pay the {money(agreement.deposit)} deposit now with the balance due on launch, or
-              pay the {money(agreement.buildFee)} in full and be done with it. Either way the
-              deposit portion is due on acceptance and credited against the total.{" "}
+              pay the {money(agreement.deposit)} deposit now with the balance due on launch; pay
+              the {money(agreement.buildFee)} in full and be done with it; or pay in full and
+              start the monthly right away too, so everything is set up in one sitting and you
+              never have to come back to it. Either way the deposit portion is due on acceptance
+              and credited against the total.{" "}
               {agreement.payDepositUrl && agreement.payFullUrl ? (
                 <>
                   Pay it right here:{" "}
                   <a href={agreement.payDepositUrl} target="_blank" rel="noopener noreferrer">
                     the {money(agreement.deposit)} deposit
-                  </a>{" "}
-                  or{" "}
+                  </a>
+                  ,{" "}
                   <a href={agreement.payFullUrl} target="_blank" rel="noopener noreferrer">
                     the full {money(agreement.buildFee)}
                   </a>
+                  {agreement.payFullMonthlyUrl ? (
+                    <>
+                      , or{" "}
+                      <a href={agreement.payFullMonthlyUrl} target="_blank" rel="noopener noreferrer">
+                        the full {money(agreement.buildFee)} with the monthly started now
+                      </a>
+                    </>
+                  ) : null}
                   .
                 </>
               ) : (
@@ -85,7 +95,8 @@ export default function AgreementPage() {
           <tr>
             <td>Monthly service fee</td>
             <td>
-              {money(agreement.monthly)} per month from the first of the month after launch.
+              {money(agreement.monthly)} per month from the first of the month after launch, or
+              starting right away if you choose to begin it alongside a full build payment.
               Hosting, SSL, security updates, backups, domain renewal, the store, and the workroom.
             </td>
           </tr>

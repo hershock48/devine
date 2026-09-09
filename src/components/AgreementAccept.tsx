@@ -40,10 +40,19 @@ export default function AgreementAccept({ business }: { business: string }) {
               <a href={agreement.payDepositUrl} target="_blank" rel="noopener noreferrer">
                 the deposit now
               </a>{" "}
-              with the balance on launch, or{" "}
+              with the balance on launch,{" "}
               <a href={agreement.payFullUrl} target="_blank" rel="noopener noreferrer">
                 the whole thing
               </a>
+              {agreement.payFullMonthlyUrl ? (
+                <>
+                  , or{" "}
+                  <a href={agreement.payFullMonthlyUrl} target="_blank" rel="noopener noreferrer">
+                    the whole thing with the monthly started now
+                  </a>
+                  , so it is all set up in one sitting
+                </>
+              ) : null}
               .
             </>
           ) : (

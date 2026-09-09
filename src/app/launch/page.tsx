@@ -85,7 +85,7 @@ const ASKS: { what: React.ReactNode; why: string }[] = [
         The build fee, at your pace, from <a href="/agreement">the agreement</a>.
       </>
     ),
-    why: "Unblocks the build schedule. Your choice: the deposit now with the balance due on launch, or the full amount up front and done. The agreement page is where you pay either one.",
+    why: "Unblocks the build schedule. Your choice: the deposit now with the balance due on launch, the full amount up front and done, or the full amount with the monthly started right away so everything is set up in one sitting. The agreement page is where you pay.",
   },
   {
     what: "Your Square account, connected to the site.",
