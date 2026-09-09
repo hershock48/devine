@@ -23,10 +23,10 @@ import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/wo
  * 503/502 mean "did not reach the shop", the cart says exactly that, and
  * never thanks a visitor for an order nobody received.
  *
- * PAID BY CARD (payload carries card.sourceId, pickup only): the CHARGE is
- * the order. Sequence: price, refuse non-pickup (the delivery fee is still
- * the owner's unanswered question, and charging a "final" total a fee might
- * later change would be the checkout lying), charge through the shop's
+ * PAID BY CARD (payload carries card.sourceId): the CHARGE is the order.
+ * Sequence: price, gate delivery (a zip must be on the owner's fee sheet
+ * and the flowers must clear her minimum; anything else falls back to the
+ * pay-on-call flow, see paidFlow), charge through the shop's
  * Square account with the board id as reference, THEN store the board row
  * already paid, then email. A failed charge returns 402 and nothing
  * persists. After a successful charge the emails become best-effort with

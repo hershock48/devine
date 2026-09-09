@@ -878,6 +878,10 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                   setTyped({ name: false, phone: false });
                   setName(c.name);
                   setPhone(c.phone);
+                  // Email is part of WHO: without this line a regular's
+                  // receipt silently stopped, because nobody redictates an
+                  // email the shop already has (fine-tooth pass, 2026-09-09).
+                  setEmail(c.email ?? "");
                   if (c.fulfillment) setFulfillment(c.fulfillment);
                   setRecipient(c.recipient ?? "");
                   setStreet(c.street ?? "");
