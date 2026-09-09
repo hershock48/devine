@@ -1,0 +1,98 @@
+/* The launch page's own additions. It wears the agreement page's dress
+   (agreement.css, imported by the page) so the two read as chapters of the
+   same book; this file adds only the status lights and the ask list. */
+
+.lp-lights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--u) * 1.5) calc(var(--u) * 3);
+  margin: calc(var(--u) * 2) 0 0;
+  padding: calc(var(--u) * 2.5) calc(var(--u) * 3);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  list-style: none;
+}
+.lp-lights li {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 1);
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+.lp-dot {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted);
+  flex: none;
+}
+.lp-lit .lp-dot {
+  background: var(--green);
+  border-color: var(--green);
+}
+.lp-lights .lp-unlit {
+  color: var(--muted);
+}
+
+.lp-asks {
+  list-style: none;
+  counter-reset: ask;
+  padding: 0;
+  margin: calc(var(--u) * 2) 0;
+}
+.lp-asks > li {
+  counter-increment: ask;
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: 0 calc(var(--u) * 1.5);
+  padding: calc(var(--u) * 1.5) 0;
+  border-bottom: 1px solid var(--line);
+  margin: 0;
+}
+.lp-asks > li::before {
+  content: counter(ask);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--muted);
+}
+.lp-ask-what {
+  font-weight: 700;
+  margin: 0 0 calc(var(--u) * 0.5);
+}
+.lp-ask-why {
+  grid-column: 2;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.lp-phase {
+  margin: 0 0 calc(var(--u) * 2);
+}
+.lp-phase .lp-wait {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.lp-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--u) * 1.5);
+  padding: 0;
+  margin: calc(var(--u) * 2) 0;
+  list-style: none;
+}
+.lp-links li {
+  margin: 0;
+}
+.lp-links a {
+  display: inline-block;
+  font-weight: 700;
+  text-decoration: none;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  padding: calc(var(--u) * 1.25) calc(var(--u) * 2.5);
+}

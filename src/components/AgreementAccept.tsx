@@ -35,6 +35,10 @@ export default function AgreementAccept({ business }: { business: string }) {
           A copy of the signed record is on its way to your email, and to ours. The deposit invoice
           follows separately, and nothing is due until it does.
         </p>
+        <p>
+          What happens next lives on <a href="/launch">the launch plan</a>: where things stand,
+          what we build in what order, and the short list only you can supply.
+        </p>
       </div>
     );
   }
