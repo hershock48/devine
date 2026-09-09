@@ -61,9 +61,25 @@ export default function AgreementPage() {
           <tr>
             <td>Build fee</td>
             <td>
-              {money(agreement.buildFee)}, one time. A deposit of {money(agreement.deposit)} is due
-              on acceptance and credited against it; the balance is due on launch. Invoiced
-              separately; nothing is owed until the invoice arrives.
+              {money(agreement.buildFee)}, one time, and the pace is your choice on acceptance:
+              pay the {money(agreement.deposit)} deposit now with the balance due on launch, or
+              pay the {money(agreement.buildFee)} in full and be done with it. Either way the
+              deposit portion is due on acceptance and credited against the total.{" "}
+              {agreement.payDepositUrl && agreement.payFullUrl ? (
+                <>
+                  Pay it right here:{" "}
+                  <a href={agreement.payDepositUrl} target="_blank" rel="noopener noreferrer">
+                    the {money(agreement.deposit)} deposit
+                  </a>{" "}
+                  or{" "}
+                  <a href={agreement.payFullUrl} target="_blank" rel="noopener noreferrer">
+                    the full {money(agreement.buildFee)}
+                  </a>
+                  .
+                </>
+              ) : (
+                <>The payment link arrives with your signed copy.</>
+              )}
             </td>
           </tr>
           <tr>

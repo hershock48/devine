@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { agreement } from "@/lib/agreement";
 
 /**
  * The acceptance form. Clickwrap: type the name, tick the box, one button.
@@ -32,8 +33,22 @@ export default function AgreementAccept({ business }: { business: string }) {
       <div className="agr-done" role="status">
         <h3>Accepted. Welcome aboard.</h3>
         <p>
-          A copy of the signed record is on its way to your email, and to ours. The deposit invoice
-          follows separately, and nothing is due until it does.
+          A copy of the signed record is on its way to your email, and to ours.{" "}
+          {agreement.payDepositUrl && agreement.payFullUrl ? (
+            <>
+              When you are ready, pay the build fee at your own pace:{" "}
+              <a href={agreement.payDepositUrl} target="_blank" rel="noopener noreferrer">
+                the deposit now
+              </a>{" "}
+              with the balance on launch, or{" "}
+              <a href={agreement.payFullUrl} target="_blank" rel="noopener noreferrer">
+                the whole thing
+              </a>
+              .
+            </>
+          ) : (
+            <>The payment link follows with your signed copy, and nothing is due until it arrives.</>
+          )}
         </p>
         <p>
           What happens next lives on <a href="/launch">the launch plan</a>: where things stand,

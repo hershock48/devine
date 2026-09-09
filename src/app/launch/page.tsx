@@ -80,8 +80,12 @@ const ASKS: { what: React.ReactNode; why: string }[] = [
     why: "Unblocks everything below. The terms and numbers live there, one tap away, and this page never repeats them.",
   },
   {
-    what: "The deposit, once the invoice arrives.",
-    why: "Unblocks the build schedule. Nothing is due until the invoice comes; the agreement says how it works.",
+    what: (
+      <>
+        The build fee, at your pace, from <a href="/agreement">the agreement</a>.
+      </>
+    ),
+    why: "Unblocks the build schedule. Your choice: the deposit now with the balance due on launch, or the full amount up front and done. The agreement page is where you pay either one.",
   },
   {
     what: "Your Square account, connected to the site.",

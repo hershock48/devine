@@ -30,6 +30,15 @@ export const agreement = {
   buildFee: 2000,
   deposit: 1000,
   monthly: 150,
+  /** PAYING THE BUILD FEE (Kevin, 2026-09-09): the client chooses on the
+      agreement page - the $1,000 deposit with the balance due on launch,
+      or the full $2,000 up front. These are the checkout links for each
+      choice, from GLAZED'S own account (the build fee is Glazed's money,
+      never the shop's Square). Empty means not created yet: the page then
+      says the payment link arrives with the signed copy, which stays true
+      because Kevin sends it by hand until these are filled. */
+  payDepositUrl: "",
+  payFullUrl: "",
   editAllowance: "2 hours per month",
   hourlyRate: 125,
   /** Customer-paid, on ORDERS PLACED THROUGH THE WEBSITE only, retained
