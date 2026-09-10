@@ -22,18 +22,28 @@
   white-space: nowrap;
 }
 .lp-dot {
+  display: inline-block;
   width: 0.7em;
   height: 0.7em;
   border-radius: 50%;
   border: 1.5px solid var(--muted);
   flex: none;
+  vertical-align: baseline;
 }
-.lp-lit .lp-dot {
+.lp-dot.is-lit {
   background: var(--green);
+  border-color: var(--green);
+}
+/* Half in: the left half fills, the way the studio's half circle reads. */
+.lp-dot.is-half {
+  background: linear-gradient(90deg, var(--green) 50%, transparent 50%);
   border-color: var(--green);
 }
 .lp-lights .lp-unlit {
   color: var(--muted);
+}
+.lp-ask-what .lp-dot {
+  margin-right: 0.15em;
 }
 
 .lp-asks {
