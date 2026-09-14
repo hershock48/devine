@@ -375,3 +375,11 @@ Confirmed from their own pages on 2026-08-20:
 - Incumbent vendor: Creative Web Designing, Inc. of Coldwater, credited in their footer.
 
 Anything not on this list is unconfirmed. Ask rather than write it down.
+
+## Launch hardening: workroom sessions
+
+Staff/owner cookies are now signed 18-hour sessions, never PIN values. Set a random `WORKROOM_SESSION_SECRET` of at least 32 characters before deploying; missing/short secrets close production access. Staff and owner PINs must differ. Rotating the secret revokes all sessions; changing a PIN revokes that role's sessions. Old PIN cookies require sign-in again. Logout clears this browser; secret rotation is the global revocation mechanism.
+
+Sign-in now requires persistent Postgres in production (`DATABASE_URL` or `POSTGRES_URL`) and uses an atomic account-wide limit of ten attempts per ten minutes. Cold starts and client-supplied IP headers cannot reset the counter. A shared lockout is the tradeoff; restore database availability rather than falling back to unrestricted login. The database role must be able to create `devine_login_attempts`. Local development without a database uses an in-process counter and random process session secret.
+
+Verification: six isolated session/login-limit tests passed and TypeScript checks passed. Coverage includes raw PIN cookies, modified roles/signatures, expiry, PIN/secret rotation, secure cookie attributes, owner/staff separation, rate limiting and production failure without configuration. Live database concurrency and deployed login/handover still need verification before rollout. Payment retry/recovery hardening remains separate work; these session changes alone do not certify live payments.
