@@ -44,6 +44,7 @@ export default function PayControls({
   const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual">("idle");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const requestLock = useRef(false);
   const [cardPct, setCardPct] = useState(3);
   /** True once Square's card field is attached and typeable. The charge
       button stays disabled until then, because the first live test clicked
@@ -113,8 +114,11 @@ export default function PayControls({
   }, [mode]);
 
   async function pay(method: "card" | "cash" | "manual") {
+    if (requestLock.current) return;
+    requestLock.current = true;
     setBusy(true);
     setError("");
+    let submitted = false;
     try {
       let sourceId: string | undefined;
       if (method === "card") {
@@ -125,6 +129,7 @@ export default function PayControls({
         }
         sourceId = t.token;
       }
+      submitted = true;
       const r = await fetch("/api/workroom/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,8 +140,9 @@ export default function PayControls({
       setMode("idle");
       onPaid();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The payment did not go through.");
+      setError(submitted ? `${err instanceof Error ? err.message : "Payment response unavailable."} Check Payment recovery before collecting money again.` : err instanceof Error ? err.message : "Card entry is unavailable.");
     } finally {
+      requestLock.current = false;
       setBusy(false);
     }
   }
@@ -244,6 +250,7 @@ export default function PayControls({
       {error && (
         <p role="alert" style={{ margin: "8px 0 0", fontSize: 14, fontWeight: 600, color: "var(--rose-ink)" }}>
           {error}
+          {" "}<a href="/workroom/payments">Payment recovery</a>
         </p>
       )}
     </div>

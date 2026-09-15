@@ -9,40 +9,7 @@ import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
 import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
 
-/**
- * THE CART, AND A CHECKOUT THAT SENDS SOMEWHERE.
- *
- * Phase 1 of the DeVine build: the order form is real. It POSTs to /api/order,
- * which prices the cart on the server and emails a ticket to the shop over SMTP.
- * No card is taken online; the shop calls to confirm the details and take
- * payment, which is how a florist already handles every phone order it gets.
- *
- * glaze.md's line still governs the failure modes: "What is not acceptable is a
- * stub that waits half a second and says 'Thanks, we got it' while sending
- * nowhere." So the form has exactly three honest outcomes:
- *
- *   sent         "Order DV-0821-4183 is in. We'll call you." The cart clears.
- *   not sent     (mail unconfigured, or the send failed) The visitor is told
- *                plainly that nothing reached the shop, and handed the two
- *                routes that always work: the phone, and a mailto carrying
- *                every field they typed. Nothing to retype, nothing pretended.
- *   bad order    the server's validation message, next to the button.
- *
- * NOTE ON THE TOTAL: still no tax line and no delivery fee. Their site publishes
- * neither a delivery fee nor an order minimum, and inventing either would put a
- * number in front of a customer that the shop never agreed to. The ticket and
- * the confirmation both say the subtotal is settled on the confirm call. Both
- * facts stay on the README checklist as questions for the owner.
- *
- * CARD PAYMENT (2026-09-01), behind the CHECKOUT_CARDS switch and PICKUP
- * ONLY: a pickup subtotal IS the total, so it can be charged honestly; a
- * delivery total still depends on the unanswered delivery-fee question, and
- * charging a number that a fee might later change would be this checkout
- * lying. When the switch is off, or Square is unconnected, none of this
- * renders and the flow above is exactly what it was. The fee is shown as
- * its own Convenience fee line before the button quotes the total; the server
- * recomputes everything and the browser's numbers decide nothing.
- */
+/** Server-priced checkout; uncertain card requests keep an opaque recovery reference across reloads. */
 
 const field: React.CSSProperties = {
   width: "100%",
@@ -63,6 +30,7 @@ const labelText: React.CSSProperties = {
 };
 
 type Outcome =
+  | { state: "pending"; message: string; failed?: boolean }
   | { state: "idle" }
   | { state: "sending" }
   | { state: "sent"; number: string; paid?: { totalCents: number; feeCents: number; receiptUrl?: string } }
@@ -96,6 +64,27 @@ const ADD_ON_POOL = (() => {
 export default function CartView() {
   const { items, subtotal, setQty, remove, count, clear, add, lines } = useCart();
   const [checkingOut, setCheckingOut] = useState(false);
+  const attemptRef = useRef("");
+  const submitLock = useRef(false);
+  const paymentWarning = "Payment is awaiting confirmation. Do not pay again or place a replacement order. Check its status below or call the shop.";
+  useEffect(() => {
+    const saved = localStorage.getItem("devine-payment-attempt");
+    if (saved) { attemptRef.current = saved; setOutcome({ state: "pending", message: paymentWarning }); }
+  }, []);
+  async function checkPayment() {
+    if (submitLock.current) return;
+    submitLock.current = true;
+    try {
+      const response = await fetch("/api/order/payment-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attemptKey: attemptRef.current }) });
+      const body = await response.json();
+      if (body.ok) {
+        localStorage.removeItem("devine-payment-attempt"); attemptRef.current = "";
+        setOutcome({ state: "sent", number: body.number, paid: body.paid }); clear();
+      } else setOutcome({ state: "pending", failed: body.failed === true, message: body.failed ? "Square confirmed this payment failed. You can return to checkout and use another payment method." : paymentWarning });
+    } catch { setOutcome({ state: "pending", message: paymentWarning }); }
+    finally { submitLock.current = false; }
+  }
+
   const [outcome, setOutcome] = useState<Outcome>({ state: "idle" });
 
   /*
@@ -246,6 +235,9 @@ export default function CartView() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitLock.current) return;
+    if (attemptRef.current) { await checkPayment(); return; }
+    submitLock.current = true;
     setOutcome({ state: "sending" });
 
     // The DOM is the truth for typed fields: autofill can fill inputs
@@ -270,15 +262,20 @@ export default function CartView() {
     // Tokenize first when paying by card: no token, no POST, and the
     // message names what to fix. The card number itself never leaves
     // Square's iframe.
-    let cardPayload: { sourceId: string } | undefined;
+    let cardPayload: { sourceId: string; attemptKey: string } | undefined;
     if (payMethod === "card") {
       try {
         if (!cardRef.current) throw new Error("The card field is not ready yet.");
         const t = await cardRef.current.tokenize();
         if (t.status !== "OK" || !t.token) throw new Error(t.errors?.[0]?.message || "The card did not go through. Check the number.");
-        cardPayload = { sourceId: t.token };
+        const attemptKey = crypto.randomUUID();
+        // Persist only the opaque ID, never customer fields or the card token.
+        localStorage.setItem("devine-payment-attempt", attemptKey);
+        attemptRef.current = attemptKey;
+        cardPayload = { sourceId: t.token, attemptKey };
       } catch (err) {
         setOutcome({ state: "invalid", message: err instanceof Error ? err.message : "The card did not go through." });
+        submitLock.current = false;
         return;
       }
     }
@@ -301,17 +298,20 @@ export default function CartView() {
       });
       const body = await res.json().catch(() => null);
       if (res.ok && body?.ok) {
+        localStorage.removeItem("devine-payment-attempt"); attemptRef.current = "";
         setOutcome({ state: "sent", number: body.number, paid: body.paid });
         clear();
+      } else if (cardPayload && res.status !== 400) {
+        setOutcome({ state: "pending", message: body?.error || paymentWarning });
       } else if (res.status === 400 || res.status === 402) {
+        localStorage.removeItem("devine-payment-attempt"); attemptRef.current = "";
         setOutcome({ state: "invalid", message: body?.error || "Something in the order needs another look." });
       } else {
         setOutcome({ state: "unreached", reason: body?.reason === "unconfigured" ? "unconfigured" : "send-failed" });
       }
     } catch {
-      // The fetch itself failed: offline, or the site is down. Same honesty.
-      setOutcome({ state: "unreached", reason: "send-failed" });
-    }
+      setOutcome(cardPayload ? { state: "pending", message: paymentWarning } : { state: "unreached", reason: "send-failed" });
+    } finally { submitLock.current = false; }
   }
 
   /* Everything the visitor typed, ready to travel by email instead. */
@@ -329,6 +329,16 @@ export default function CartView() {
     notes ? `Notes: ${notes}` : null,
   ].filter((l): l is string => l !== null).join("\n");
   const mailtoHref = `mailto:${site.email}?subject=${encodeURIComponent("Flower order")}&body=${encodeURIComponent(mailtoBody + "\n")}`;
+
+  if (outcome.state === "pending") return (
+    <section className="section"><div className="wrap" style={{ maxWidth: 760 }}>
+      <h1>Check your payment</h1><p role="status">{outcome.message}</p>
+      <p>Checkout reference: {attemptRef.current}</p>
+      <button className="btn" type="button" onClick={checkPayment}>Check payment status</button>
+      {outcome.failed && <button className="btn" type="button" onClick={() => { localStorage.removeItem("devine-payment-attempt"); attemptRef.current = ""; setOutcome({ state: "idle" }); }}>Return to checkout</button>}
+      <p><a href={`tel:${site.phone.replace(/[^+0-9]/g, "")}`}>Call the shop</a></p>
+    </div></section>
+  );
 
   if (outcome.state === "sent") {
     return (

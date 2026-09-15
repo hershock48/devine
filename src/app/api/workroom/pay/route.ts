@@ -2,23 +2,10 @@ import { NextResponse } from "next/server";
 import { site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
-import { chargeBoardOrder } from "@/lib/square/payments";
-import { getStore, type OrderPayment, type WorkroomLine } from "@/lib/workroom/store";
+import { fulfillPayment, gatewayIdentity, paymentFingerprint, pendingMessage, settledPayment, takePayment } from "@/lib/square/payment-service";
+import { getStore, type WorkroomLine } from "@/lib/workroom/store";
 
-/**
- * Where a board order's money gets settled: the card keyed on the order
- * card, or cash recorded at pickup. Either way the charge is a real Square
- * payment into the shop's own account, itemized, carrying our order id, so
- * her ledger and the board agree without anyone typing anything twice.
- *
- * Behind the workroom cookie, browser-only, like the board itself. This IS
- * the thing the auth file said must not sit behind a mere PIN gate ("when
- * Stripe lands, that stays behind a real login") half true here: no card
- * NUMBER ever reaches this route (the browser tokenizes with Square's SDK,
- * we see a one-use token), and the route can only move money INTO the
- * shop's account, never out. The PIN gate remains acceptable for exactly
- * that reason; refunds, if ever built, are the line that needs the login.
- */
+/** Signed workroom session; all payment methods share one durable order lock. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -66,60 +53,18 @@ export async function POST(req: Request) {
       : order.lines;
   const subtotal = zipFee !== undefined ? Math.round((order.subtotal + zipFee) * 100) / 100 : order.subtotal;
 
-  // The by-hand mark: money already moved outside the board (a check, an
-  // account, an unlinked register ring). Records the fact and touches
-  // nothing else; deliberately works even with Square unconfigured.
-  if (method === "manual") {
-    const payment: OrderPayment = {
-      at: Date.now(),
-      method: "other",
-      squarePaymentId: "",
-      totalCents: Math.round(subtotal * 100),
-      feeCents: 0,
-    };
-    if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
-    await store.setOrderPayment(order.id, payment);
-    return NextResponse.json({ ok: true, payment });
-  }
-
-  const cfg = await resolveSquare();
-  if (!cfg) {
-    return NextResponse.json(
-      { error: "Square is not connected, so no payment can be taken here yet." },
-      { status: 503 },
-    );
-  }
-
+  const cfg = method === "manual" ? null : await resolveSquare();
+  if (method !== "manual" && !cfg) return NextResponse.json({ error: "Square is not connected." }, { status: 503 });
+  const key = `board_${order.id}`;
+  const cardFee = { name: `Card fee (${site.cardFeePct}%)`, cents: method === "card" ? Math.round((Math.round(subtotal * 100) * site.cardFeePct) / 100) : 0, appFeeCents: 0 };
   try {
-    /* The board's fee story (Kevin, 2026-09-04 evening): the shop's own 3%
-       card fee on card payments, kept by the shop (appFeeCents 0 - the 99
-       cent platform fee rides website orders only). Cash charges exactly
-       its lines; chargeBoardOrder ignores cardFee on cash. */
-    const chargedCents = Math.round(subtotal * 100);
-    const charged = await chargeBoardOrder(cfg, {
-      workroomOrderId: order.id,
-      orderNumber: order.number,
-      lines: lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
-      method,
-      sourceId,
-      cardFee: {
-        name: `Card fee (${site.cardFeePct}%)`,
-        cents: Math.round((chargedCents * site.cardFeePct) / 100),
-        appFeeCents: 0,
-      },
-    });
-    const payment: OrderPayment = {
-      at: Date.now(),
-      method,
-      squarePaymentId: charged.paymentId,
-      totalCents: charged.totalCents,
-      feeCents: charged.feeCents,
-    };
-    if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
-    await store.setOrderPayment(order.id, payment);
-    return NextResponse.json({ ok: true, payment, receiptUrl: charged.receiptUrl });
-  } catch (err) {
-    console.error(`[devine] pay ${order.number} (${method}) failed:`, err);
-    return NextResponse.json({ error: String(err instanceof Error ? err.message : err).slice(0, 300) }, { status: 502 });
+    const outcome = await takePayment(key, paymentFingerprint({ id: order.id, lines, method, cardFee }), {
+      order: { ...order, lines, subtotal }, method, gateway: cfg ? gatewayIdentity(cfg) : null, cardFee,
+    }, sourceId);
+    if (outcome.kind !== "completed") return NextResponse.json({ error: outcome.kind === "failed" ? "Square confirmed the attempt failed. Review it under Payment recovery." : pendingMessage, pending: true }, { status: 409 });
+    await fulfillPayment(key);
+    return NextResponse.json({ ok: true, payment: settledPayment(outcome.attempt), receiptUrl: outcome.attempt.result?.receiptUrl });
+  } catch {
+    return NextResponse.json({ pending: true, error: pendingMessage }, { status: 503 });
   }
 }
