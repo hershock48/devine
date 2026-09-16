@@ -68,9 +68,19 @@ export default function CartView() {
   const submitLock = useRef(false);
   const paymentWarning = "Payment is awaiting confirmation. Do not pay again or place a replacement order. Check its status below or call the shop.";
   useEffect(() => {
-    const saved = localStorage.getItem("devine-payment-attempt");
-    if (saved) { attemptRef.current = saved; setOutcome({ state: "pending", message: paymentWarning }); }
+    try {
+      const saved = localStorage.getItem("devine-payment-attempt");
+      if (saved) { attemptRef.current = saved; setOutcome({ state: "pending", message: paymentWarning }); }
+    } catch {
+      // Pay-on-call still works when browser storage is disabled. Card submission
+      // must persist its recovery reference before it can contact the server.
+    }
   }, []);
+  function forgetAttempt() {
+    // A storage cleanup failure must not turn a confirmed order into a failure.
+    try { localStorage.removeItem("devine-payment-attempt"); } catch { /* keep the confirmed result */ }
+    attemptRef.current = "";
+  }
   async function checkPayment() {
     if (submitLock.current) return;
     submitLock.current = true;
@@ -78,7 +88,7 @@ export default function CartView() {
       const response = await fetch("/api/order/payment-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attemptKey: attemptRef.current }) });
       const body = await response.json();
       if (body.ok) {
-        localStorage.removeItem("devine-payment-attempt"); attemptRef.current = "";
+        forgetAttempt();
         setOutcome({ state: "sent", number: body.number, paid: body.paid }); clear();
       } else setOutcome({ state: "pending", failed: body.failed === true, message: body.failed ? "Square confirmed this payment failed. You can return to checkout and use another payment method." : paymentWarning });
     } catch { setOutcome({ state: "pending", message: paymentWarning }); }
@@ -184,9 +194,11 @@ export default function CartView() {
 
   // Mount Square's field only while the card option is chosen; tear it
   // down when it is not, same lifecycle as the workroom's pane.
+  const showCard = checkingOut && items.length > 0 && cardAllowed && payMethod === "card" && outcome.state !== "pending" && outcome.state !== "sent";
   useEffect(() => {
-    if (payMethod !== "card" || !cfg.cards || !cfg.applicationId || !cfg.locationId) return;
+    if (!showCard || !cfg.applicationId || !cfg.locationId) return;
     let dead = false;
+    let mountedCard: SquareCard | null = null;
     setCardReady(false);
     (async () => {
       try {
@@ -194,16 +206,19 @@ export default function CartView() {
         if (dead || !window.Square) return;
         const payments = await window.Square.payments(cfg.applicationId!, cfg.locationId!);
         const card = await payments.card();
+        mountedCard = card;
         if (dead || !holderRef.current) {
           await card.destroy().catch(() => {});
           return;
         }
         await card.attach(holderRef.current);
+        if (dead) { await card.destroy().catch(() => {}); return; }
         cardRef.current = card;
         if (!dead) setCardReady(true);
       } catch {
         if (!dead) {
           // The honest fallback is the flow that always works.
+          setPayChosen(true);
           setPayMethod("call");
           setOutcome({ state: "invalid", message: "Card entry did not open; you can place the order and pay on the confirming call." });
         }
@@ -211,11 +226,11 @@ export default function CartView() {
     })();
     return () => {
       dead = true;
-      cardRef.current?.destroy().catch(() => {});
-      cardRef.current = null;
+      mountedCard?.destroy().catch(() => {});
+      if (cardRef.current === mountedCard) cardRef.current = null;
       setCardReady(false);
     };
-  }, [payMethod, cfg]);
+  }, [showCard, cfg]);
 
   /* The single Convenience fee line (Kevin, 2026-09-04): the shop's card
      fee percent on subtotal plus delivery, plus the flat platform fee.
@@ -226,9 +241,9 @@ export default function CartView() {
   const convenienceCents = Math.round((baseCents * (cfg.cardPct ?? 3)) / 100) + (cfg.feeCents ?? 99);
   const cardTotalCents = baseCents + convenienceCents;
 
-  // Client date, not build date: a statically frozen "today" once sold birds for
-  // the wrong year (glaze.md failure log). This runs per visit, in the browser.
-  const today = new Date().toISOString().slice(0, 10);
+  // Fulfillment follows the shop's calendar, including customers ordering from
+  // another timezone. UTC midnight is still the previous evening in Michigan.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
   const delivering = fulfillment === "delivery";
   const zipKnown = (site.deliveryZips as readonly string[]).includes(zip.trim());
@@ -270,7 +285,8 @@ export default function CartView() {
         if (t.status !== "OK" || !t.token) throw new Error(t.errors?.[0]?.message || "The card did not go through. Check the number.");
         const attemptKey = crypto.randomUUID();
         // Persist only the opaque ID, never customer fields or the card token.
-        localStorage.setItem("devine-payment-attempt", attemptKey);
+        try { localStorage.setItem("devine-payment-attempt", attemptKey); }
+        catch { throw new Error("Card checkout needs browser storage to keep your payment reference. Allow site storage or choose to pay when we call."); }
         attemptRef.current = attemptKey;
         cardPayload = { sourceId: t.token, attemptKey };
       } catch (err) {
@@ -298,13 +314,13 @@ export default function CartView() {
       });
       const body = await res.json().catch(() => null);
       if (res.ok && body?.ok) {
-        localStorage.removeItem("devine-payment-attempt"); attemptRef.current = "";
+        forgetAttempt();
         setOutcome({ state: "sent", number: body.number, paid: body.paid });
         clear();
       } else if (cardPayload && res.status !== 400) {
         setOutcome({ state: "pending", message: body?.error || paymentWarning });
       } else if (res.status === 400 || res.status === 402) {
-        localStorage.removeItem("devine-payment-attempt"); attemptRef.current = "";
+        forgetAttempt();
         setOutcome({ state: "invalid", message: body?.error || "Something in the order needs another look." });
       } else {
         setOutcome({ state: "unreached", reason: body?.reason === "unconfigured" ? "unconfigured" : "send-failed" });
@@ -335,7 +351,7 @@ export default function CartView() {
       <h1>Check your payment</h1><p role="status">{outcome.message}</p>
       <p>Checkout reference: {attemptRef.current}</p>
       <button className="btn" type="button" onClick={checkPayment}>Check payment status</button>
-      {outcome.failed && <button className="btn" type="button" onClick={() => { localStorage.removeItem("devine-payment-attempt"); attemptRef.current = ""; setOutcome({ state: "idle" }); }}>Return to checkout</button>}
+      {outcome.failed && <button className="btn" type="button" onClick={() => { forgetAttempt(); setOutcome({ state: "idle" }); }}>Return to checkout</button>}
       <p><a href={`tel:${site.phone.replace(/[^+0-9]/g, "")}`}>Call the shop</a></p>
     </div></section>
   );
@@ -354,7 +370,9 @@ export default function CartView() {
           {outcome.paid ? (
             <p style={{ maxWidth: "58ch" }}>
               Paid: <strong>{money(outcome.paid.totalCents / 100)}</strong> by card.{" "}
-              {date === today ? (
+              {!date ? (
+                <>Your payment is confirmed. Call the shop if you need to check the fulfillment details.</>
+              ) : date === today ? (
                 <>
                   It&rsquo;s wanted <strong>today</strong>, and we&rsquo;ll handle it from here.
                 </>

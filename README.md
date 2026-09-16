@@ -1,5 +1,24 @@
 # devine
 
+## Debug pass, September 16, 2026
+
+Fixed checkout SDK fallback retrying itself, card fields failing to remount after
+payment recovery, unhandled browser-storage reads/cleanup, blank fulfillment dates
+after recovered payments, the UTC-based checkout date minimum, and repeated product
+adds exceeding the server's 99-item cap. Recovery references must still be saved
+before any card request is sent. Disabled storage leaves pay-on-call usable.
+Fixed homepage horizontal overflow caused by `100vw` including the scrollbar;
+the two full-width sections already sit directly inside the full-width main.
+
+Validation: 33 tests pass with `node --test --test-isolation=none tests/*.test.cjs`
+(the seven new component tests mock Square and storage; they do not charge cards).
+TypeScript and the production webpack build pass. Browser smoke checks covered
+16 storefront routes at 390 and 1440px, plus product/cart navigation and the $65 +
+$8.95 Marshall delivery total. Homepage and expanded checkout have no horizontal
+overflow at 320, 390, 768, and 1440px. No console errors were recorded in those
+checks. This was not a full axe/performance audit, authenticated workroom audit,
+or live email/payment test. Changes are local; deployment remains outstanding.
+
 Glazed Web pitch and concept build for **DeVine's Flowers & Botanicals**, Marshall,
 Michigan. Read `glaze.md` in the `glazedweb` repo before touching any of this.
 
