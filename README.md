@@ -401,3 +401,23 @@ Local verification command: `node --test --test-isolation=none tests/payment-eng
 Still required: actual Postgres concurrent-request/rollback checks; Square sandbox completed/declined/delayed/lost-response and signed-webhook redelivery checks; notification outage/recovery with a controlled inbox; mobile checkout and staff handover; cancellation/refund journey review. Confirm pricing and deployment settings with the account before launch.
 
 Provider behavior references: [CreatePayment](https://developer.squareup.com/reference/square/payments/create-payment), [payment errors](https://developer.squareup.com/docs/payments-api/error-codes), and [ListPayments](https://developer.squareup.com/reference/square/payments/list-payments).
+
+## Canceled payments and refund confirmation (September 16 review)
+
+Canceling a paid order leaves it in "Canceled, money to return". Complete the
+refund through the original payment method first: Square for linked card/register
+payments, cash for cash, or the recorded external method for manual payments.
+The board does not move money or independently verify a refund. Only an owner
+can confirm a full refund; partial refunds stay open for review. The confirmation
+prompt states this explicitly, and closed orders label the result as owner
+confirmation. Staff can still see which canceled orders need money returned.
+
+Storage atomically requires a canceled order with a payment and preserves the
+original confirmation timestamp on repeat requests. Missing/ineligible orders
+and storage outages do not report success. The board displays failed updates
+and refreshes search history after successful changes. Additional local checks:
+`node --test --test-isolation=none tests/order-refunds.test.cjs`.
+
+These checks cover route permissions and local store behavior. Actual Postgres
+concurrency, payment/cancellation races, provider refund evidence and mobile
+owner handover remain launch verification work.

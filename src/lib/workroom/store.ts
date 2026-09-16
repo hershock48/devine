@@ -63,7 +63,7 @@ export type OrderPayment = {
   /** The customer-paid fee line included in totalCents (the Convenience
       fee on web orders, the shop's card fee at the board); 0 on cash. */
   feeCents: number;
-  /** Set when the shop attests the Square refund happened (canceled paid
+  /** Set when an owner attests the full refund happened (canceled paid
       orders). The workroom cannot see refunds itself and does not
       pretend to; this is the human mark that clears the money-to-return
       section. */
@@ -435,7 +435,7 @@ type Store = {
       delivery ticket that never carried one, so the ticket's rows and its
       payment agree. */
   setOrderLines(id: string, lines: WorkroomLine[], subtotal: number): Promise<void>;
-  markOrderRefunded(id: string): Promise<void>;
+  markOrderRefunded(id: string): Promise<boolean>;
   addStemEvent(e: StemEvent): Promise<void>;
   listStemEvents(days: number): Promise<StemEvent[]>;
   /** Mis-keyed counts happen at 7am. A delete, not an edit: retyping five
@@ -567,7 +567,10 @@ const memoryStore: Store = {
   },
   async markOrderRefunded(id) {
     const o = bag().orders.get(id);
-    if (o?.payment) o.payment.refundedAt = Date.now();
+    if (process.env.NODE_ENV === "production") throw new Error("Persistent refund storage unavailable.");
+    if (!o?.payment || o.status !== "canceled") return false;
+    o.payment.refundedAt ??= Date.now();
+    return true;
   },
   async listOrderContacts() {
     return [...bag().orders.values()]
@@ -833,14 +836,17 @@ const postgresStore: Store = {
   async markOrderRefunded(id) {
     const pool = await pgPool();
     // jsonb_set, not ||: the stamp goes INSIDE the existing payment object.
-    // The payment-exists guard keeps a stray call from minting a payment
-    // out of a bare refund stamp.
-    await pool.query(
+    // Only canceled paid orders qualify. A repeated confirmation preserves
+    // the original timestamp; this is owner attestation, not provider evidence.
+    const result = await pool.query(
       `UPDATE workroom_orders
-       SET data = jsonb_set(data, '{payment,refundedAt}', to_jsonb($2::bigint))
-       WHERE id = $1 AND data->'payment' IS NOT NULL`,
+       SET data = CASE WHEN data->'payment'->>'refundedAt' IS NOT NULL THEN data
+         ELSE jsonb_set(data, '{payment,refundedAt}', to_jsonb($2::bigint)) END
+       WHERE id = $1 AND status = 'canceled' AND jsonb_typeof(data->'payment') = 'object'
+       RETURNING id`,
       [id, Date.now()],
     );
+    return result.rows.length === 1;
   },
   async listOrderContacts() {
     const pool = await pgPool();
