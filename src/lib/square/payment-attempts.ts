@@ -14,7 +14,11 @@ export async function paymentDatabase(){
  ALTER TABLE devine_payment_attempts ADD COLUMN IF NOT EXISTS notify_until bigint NOT NULL DEFAULT 0;
  ALTER TABLE devine_payment_attempts ADD COLUMN IF NOT EXISTS customer_notified boolean NOT NULL DEFAULT false;
  CREATE INDEX IF NOT EXISTS devine_payment_reference ON devine_payment_attempts ((snapshot->>'referenceId'));
- CREATE INDEX IF NOT EXISTS devine_payment_recovery ON devine_payment_attempts (state,fulfilled,notified);`).catch(e=>{ready=undefined;throw e;});
+ CREATE INDEX IF NOT EXISTS devine_payment_recovery ON devine_payment_attempts (state,fulfilled,notified);
+ CREATE TABLE IF NOT EXISTS devine_payment_reviews (
+ reference_id text PRIMARY KEY, attempt_key text NOT NULL, fingerprint text NOT NULL,
+ actor text NOT NULL, evidence text NOT NULL, reviewed_at bigint NOT NULL,
+ prior_state text NOT NULL, snapshot jsonb NOT NULL, prior_result jsonb);`).catch(e=>{ready=undefined;throw e;});
  await ready;return sharedPool;
 }
 const mapped=<T>(row:Record<string,unknown>):Attempt<T>=>({key:row.attempt_key as string,fingerprint:row.fingerprint as string,state:row.state as AttemptState,snapshot:row.snapshot as T,result:row.result as PaymentResult|null,createdAt:Number(row.created_at)});
@@ -36,6 +40,60 @@ export function attemptRepository<T>():AttemptRepository<T>{return {
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
  },
  async claim(key,fingerprint){const db=await paymentDatabase();const result=await db.query("UPDATE devine_payment_attempts SET state='processing',updated_at=$2 WHERE attempt_key=$1 AND state='prepared' AND ($3::text IS NULL OR fingerprint=$3) RETURNING attempt_key",[key,Date.now(),fingerprint??null]);return result.rowCount===1;},
- async settle(key,state,result,fingerprint){const db=await paymentDatabase();await db.query("UPDATE devine_payment_attempts SET state=$2,result=$3,updated_at=$4 WHERE attempt_key=$1 AND state<>'completed' AND ($5::text IS NULL OR fingerprint=$5)",[key,state,result?JSON.stringify(result):null,Date.now(),fingerprint??null]);},
+ async settle(key,state,result,fingerprint){
+  const db=await paymentDatabase();
+  // A late timeout cannot erase the owner's review. Real completion still wins;
+  // the fingerprint prevents an old request settling a new retry generation.
+  await db.query(`UPDATE devine_payment_attempts SET state=$2,result=$3,updated_at=$4
+   WHERE attempt_key=$1 AND state<>'completed' AND ($5::text IS NULL OR fingerprint=$5)
+   AND (state<>'failed' OR result->>'status' IS DISTINCT FROM 'OWNER_CONFIRMED_NO_PAYMENT' OR $2='completed')`,
+   [key,state,result?JSON.stringify(result):null,Date.now(),fingerprint??null]);
+ },
  async read(key){const db=await paymentDatabase();const result=await db.query('SELECT * FROM devine_payment_attempts WHERE attempt_key=$1',[key]);return result.rows[0]?mapped<T>(result.rows[0]):null;},
 };}
+
+/** This is a manual finding, not a provider result. Keep it separately so a
+ * later webhook or staff retry cannot erase who released which generation.
+ * Callers must authenticate the owner and reconcile Square before entering. */
+export async function recordNoPaymentReview(input: {
+ key: string; referenceId: string; fingerprint: string; evidence: string;
+}, now = Date.now()) {
+ const evidence = input.evidence.trim();
+ if (!input.key || !input.referenceId || !input.fingerprint || evidence.length < 20 || evidence.length > 2000) {
+  throw new Error('Record how the original payment was verified, using 20 to 2000 characters.');
+ }
+ const client = await (await paymentDatabase()).connect();
+ try {
+  await client.query('BEGIN');
+  const found = await client.query('SELECT * FROM devine_payment_attempts WHERE attempt_key=$1 FOR UPDATE', [input.key]);
+  const reviewed = await client.query('SELECT fingerprint FROM devine_payment_reviews WHERE reference_id=$1', [input.referenceId]);
+  // Retried form submission after a lost response is a read of its receipt. It
+  // must not release a replacement attempt now occupying the same board key.
+  if (reviewed.rows[0]?.fingerprint === input.fingerprint) {
+   await client.query('COMMIT');
+   return;
+  }
+  const row = found.rows[0];
+  if (!row || row.snapshot.referenceId !== input.referenceId || row.fingerprint !== input.fingerprint) {
+   throw new Error('The payment attempt changed. Reload and review the current attempt.');
+  }
+  if (!['processing', 'unknown'].includes(row.state) || row.result?.paymentId || row.fulfilled) {
+   throw new Error('This attempt cannot be released as unpaid. Reconcile its payment first.');
+  }
+  // Let the bounded provider calls finish before an owner can override. Elapsed
+  // time alone proves nothing; the owner must also supply independent evidence.
+  if (now - Number(row.updated_at) < 5 * 60 * 1000) {
+   throw new Error('Wait five minutes after the last payment activity, then verify it again.');
+  }
+  await client.query(`INSERT INTO devine_payment_reviews
+   (reference_id,attempt_key,fingerprint,actor,evidence,reviewed_at,prior_state,snapshot,prior_result)
+   VALUES($1,$2,$3,'owner',$4,$5,$6,$7,$8)`,
+   [input.referenceId,input.key,input.fingerprint,evidence,now,row.state,JSON.stringify(row.snapshot),row.result ? JSON.stringify(row.result) : null]);
+  await client.query(`UPDATE devine_payment_attempts SET state='failed',result=$2,updated_at=$3 WHERE attempt_key=$1`,
+   [input.key,JSON.stringify({paymentId:'',status:'OWNER_CONFIRMED_NO_PAYMENT',receiptUrl:'',totalCents:0,feeCents:0}),now]);
+  await client.query('COMMIT');
+ } catch (error) {
+  await client.query('ROLLBACK');
+  throw error;
+ } finally { client.release(); }
+}

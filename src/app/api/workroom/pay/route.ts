@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     const outcome = await takePayment(key, paymentFingerprint({ attemptId,id: order.id, lines, method, cardFee }), {
       order: { ...order, lines, subtotal }, method, gateway: cfg ? gatewayIdentity(cfg) : null, cardFee,
     }, sourceId,retryOf);
-    if(outcome.kind==='failed')return NextResponse.json({failed:true,pending:false,retryOf:outcome.attempt.snapshot.referenceId,error:outcome.attempt.result?.status==='NOT_SUBMITTED'?'No payment was submitted. Refresh the order and check payment setup before trying again.':'The payment was declined or canceled. Try another card, record cash, or choose another payment method.'},{status:402});
+    if(outcome.kind==='failed')return NextResponse.json({failed:true,pending:false,retryOf:outcome.attempt.snapshot.referenceId,error:outcome.attempt.result?.status==='OWNER_CONFIRMED_NO_PAYMENT'?'The owner verified no payment. Refresh and explicitly retry using the required payment method.':outcome.attempt.result?.status==='NOT_SUBMITTED'?'No payment was submitted. Refresh the order and check payment setup before trying again.':'The payment was declined or canceled. Try another card, record cash, or choose another payment method.'},{status:402});
     if (outcome.kind !== "completed") return NextResponse.json({ error: pendingMessage, pending: true }, { status: 409 });
     await fulfillPayment(key);
     return NextResponse.json({ ok: true, payment: settledPayment(outcome.attempt), receiptUrl: outcome.attempt.result?.receiptUrl });

@@ -111,3 +111,114 @@ test('trusted-address throttling limits one attacker across instances without lo
   assert.throws(()=>load('src/lib/workroom/login-limit.ts',{}, {NODE_ENV:'production'}).loginClient(req('192.0.2.1')),/unavailable/);
  }finally{await f.db.close();}
 });
+
+test('owner review releases only an old unresolved generation and retains evidence across retry and replay',async()=>{
+ const f=await database();
+ try {
+  const snapshot={...intent,referenceId:crypto.randomUUID()};
+  await engine.runPayment(f.repo,'board_review','first',snapshot,async()=>{throw Error('response lost');});
+  await f.pool.query('UPDATE devine_payment_attempts SET updated_at=$1',[Date.now()-600000]);
+  const review={key:'board_review',referenceId:snapshot.referenceId,fingerprint:'first',evidence:'Owner checked the original location and Square support confirmed no payment.'};
+  await Promise.all([f.repository.recordNoPaymentReview(review),f.repository.recordNoPaymentReview(review)]);
+  assert.equal((await f.repo.read(review.key)).result.status,'OWNER_CONFIRMED_NO_PAYMENT');
+  await f.repo.settle(review.key,'unknown',null,'first');
+  assert.equal((await f.repo.read(review.key)).state,'failed','a late timeout must not undo review');
+  const audit=(await f.pool.query('SELECT * FROM devine_payment_reviews')).rows;
+  assert.equal(audit.length,1);assert.equal(audit[0].actor,'owner');assert.equal(audit[0].evidence,review.evidence);assert.equal(audit[0].prior_state,'unknown');
+  let charges=0;
+  await engine.runPayment(f.repo,review.key,'second',{...intent,referenceId:crypto.randomUUID()},async()=>{charges++;throw Error('second response lost');},review.referenceId);
+  assert.equal(charges,1);assert.equal((await f.repo.read(review.key)).state,'unknown');
+  await f.repository.recordNoPaymentReview(review);
+  assert.equal((await f.repo.read(review.key)).state,'unknown','old form must not release new generation');
+  await f.repo.settle(review.key,'completed',completed,'first');
+  assert.equal((await f.repo.read(review.key)).state,'unknown','old settlement must not pay the new generation');
+  assert.equal((await f.pool.query("SELECT count(*) AS n FROM devine_payment_attempts WHERE attempt_key LIKE 'archived:%'")).rows[0].n,1);
+ } finally { await f.db.close(); }
+});
+
+test('review refuses live requests, known Square payments, completed/prepared attempts, stale references and missing evidence',async()=>{
+ const f=await database();
+ try {
+  for(const scenario of ['recent','known','completed','prepared','stale-reference','stale-fingerprint','short-evidence','fulfilled']) {
+   const key='board_'+scenario,snapshot={...intent,referenceId:crypto.randomUUID()};
+   await f.repo.prepare(key,scenario,snapshot);
+   await f.pool.query('UPDATE devine_payment_attempts SET state=$2,updated_at=$3,result=$4,fulfilled=$5 WHERE attempt_key=$1',
+    [key,['completed','prepared'].includes(scenario)?scenario:'processing',Date.now()-(scenario==='recent'?0:600000),scenario==='known'?JSON.stringify({paymentId:'known-payment',status:'APPROVED'}):null,scenario==='fulfilled']);
+   const input={key,referenceId:scenario==='stale-reference'?'other':snapshot.referenceId,fingerprint:scenario==='stale-fingerprint'?'other':scenario,evidence:scenario==='short-evidence'?'empty':'Owner verified no payment at the original location.'};
+   await assert.rejects(f.repository.recordNoPaymentReview(input),undefined,scenario);
+  }
+  assert.equal((await f.pool.query('SELECT count(*) AS n FROM devine_payment_reviews')).rows[0].n,0);
+ } finally { await f.db.close(); }
+});
+
+test('processing and online unknown attempts can be reviewed, while subsequent confirmed provider evidence wins',async()=>{
+ const f=await database();
+ try {
+  for(const kind of ['processing','online']) {
+   const key=kind==='online'?'online-review':'board_processing';
+   const snapshot={...intent,referenceId:crypto.randomUUID(),...(kind==='online'?{online:{order,deliveryCents:0}}:{})};
+   await f.repo.prepare(key,kind,snapshot);await f.repo.claim(key,kind);
+   if(kind==='online')await f.repo.settle(key,'unknown',null,kind);
+   await f.pool.query('UPDATE devine_payment_attempts SET updated_at=$2 WHERE attempt_key=$1',[key,Date.now()-600000]);
+   await f.repository.recordNoPaymentReview({key,referenceId:snapshot.referenceId,fingerprint:kind,evidence:'Owner and Square support verified no payment at original location.'});
+   assert.equal((await f.repo.read(key)).state,'failed');
+   await f.repo.settle(key,'completed',completed,kind);
+   assert.equal((await f.repo.read(key)).state,'completed');
+  }
+  assert.equal((await f.pool.query('SELECT count(*) AS n FROM devine_payment_reviews')).rows[0].n,2);
+ } finally { await f.db.close(); }
+});
+
+test('owner action rejects staff, missing confirmation and provider outages before releasing any attempt',async()=>{
+ for(const scenario of ['staff','unchecked','provider-offline','owner']) {
+  const calls=[];
+  const actions=load('src/app/workroom/payments/actions.ts',{
+   'next/navigation':{redirect:url=>{throw Error('redirect:'+url);}},
+   '@/lib/workroom/auth':{isWorkroomOwner:async()=>scenario!=='staff'},
+   '@/lib/square/payment-attempts':{recordNoPaymentReview:async input=>calls.push(input)},
+   '@/lib/square/payment-service':{reconcilePayment:async()=>{if(scenario==='provider-offline')throw Error('offline');}},
+  });
+  const data=new FormData();data.set('key','board_fixture');data.set('referenceId','reference');data.set('fingerprint','first');data.set('evidence','Owner verified the original provider records.');
+  if(scenario!=='unchecked')data.set('verified','yes');
+  await assert.rejects(actions.confirmNoPayment(data),/redirect:/);
+  assert.equal(calls.length,scenario==='owner'?1:0,scenario);
+ }
+});
+
+test('an audit storage failure rolls the owner release back without changing payment state',async()=>{
+ const f=await database();try{
+  const snapshot={...intent,referenceId:crypto.randomUUID()};
+  await f.repo.prepare('board_rollback','one',snapshot);await f.repo.claim('board_rollback','one');
+  await f.pool.query('UPDATE devine_payment_attempts SET updated_at=$1',[Date.now()-600000]);
+  await f.pool.query("ALTER TABLE devine_payment_reviews ADD CONSTRAINT fixture_fail CHECK (actor <> 'owner')");
+  await assert.rejects(f.repository.recordNoPaymentReview({key:'board_rollback',referenceId:snapshot.referenceId,fingerprint:'one',evidence:'Owner verified no payment at the original location.'}));
+  assert.equal((await f.repo.read('board_rollback')).state,'processing');
+  assert.equal((await f.pool.query('SELECT count(*) AS n FROM devine_payment_reviews')).rows[0].n,0);
+ }finally{await f.db.close();}
+});
+
+test('online status distinguishes an owner finding from a Square decline and permits checkout recovery',async()=>{
+ const route=load('src/app/api/order/payment-status/route.ts',{
+  'next/server':{NextResponse:{json:(value,init)=>Response.json(value,init)}},
+  '@/lib/square/payment-service':{reconcilePayment:async()=>({state:'failed',result:{status:'OWNER_CONFIRMED_NO_PAYMENT'}})},
+ });
+ const response=await route.POST(new Request('https://fixture.invalid/api/order/payment-status',{method:'POST',body:JSON.stringify({attemptKey:crypto.randomUUID()})}));
+ const body=await response.json();assert.equal(body.failed,true);assert.match(body.error,/shop verified no payment/);assert.match(body.error,/return to checkout/);
+});
+
+test('sign-in distinguishes trusted-address setup from database outages without falling back to a shared bucket',async()=>{
+ for(const scenario of ['missing-env','missing-header','invalid-header','database']) {
+  let counts=0;
+  const limiter=load('src/lib/workroom/login-limit.ts',{},scenario==='missing-env'?{NODE_ENV:'production'}:{NODE_ENV:'production',VERCEL:'1'});
+  const route=load('src/app/api/workroom/login/route.ts',{
+   'next/server':{NextResponse:{json:(value,init)=>Response.json(value,init)}},
+   '@/lib/workroom/auth':{workroomPin:()=> 'fixture-pin',workroomSessionReady:()=>true},
+   '@/lib/workroom/login-limit':{...limiter,allowLogin:async()=>{counts++;throw Error('database offline');}},
+  });
+  const headers=scenario==='missing-header'?{}:{'x-vercel-forwarded-for':scenario==='invalid-header'?'spoof, chain':'192.0.2.1'};
+  const response=await route.POST(new Request('https://fixture.invalid/api/workroom/login',{method:'POST',headers,body:'{}'}));
+  assert.equal(response.status,503);const body=await response.json();
+  if(scenario==='database'){assert.match(body.error,/storage/);assert.equal(counts,1);}
+  else {assert.equal(body.reason,'trusted_address_unavailable');assert.equal(counts,0);}
+ }
+});

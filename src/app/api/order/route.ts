@@ -113,7 +113,7 @@ async function paidFlow(order: PricedOrder, sourceId: string, attemptKey: string
       order: wr, online: { order, deliveryCents: Math.round(deliveryFee * 100) }, method: "card",
       gateway: gatewayIdentity(cfg), cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: appFeeCents() },
     }, sourceId);
-    if(outcome.kind==='failed')return NextResponse.json({ok:false,failed:true,pending:false,error:outcome.attempt.result?.status==='NOT_SUBMITTED'?'No payment was submitted. Return to checkout or contact the shop.':'The card payment was declined or canceled. Return to checkout to check your card details or choose another payment method.'},{status:402});
+    if(outcome.kind==='failed')return NextResponse.json({ok:false,failed:true,pending:false,error:outcome.attempt.result?.status==='OWNER_CONFIRMED_NO_PAYMENT'?'The owner verified no payment. Refresh and explicitly retry using the required payment method.':outcome.attempt.result?.status==='NOT_SUBMITTED'?'No payment was submitted. Return to checkout or contact the shop.':'The card payment was declined or canceled. Return to checkout to check your card details or choose another payment method.'},{status:402});
     if (outcome.kind !== "completed") return NextResponse.json({ ok: false, pending: true, error: outcome.kind === "conflict" ? "This checkout has a different saved order. Check its payment status before placing another." : pendingMessage }, { status: outcome.kind === "pending" ? 202 : 409 });
     await fulfillPayment(attemptKey).catch(() => console.error("[devine] paid order requires recovery", attemptKey));
     const charged = outcome.attempt.result!;

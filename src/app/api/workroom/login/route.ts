@@ -18,8 +18,9 @@ export async function POST(req: Request) {
   }
 
   let client:string;
+  try { client=loginClient(req); }
+  catch { return NextResponse.json({ error: "Sign-in cannot identify your address. Ask the site administrator to check trusted-proxy configuration.", reason: "trusted_address_unavailable" }, { status: 503 }); }
   try {
-    client=loginClient(req);
     if(!(await allowLogin(client)))return NextResponse.json({error:'Too many tries. Wait ten minutes.'},{status:429,headers:{'Retry-After':'600'}});
   }catch{return NextResponse.json({error:'Sign-in storage is unavailable. Please try again later.'},{status:503});}
 
