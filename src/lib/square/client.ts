@@ -79,6 +79,7 @@ export async function square<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
     // Square answers are per-request state, never CDN-cacheable.
     cache: "no-store",
+    signal: AbortSignal.timeout(20000),
   });
   const json = (await res.json().catch(() => ({}))) as T;
   if (!res.ok) throw new SquareError(path, res.status, json);

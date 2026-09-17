@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
 import { sendDeliveredEmail, sendWorkroomReceipt } from "@/lib/intake";
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const [orders, contacts] = await Promise.all([store.listOrders(days), store.listOrderContacts()]);
   // contacts spans the whole history, so "her third order this year" still
   // counts after the first two age off the 60-day board.
-  return NextResponse.json({ orders, contacts, backend: store.backend });
+  return NextResponse.json({ orders, contacts, backend: store.backend, canConfirmRefund: await isWorkroomOwner() });
 }
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -99,15 +99,19 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
-  const p = (await req.json().catch(() => ({}))) as { id?: unknown; status?: unknown; markRefunded?: unknown };
+  const p = (await req.json().catch(() => null)) as { id?: unknown; status?: unknown; markRefunded?: unknown } | null;
+  if (!p || typeof p !== "object" || Array.isArray(p)) return NextResponse.json({ error: "Malformed." }, { status: 400 });
   const id = typeof p.id === "string" ? p.id : "";
 
   // The refund attestation: the shop says the Square refund happened, and
   // the money-to-return section clears. Guarded in the store to orders
   // that actually carry a payment.
   if (p.markRefunded === true) {
+    if (!(await isWorkroomOwner())) return NextResponse.json({ error: "An owner must confirm that the full payment was returned." }, { status: 403 });
     if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
-    await getStore().markOrderRefunded(id);
+    try {
+      if (!(await getStore().markOrderRefunded(id))) return NextResponse.json({ error: "Only a canceled order with a recorded payment can be marked refunded. Refresh the board." }, { status: 409 });
+    } catch { return NextResponse.json({ error: "Refund confirmation was not saved. Refresh the board before trying again." }, { status: 503 }); }
     return NextResponse.json({ ok: true });
   }
 

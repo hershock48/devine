@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { products, type Product } from "@/lib/catalog";
@@ -109,6 +109,8 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [backend, setBackend] = useState<string | null>(null);
+  const [canConfirmRefund, setCanConfirmRefund] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [adding, setAdding] = useState(false);
   const [showDone, setShowDone] = useState(false);
   /** The find box: a caller says "order DV-0901-4226" or "it's under
@@ -134,9 +136,11 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       return;
     }
     const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "The order board could not be loaded.");
     setOrders(d.orders ?? []);
     setContacts(d.contacts ?? []);
     setBackend(d.backend ?? "memory");
+    setCanConfirmRefund(d.canConfirmRefund === true);
     setAuthed(true);
   }, []);
 
@@ -150,24 +154,30 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   }, [authed, pull]);
 
   async function move(id: string, status: Order["status"]) {
-    await fetch("/api/workroom/orders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    });
-    pull().catch(() => {});
+    await updateOrder({ id, status });
   }
 
   /** The human attestation that the Square refund happened; the workroom
       cannot see refunds on its own (no refund webhook subscribed) and
       should not pretend to. */
   async function markRefunded(id: string) {
-    await fetch("/api/workroom/orders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, markRefunded: true }),
-    });
-    pull().catch(() => {});
+    if (!window.confirm("Confirm the FULL payment has already been returned to the customer. This only records your confirmation; it does not move money. Partial refunds must remain open for review.")) return;
+    await updateOrder({ id, markRefunded: true });
+  }
+
+  async function updateOrder(change: { id: string; status?: Order["status"]; markRefunded?: boolean }) {
+    setActionError("");
+    try {
+      const response = await fetch("/api/workroom/orders", {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "The change was not confirmed. Refresh the board before trying again.");
+      setDeep(null);
+      await pull();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "The change was not confirmed. Refresh the board before trying again.");
+    }
   }
 
   // Widen to the full history the moment a search starts, once per visit.
@@ -254,6 +264,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <h1>Orders</h1>
 
       <MemoryWarning backend={backend} />
+      {actionError && <p role="alert">{actionError}</p>}
 
       <p style={{ margin: "6px 0 26px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
         <button className="btn" type="button" onClick={() => setAdding((v) => !v)}>
@@ -295,7 +306,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onRefunded={canConfirmRefund ? markRefunded : undefined} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
@@ -311,7 +322,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
           <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} />
           <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} />
           <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} />
-          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
+          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onRefunded={canConfirmRefund ? markRefunded : undefined} />
 
           {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
@@ -346,7 +357,7 @@ function ClosedList({ orders }: { orders: Order[] }) {
   if (orders.length === 0) return null;
   const moneyWord = (o: Order) => {
     if (!o.payment) return o.status === "canceled" ? "" : "not paid";
-    if (o.payment.refundedAt) return `refunded ${money(o.payment.totalCents / 100)}`;
+    if (o.payment.refundedAt) return `owner confirmed refund ${money(o.payment.totalCents / 100)}`;
     return `paid ${money(o.payment.totalCents / 100)}`;
   };
   return (
@@ -395,7 +406,7 @@ function ClosedList({ orders }: { orders: Order[] }) {
                 <p className="muted" style={{ margin: 0 }}>
                   Paid by {o.payment.method === "other" ? "another way" : o.payment.method}, {money(o.payment.totalCents / 100)}
                   {o.payment.feeCents > 0 ? ` (includes the ${money(o.payment.feeCents / 100)} ${o.source === "web" ? "convenience" : "card"} fee)` : ""}
-                  {o.payment.refundedAt ? " · refunded" : ""}
+                  {o.payment.refundedAt ? " · refund confirmed by owner" : ""}
                 </p>
               )}
               {o.cardMessage && <p style={{ margin: 0, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{o.cardMessage}&rdquo;</p>}
@@ -652,12 +663,16 @@ function OrderCard({
       {o.status === "canceled" && o.payment && !o.payment.refundedAt && (
         <div style={{ margin: "10px 0 0" }}>
           <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
-            Paid {money(o.payment.totalCents / 100)}, then canceled. Refund it from the Square
-            dashboard (Transactions), then mark it here.
+            Paid {money(o.payment.totalCents / 100)}, then canceled. {o.payment.method === "cash"
+              ? "Return the cash to the customer."
+              : o.payment.method === "other"
+                ? "Return the payment through the original payment method."
+                : "Complete the refund in the Square dashboard (Transactions)."}
+            {" "}An owner can then confirm the full amount was returned. This board does not issue refunds.
           </p>
           {onRefunded && (
             <button type="button" className="btn" onClick={() => onRefunded(o.id)}>
-              Refunded in Square
+              Confirm full refund completed
             </button>
           )}
         </div>

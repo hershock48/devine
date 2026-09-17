@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  distDir: process.env.STUDIO_BUILD_CHECK === "1" ? ".next-check" : ".next",
+  ...(process.env.STUDIO_BUILD_CHECK === "1" ? { experimental: { workerThreads: true, webpackBuildWorker: false, useTypeScriptCli: false, cpus: 2 } } : {}),
   /*
     ROUTING, and why it is deliberately not clever.
 

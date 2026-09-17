@@ -1,42 +1,12 @@
+import { fulfillPayment, gatewayIdentity, paymentFingerprint, pendingMessage, takePayment } from "@/lib/square/payment-service";
 import { NextResponse } from "next/server";
-import { priceOrder, sendOrder, type PaidOnline, type PricedOrder } from "@/lib/intake";
+import { priceOrder, sendOrder, type PricedOrder } from "@/lib/intake";
 import { site } from "@/lib/site";
 import { resolveSquare } from "@/lib/square/oauth";
-import { chargeBoardOrder, appFeeCents } from "@/lib/square/payments";
+import { appFeeCents } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/workroom/store";
 
-/**
- * POST /api/order. The only route on the site with a side effect.
- *
- * TWO SHAPES OF ORDER since 2026-09-01, and they anchor on different
- * events:
- *
- * UNPAID (the default, and the only shape until CHECKOUT_CARDS is "on"):
- * the ticket email is the order. The response vocabulary is small so
- * CartView can be honest about each case:
- *
- *   200 { ok: true,  number }        the shop's inbox has the ticket
- *   400 { ok: false, error }         the order itself is wrong; fix and resubmit
- *   503 { ok: false, reason: "unconfigured" }   mail was never set up here
- *   502 { ok: false, reason: "send-failed" }    mail is set up and did not work
- *
- * 503/502 mean "did not reach the shop", the cart says exactly that, and
- * never thanks a visitor for an order nobody received.
- *
- * PAID BY CARD (payload carries card.sourceId): the CHARGE is the order.
- * Sequence: price, gate delivery (a zip must be on the owner's fee sheet
- * and the flowers must clear her minimum; anything else falls back to the
- * pay-on-call flow, see paidFlow), charge through the shop's
- * Square account with the board id as reference, THEN store the board row
- * already paid, then email. A failed charge returns 402 and nothing
- * persists. After a successful charge the emails become best-effort with
- * loud logging: the customer's money moved, so the response must be ok and
- * the board row (plus the Square sale itself) is the record even if SMTP
- * hiccups. A paid pickup is born "confirmed": the total is settled and the
- * date is chosen; there is nothing left for a confirm call to collect.
- *
- * Runs on Node, not edge: nodemailer speaks raw SMTP sockets.
- */
+/** Durable checkout intent, followed by provider settlement and recoverable fulfillment. */
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
@@ -52,10 +22,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: priced.error }, { status: 400 });
   }
 
-  const card = (raw as { card?: { sourceId?: unknown } }).card;
+  const card = (raw as { card?: { sourceId?: unknown; attemptKey?: unknown } }).card;
   const sourceId = typeof card?.sourceId === "string" ? card.sourceId : "";
 
-  if (sourceId) return paidFlow(priced.order, sourceId);
+  if (sourceId) return paidFlow(priced.order, sourceId, typeof card?.attemptKey === "string" ? card.attemptKey : "");
 
   const result = await sendOrder(priced.order);
   if (result === "sent") {
@@ -79,7 +49,8 @@ export async function POST(req: Request) {
   );
 }
 
-async function paidFlow(order: PricedOrder, sourceId: string) {
+async function paidFlow(order: PricedOrder, sourceId: string, attemptKey: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptKey)) return NextResponse.json({ ok: false, error: "Refresh checkout before paying." }, { status: 400 });
   if (process.env.CHECKOUT_CARDS?.trim() !== "on") {
     return NextResponse.json({ ok: false, error: "Card payment is not available online yet." }, { status: 400 });
   }
@@ -118,7 +89,7 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
     return NextResponse.json({ ok: false, error: "Card payment is not available right now; the order was not placed. You can order and pay on the confirming call instead." }, { status: 503 });
   }
 
-  const id = newId("wr");
+  const id = `web_${attemptKey.replaceAll("-", "")}`;
   const chargeLines = [
     ...order.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
     ...(deliveryFee > 0 ? [{ name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }] : []),
@@ -130,65 +101,26 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
      check would catch any drift between the two. */
   const baseCents = chargeLines.reduce((s, l) => s + Math.round(l.each * 100) * l.qty, 0);
   const convenienceCents = Math.round((baseCents * site.cardFeePct) / 100) + appFeeCents();
-  let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
-  try {
-    charged = await chargeBoardOrder(cfg, {
-      workroomOrderId: id,
-      orderNumber: order.number,
-      lines: chargeLines,
-      method: "card",
-      sourceId,
-      cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: appFeeCents() },
-    });
-  } catch (err) {
-    console.error(`[devine] online payment for ${order.number} failed:`, err);
-    return NextResponse.json(
-      { ok: false, error: "The card was not charged. Check the number and try again, or send the order and pay on the confirming call." },
-      { status: 402 },
-    );
+  const wr = { ...toWorkroomOrder(order, "confirmed", null), id };
+  if (deliveryFee > 0) {
+    wr.lines = [...wr.lines, { slug: null, name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }];
+    wr.subtotal = Math.round((wr.subtotal + deliveryFee) * 100) / 100;
   }
-
-  const payment: OrderPayment = {
-    at: Date.now(),
-    method: "card",
-    squarePaymentId: charged.paymentId,
-    totalCents: charged.totalCents,
-    feeCents: charged.feeCents,
-  };
-  const paid: PaidOnline = {
-    totalCents: charged.totalCents,
-    feeCents: charged.feeCents,
-    deliveryCents: Math.round(deliveryFee * 100),
-  };
-
-  // Money moved; from here everything is recorded loudly and nothing can
-  // fail the response. The Square sale itself (reference id attached) is
-  // the deepest backstop: even a total storage-and-mail outage leaves a
-  // findable, refundable payment tied to this order number.
+  const { number: ignoredNumber, ...stableOrder } = order;
+  void ignoredNumber;
   try {
-    // The board ticket carries the delivery line too, and its subtotal is
-    // the whole order value (flowers + delivery), so the ticket's rows and
-    // its Subtotal agree with what the card was charged.
-    const wr = { ...toWorkroomOrder(order, "confirmed", payment), id };
-    if (deliveryFee > 0) {
-      wr.lines = [...wr.lines, { slug: null, name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }];
-      wr.subtotal = Math.round((wr.subtotal + deliveryFee) * 100) / 100;
-    }
-    await getStore().createOrder(wr);
-  } catch (err) {
-    console.error(`[devine] CRITICAL: paid order ${order.number} (payment ${charged.paymentId}) not written to the board:`, err);
+    const outcome = await takePayment(attemptKey, paymentFingerprint({ order: stableOrder, deliveryFee, convenienceCents }), {
+      order: wr, online: { order, deliveryCents: Math.round(deliveryFee * 100) }, method: "card",
+      gateway: gatewayIdentity(cfg), cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: appFeeCents() },
+    }, sourceId);
+    if(outcome.kind==='failed')return NextResponse.json({ok:false,failed:true,pending:false,error:outcome.attempt.result?.status==='OWNER_CONFIRMED_NO_PAYMENT'?'The owner verified no payment. Refresh and explicitly retry using the required payment method.':outcome.attempt.result?.status==='NOT_SUBMITTED'?'No payment was submitted. Return to checkout or contact the shop.':'The card payment was declined or canceled. Return to checkout to check your card details or choose another payment method.'},{status:402});
+    if (outcome.kind !== "completed") return NextResponse.json({ ok: false, pending: true, error: outcome.kind === "conflict" ? "This checkout has a different saved order. Check its payment status before placing another." : pendingMessage }, { status: outcome.kind === "pending" ? 202 : 409 });
+    await fulfillPayment(attemptKey).catch(() => console.error("[devine] paid order requires recovery", attemptKey));
+    const charged = outcome.attempt.result!;
+    return NextResponse.json({ ok: true, number: outcome.attempt.snapshot.order.number, paid: { totalCents: charged.totalCents, feeCents: charged.feeCents, receiptUrl: charged.receiptUrl } });
+  } catch {
+    return NextResponse.json({ ok: false, pending: true, error: pendingMessage }, { status: 503 });
   }
-  try {
-    await sendOrder(order, paid);
-  } catch (err) {
-    console.error(`[devine] paid order ${order.number}: emails did not send`, err);
-  }
-
-  return NextResponse.json({
-    ok: true,
-    number: order.number,
-    paid: { totalCents: charged.totalCents, feeCents: charged.feeCents, receiptUrl: charged.receiptUrl },
-  });
 }
 
 function toWorkroomOrder(o: PricedOrder, status: WorkroomOrder["status"], payment: OrderPayment | null): WorkroomOrder {
