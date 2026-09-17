@@ -1,0 +1,34 @@
+# Claude reviews every pull request. The other half of the two-agent rule in
+# AGENTS.md: Codex reviews through its GitHub integration, Claude reviews here,
+# Kevin merges. Runs on the Claude Max subscription through a long-lived OAuth
+# token (claude setup-token), never an API key. Findings land on the pull
+# request as inline comments, or one summary comment when there are none.
+# Draft pull requests and fork pull requests are skipped by design.
+name: Claude review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
