@@ -1,3 +1,13 @@
+/** Signed workroom sessions.
+ *
+ * What it protects against: the cookie being the credential. The cookie
+ * carries {role, expires, nonce} and an HMAC over that payload keyed by the
+ * server secret AND the current PIN for the role, so the cookie never
+ * contains the PIN, a stolen cookie cannot be read for it, forging a role
+ * needs the secret, and rotating either the PIN or the secret signs
+ * everyone out at once. Constant-time comparison keeps the signature check
+ * from leaking by timing. Pure functions, no I/O, so the tests cover every
+ * branch without a browser. */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 export type WorkroomRole = 'staff' | 'owner';
 export const SESSION_SECONDS = 60 * 60 * 18;
@@ -16,6 +26,8 @@ export function sessionRole(token:string|undefined,secret:string|null,pins:{staf
   const role=data.role as WorkroomRole,pin=pins[role];if(!pin)return null;
   const expected=sign(payload,secret,pin);const provided=Buffer.from(signature),wanted=Buffer.from(expected);
   if(provided.length!==wanted.length||!timingSafeEqual(provided,wanted))return null;
+  // An expiry further out than one session length is a forged or corrupted
+  // payload, not a long session, and is refused the same way.
   if(!Number.isFinite(data.expires)||data.expires<=now||data.expires>now+SESSION_SECONDS*1000||typeof data.nonce!=='string'||data.nonce.length<24)return null;
   return role;
  }catch{return null;}

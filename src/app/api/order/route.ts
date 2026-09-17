@@ -6,7 +6,49 @@ import { resolveSquare } from "@/lib/square/oauth";
 import { appFeeCents } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/workroom/store";
 
-/** Durable checkout intent, followed by provider settlement and recoverable fulfillment. */
+/**
+ * POST /api/order. Takes a customer order. The workroom pay, login and
+ * orders routes and the Square webhook write too; this is the customer side.
+ *
+ * TWO SHAPES OF ORDER since 2026-09-01, anchored on different events:
+ *
+ * UNPAID (the default, and the only shape until CHECKOUT_CARDS is "on"):
+ * the ticket email is the order. The response vocabulary is small so
+ * CartView can be honest about each case:
+ *
+ *   200 { ok: true,  number }        the shop's inbox has the ticket
+ *   400 { ok: false, error }         the order itself is wrong; fix and resubmit
+ *   503 { ok: false, reason: "unconfigured" }   mail was never set up here
+ *   502 { ok: false, reason: "send-failed" }    mail is set up and did not work
+ *
+ * 503/502 mean "did not reach the shop", the cart says exactly that, and
+ * never thanks a visitor for an order nobody received.
+ *
+ * PAID BY CARD (payload carries card.sourceId and card.attemptKey): the
+ * CHARGE is the order. Sequence: price, gate delivery (a zip must be on the
+ * owner's fee sheet and the flowers must clear her minimum; anything else
+ * falls back to the pay-on-call flow, see paidFlow), then hand the whole
+ * intent to takePayment, which saves it to Postgres under the browser's
+ * attemptKey BEFORE Square is called. The board id derives from that key,
+ * so a retried request lands on the same row instead of a second order.
+ * After a successful charge, fulfillPayment writes the board row and sends
+ * the emails; both are replayable from /workroom/payments if they fail, so
+ * the response is ok whenever the money moved. The Square sale itself
+ * (reference id attached) is the deepest backstop. The extra vocabulary:
+ *
+ *   402 { failed }     Square declined, or nothing was submitted; the cart
+ *                      offers "return to checkout" and forgets the attempt
+ *   202 { pending }    Square's answer was lost; the cart keeps the attempt
+ *                      key and asks /api/order/payment-status. NEVER a
+ *                      second charge from here.
+ *   409 { pending }    the same attempt key arrived carrying a different order
+ *   503 { pending }    storage or Square unreachable before the call
+ *
+ * A paid pickup is born "confirmed": the total is settled and the date is
+ * chosen; there is nothing left for a confirm call to collect.
+ *
+ * Runs on Node, not edge: nodemailer speaks raw SMTP sockets.
+ */
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
@@ -30,7 +72,7 @@ export async function POST(req: Request) {
   const result = await sendOrder(priced.order);
   if (result === "sent") {
     /*
-      Onto the workroom board too — but only an order that actually reached the
+      Onto the workroom board too, but only an order that actually reached the
       shop. On "unconfigured" and "send-failed" the customer is told to call
       instead, and a board row for an order the customer was told did not go
       through is a ghost someone will make flowers for. Best-effort: the email
@@ -101,11 +143,19 @@ async function paidFlow(order: PricedOrder, sourceId: string, attemptKey: string
      check would catch any drift between the two. */
   const baseCents = chargeLines.reduce((s, l) => s + Math.round(l.each * 100) * l.qty, 0);
   const convenienceCents = Math.round((baseCents * site.cardFeePct) / 100) + appFeeCents();
+  // The board ticket carries the delivery line too, and its subtotal is the
+  // whole order value (flowers + delivery), so the ticket's rows and its
+  // Subtotal agree with what the card was charged. The row is not written
+  // here: it rides inside the saved intent and fulfillPayment writes it once
+  // the charge is confirmed, so a declined card leaves no ghost ticket.
   const wr = { ...toWorkroomOrder(order, "confirmed", null), id };
   if (deliveryFee > 0) {
     wr.lines = [...wr.lines, { slug: null, name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }];
     wr.subtotal = Math.round((wr.subtotal + deliveryFee) * 100) / 100;
   }
+  // The fingerprint is what makes a repeat of the same attempt key a retry
+  // rather than a conflict. priceOrder mints a fresh order number on every
+  // request, so it is left out; everything the customer chose is in.
   const { number: ignoredNumber, ...stableOrder } = order;
   void ignoredNumber;
   try {

@@ -1,8 +1,1 @@
-* text=auto
-*.ts text eol=lf
-*.tsx text eol=lf
-*.js text eol=lf
-*.cjs text eol=lf
-*.json text eol=lf
-*.md text eol=lf
-.env.example text eol=lf
+* text=auto eol=lf

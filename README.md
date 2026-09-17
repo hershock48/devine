@@ -449,7 +449,9 @@ Regression commands: npm ci --ignore-scripts --prefix tools/payment-tests, then 
 
 ## Trusted address setup for sign-in
 
-On Vercel, enable **Automatically expose System Environment Variables** in the project environment settings and redeploy. The deployed server must receive `VERCEL=1` and the platform-provided `x-vercel-forwarded-for` header. Leave `WORKROOM_TRUSTED_IP_HEADER` unset there. A missing or invalid trusted address returns HTTP 503 with `reason: trusted_address_unavailable`; database failures instead report sign-in storage unavailable. This distinction does not bypass throttling or accept an arbitrary forwarded header.
+Sign-in counts wrong guesses per connecting address, so the server has to know that address before it lets anyone try. The code reads `process.env.VERCEL`, which only exists on the server when the Vercel project has **Automatically expose System Environment Variables** turned on under the project's Environment Variables settings. Turn it on and redeploy. The deployed server must then receive `VERCEL=1` and the platform-provided `x-vercel-forwarded-for` header. Leave `WORKROOM_TRUSTED_IP_HEADER` unset there.
+
+If the toggle is off or the header is missing, sign-in answers HTTP 503 with `reason: trusted_address_unavailable` and the message "Sign-in is off until the hosting settings let the site see your connection address." A database failure is a different 503 that says sign-in storage is unavailable, so the owner can tell the two apart without reading logs. Neither bypasses throttling or accepts an arbitrary forwarded header. The same wording is used on copperac.
 
 On another host, configure an overwriting trusted proxy, block direct access to the application, and set `WORKROOM_TRUSTED_IP_HEADER` to that header. Verify a correct login and an independent address after deployment. The hosted toggle and actual edge header have not been verified by the local tests.
 

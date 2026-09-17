@@ -9,7 +9,39 @@ import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
 import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
 
-/** Server-priced checkout; uncertain card requests keep an opaque recovery reference across reloads. */
+/**
+ * THE CART, AND A CHECKOUT THAT SENDS SOMEWHERE.
+ *
+ * Phase 1 of the DeVine build: the order form is real. It POSTs to /api/order,
+ * which prices the cart on the server and emails a ticket to the shop over
+ * SMTP. Unless the visitor pays by card, the shop takes payment on the
+ * confirming call, the way a florist already handles every phone order.
+ *
+ * glaze.md's line still governs the failure modes: "What is not acceptable is
+ * a stub that waits half a second and says 'Thanks, we got it' while sending
+ * nowhere." So the form has exactly these honest outcomes:
+ *
+ *   sent         "Order DV-0821-4183 is in. We'll call you." The cart clears.
+ *   not sent     (mail unconfigured, or the send failed) The visitor is told
+ *                plainly that nothing reached the shop, and handed the two
+ *                routes that always work: the phone, and a mailto carrying
+ *                every field they typed. Nothing to retype, nothing pretended.
+ *   bad order    the server's validation message, next to the button.
+ *   pending      (card only) Square's answer never arrived. The attempt key
+ *                stays in localStorage, the form gives way to a "check your
+ *                payment" screen, and nothing here charges again. A lost
+ *                response is not a decline (September 2026 review).
+ *
+ * CARD PAYMENT (2026-09-01), behind the CHECKOUT_CARDS switch. Pickup always;
+ * delivery once the owner's fee sheet and minimums arrived the same day, and
+ * only for zips on that sheet. When the switch is off, or Square is
+ * unconnected, none of this renders and the flow above is exactly what it
+ * was. The fee is shown as its own Convenience fee line before the button
+ * quotes the total; the server recomputes everything and the browser's
+ * numbers decide nothing. Still no tax line: inventing one would put a
+ * number in front of a customer that the shop never agreed to, and it
+ * remains a question for the owner.
+ */
 
 const field: React.CSSProperties = {
   width: "100%",
@@ -241,9 +273,12 @@ export default function CartView() {
   const convenienceCents = Math.round((baseCents * (cfg.cardPct ?? 3)) / 100) + (cfg.feeCents ?? 99);
   const cardTotalCents = baseCents + convenienceCents;
 
-  // Fulfillment follows the shop's calendar, including customers ordering from
-  // another timezone. UTC midnight is still the previous evening in Michigan.
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  // Client date, not build date: a statically frozen "today" once sold birds
+  // for the wrong year (glaze.md failure log). This runs per visit, in the
+  // browser, and on the shop's calendar rather than UTC: a customer ordering
+  // from another timezone at UTC midnight is still the previous evening in
+  // Michigan, and fulfillment follows the shop's day.
+  const today =new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
   const delivering = fulfillment === "delivery";
   const zipKnown = (site.deliveryZips as readonly string[]).includes(zip.trim());
@@ -318,6 +353,10 @@ export default function CartView() {
         setOutcome({ state: "sent", number: body.number, paid: body.paid });
         clear();
       } else if (cardPayload && res.status !== 400) {
+        // A card request that got any answer other than "the order is wrong"
+        // may have moved money: 402 says it did not, 202/409/503 say nobody
+        // knows yet. Either way the attempt key stays until the status
+        // endpoint confirms, or the customer chooses "Return to checkout".
         setOutcome({ state: "pending", failed:body?.failed===true,message: body?.error || paymentWarning });
       } else if (res.status === 400 || res.status === 402) {
         forgetAttempt();
@@ -326,6 +365,9 @@ export default function CartView() {
         setOutcome({ state: "unreached", reason: body?.reason === "unconfigured" ? "unconfigured" : "send-failed" });
       }
     } catch {
+      // The fetch itself failed: offline, or the site is down. Same honesty,
+      // with one difference: a card request may have reached the server
+      // before the connection dropped, so it keeps its attempt key.
       setOutcome(cardPayload ? { state: "pending", message: paymentWarning } : { state: "unreached", reason: "send-failed" });
     } finally { submitLock.current = false; }
   }
@@ -468,7 +510,7 @@ export default function CartView() {
                         Ignore anything that does not parse to a real quantity.
                         The old handler passed Number(value) straight through,
                         and clearing the field to retype it produced 0, which
-                        setQty treats as removal — so backspacing "2" to type
+                        setQty treats as removal, so backspacing "2" to type
                         "3" deleted the flowers. Removing is the Remove
                         button's job and only its job.
                       */
