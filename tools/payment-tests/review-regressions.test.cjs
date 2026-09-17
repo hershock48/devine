@@ -219,7 +219,13 @@ test('sign-in distinguishes trusted-address setup from database outages without 
   const response=await route.POST(new Request('https://fixture.invalid/api/workroom/login',{method:'POST',headers,body:'{}'}));
   assert.equal(response.status,503);const body=await response.json();
   if(scenario==='database'){assert.match(body.error,/storage/);assert.equal(counts,1);}
-  else {assert.equal(body.reason,'trusted_address_unavailable');assert.equal(counts,0);}
+  else {
+   // loginClient threw (no VERCEL, no header, or a forged chain). The owner
+   // reads this sentence on the sign-in screen, so it names the hosting
+   // setting rather than blaming storage. Same wording as copperac.
+   assert.equal(body.reason,'trusted_address_unavailable');assert.equal(counts,0);
+   assert.equal(body.error,'Sign-in is off until the hosting settings let the site see your connection address.');
+  }
  }
 });
 
