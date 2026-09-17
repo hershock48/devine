@@ -45,6 +45,8 @@ export default function PayControls({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const requestLock = useRef(false);
+  const [retryOf,setRetryOf]=useState<string|undefined>();
+  const [uncertain,setUncertain]=useState(false);
   const [cardPct, setCardPct] = useState(3);
   /** True once Square's card field is attached and typeable. The charge
       button stays disabled until then, because the first live test clicked
@@ -114,7 +116,7 @@ export default function PayControls({
   }, [mode]);
 
   async function pay(method: "card" | "cash" | "manual") {
-    if (requestLock.current) return;
+    if (requestLock.current||uncertain) return;
     requestLock.current = true;
     setBusy(true);
     setError("");
@@ -133,13 +135,20 @@ export default function PayControls({
       const r = await fetch("/api/workroom/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: orderId, method, sourceId }),
+        body: JSON.stringify({ id: orderId, method, sourceId,attemptId:crypto.randomUUID(),retryOf }),
+        signal:AbortSignal.timeout(30000),
       });
-      const d = (await r.json()) as { ok?: boolean; error?: string };
+      const d = (await r.json()) as { ok?: boolean; error?: string;failed?:boolean;retryOf?:string };
+      if(d.failed===true&&typeof d.retryOf==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(d.retryOf)){
+        // Only a saved definitive failure releases another staff payment.
+        // The next click acknowledges this exact failure; a lost response does not.
+        setRetryOf(d.retryOf);setMode('idle');setError(d.error||'Payment failed. Choose another payment method.');return;
+      }
       if (!r.ok || !d.ok) throw new Error(d.error || "The payment did not go through.");
       setMode("idle");
       onPaid();
     } catch (err) {
+      if(submitted)setUncertain(true);
       setError(submitted ? `${err instanceof Error ? err.message : "Payment response unavailable."} Check Payment recovery before collecting money again.` : err instanceof Error ? err.message : "Card entry is unavailable.");
     } finally {
       requestLock.current = false;
@@ -168,17 +177,17 @@ export default function PayControls({
     <div style={{ margin: "10px 0 0" }}>
       {mode === "idle" && (
         <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" className="btn" onClick={() => setMode("card")}>
+          <button type="button" className="btn" disabled={busy||uncertain} onClick={() => setMode("card")}>
             Take card
           </button>
-          <button type="button" onClick={() => setMode("cash")} style={{ ...textButton, fontSize: 14 }}>
+          <button type="button" disabled={busy||uncertain} onClick={() => setMode("cash")} style={{ ...textButton, fontSize: 14 }}>
             Record cash
           </button>
           {/* The escape hatch for money that moved outside the board (rung
               at the register without the DV note, a check, an account
               customer). Without it, orders paid off-system nag in the owed
               section forever, which teaches staff to ignore the section. */}
-          <button type="button" onClick={() => setMode("manual")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+          <button type="button" disabled={busy||uncertain} onClick={() => setMode("manual")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
             Paid another way
           </button>
         </p>
@@ -190,7 +199,7 @@ export default function PayControls({
             Marks it paid without touching Square. For money that already moved: the register, a
             check, an account.
           </span>
-          <button type="button" className="btn btn--solid" disabled={busy} onClick={() => pay("manual")}>
+          <button type="button" className="btn btn--solid" disabled={busy||uncertain} onClick={() => pay("manual")}>
             {busy ? "Marking…" : "Mark paid"}
           </button>
           <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
@@ -226,7 +235,7 @@ export default function PayControls({
           </ul>
           <div ref={holderRef} />
           <p style={{ margin: "10px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
-            <button type="button" className="btn btn--solid" disabled={busy || !ready} onClick={() => pay("card")}>
+            <button type="button" className="btn btn--solid" disabled={busy || uncertain || !ready} onClick={() => pay("card")}>
               {!ready ? "Opening card field…" : busy ? "Charging…" : `Charge ${dollars(cardTotal)}`}
             </button>
             <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
@@ -238,7 +247,7 @@ export default function PayControls({
 
       {mode === "cash" && (
         <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" className="btn btn--solid" disabled={busy} onClick={() => pay("cash")}>
+          <button type="button" className="btn btn--solid" disabled={busy||uncertain} onClick={() => pay("cash")}>
             {busy ? "Recording…" : `Record ${dollars(baseTotal)} cash`}
           </button>
           <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>

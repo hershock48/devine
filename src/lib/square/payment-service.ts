@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { sendPaymentNotice, type PricedOrder } from '@/lib/intake';
 import { getStore, type WorkroomOrder, type OrderPayment } from '@/lib/workroom/store';
 import { paymentDatabase, attemptRepository } from './payment-attempts';
-import { runPayment, type Attempt, type PaymentResult } from './payment-engine';
+import { runPayment, PaymentNotSubmitted, type Attempt, type PaymentResult } from './payment-engine';
 import { chargeBoardOrder } from './payments';
 import { resolveSquare, type ResolvedSquare } from './oauth';
 import { square } from './client';
@@ -18,6 +18,8 @@ export type PaymentIntent = {
 };
 export const paymentFingerprint = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const gatewayIdentity = (cfg: ResolvedSquare) => ({ env: cfg.env, locationId: cfg.locationId, viaOAuth: cfg.viaOAuth });
+// jsonb may reorder object keys. Identity is these values, never JSON byte order.
+const sameGateway=(a:PaymentIntent['gateway'],b:PaymentIntent['gateway'])=>!!a&&!!b&&a.env===b.env&&a.locationId===b.locationId&&a.viaOAuth===b.viaOAuth;
 export const paymentRepo = () => attemptRepository<PaymentIntent>();
 export const pendingMessage = 'Payment is awaiting confirmation. Do not pay again or place a replacement order. Check payment status or contact the shop.';
 
@@ -26,21 +28,23 @@ export function expectedTotal(intent: PaymentIntent) {
     + (intent.method === 'card' ? intent.cardFee.cents : 0);
 }
 
-export async function takePayment(key: string, fingerprint: string, intent: PaymentIntent, sourceId?: string) {
+export async function takePayment(key: string, fingerprint: string, intent: PaymentIntent, sourceId?: string, retryOf?: string) {
   if (getStore().backend !== 'postgres') throw new Error('Persistent workroom storage is required.');
   // Initialize the board before claiming an attempt. A storage outage cannot trigger a charge.
   await getStore().getOrder(intent.order.id);
   return runPayment(paymentRepo(), key, fingerprint, { ...intent, referenceId: randomUUID() }, async saved => {
-    const current = await getStore().getOrder(saved.order.id);
-    if (current?.payment || current?.status === 'canceled') throw new Error('The order changed before payment. Review required.');
+    let current:WorkroomOrder|null;
+    try{current=await getStore().getOrder(saved.order.id);}catch{throw new PaymentNotSubmitted('ORDER_CHECK_UNAVAILABLE');}
+    if (current?.payment || current?.status === 'canceled'||(!saved.online&&!current)) throw new PaymentNotSubmitted('ORDER_CHANGED');
     if (saved.method === 'manual') return { paymentId: '', status: 'COMPLETED', receiptUrl: '', totalCents: expectedTotal(saved), feeCents: 0 };
-    const cfg = await resolveSquare();
-    if (!cfg || JSON.stringify(gatewayIdentity(cfg)) !== JSON.stringify(saved.gateway)) throw new Error('Payment connection changed.');
+    let cfg:ResolvedSquare|null;
+    try{cfg=await resolveSquare();}catch{throw new PaymentNotSubmitted('CONNECTION_UNAVAILABLE');}
+    if (!cfg || !sameGateway(gatewayIdentity(cfg),saved.gateway)) throw new PaymentNotSubmitted('CONNECTION_CHANGED');
     return chargeBoardOrder(cfg, {
       attemptKey: saved.referenceId!, workroomOrderId: saved.referenceId!, orderNumber: saved.order.number,
       lines: saved.order.lines, method: saved.method, sourceId, cardFee: saved.cardFee,
     });
-  });
+  },retryOf);
 }
 
 export function settledPayment(attempt: Attempt<PaymentIntent>): OrderPayment {
@@ -108,7 +112,7 @@ export async function reconcilePayment(key: string) {
   if (attempt.state === 'completed') { await fulfillPayment(key).catch(() => console.error('[devine] paid order requires recovery', key)); return attempt; }
   if (!attempt.snapshot.gateway || attempt.state === 'prepared' || attempt.state === 'failed') return attempt;
   const cfg = await resolveSquare();
-  if (!cfg || JSON.stringify(gatewayIdentity(cfg)) !== JSON.stringify(attempt.snapshot.gateway)) throw new Error('Reconnect the original Square location before reconciliation.');
+  if (!cfg || !sameGateway(gatewayIdentity(cfg),attempt.snapshot.gateway)) throw new Error('Reconnect the original Square location before reconciliation.');
   let found: ProviderPayment | undefined;
   if (attempt.result?.paymentId) {
     const response = await square<{ payment?: ProviderPayment }>(cfg, 'GET', `/v2/payments/${encodeURIComponent(attempt.result.paymentId)}`);
@@ -132,10 +136,10 @@ export async function reconcilePayment(key: string) {
 export async function settleProviderPayment(key: string, payment: ProviderPayment, cfg: ResolvedSquare) {
   const attempt = await paymentRepo().read(key);
   if (!attempt || !payment.id || payment.reference_id !== attempt.snapshot.referenceId || payment.location_id !== cfg.locationId
-    || JSON.stringify(gatewayIdentity(cfg)) !== JSON.stringify(attempt.snapshot.gateway)
+    || !sameGateway(gatewayIdentity(cfg),attempt.snapshot.gateway)
     || payment.amount_money?.amount !== expectedTotal(attempt.snapshot) || payment.amount_money.currency !== 'USD') throw new Error('Payment does not match the saved intent.');
   const state = payment.status === 'COMPLETED' ? 'completed' : ['FAILED', 'CANCELED'].includes(payment.status || '') ? 'failed' : 'unknown';
   const result: PaymentResult = { paymentId: payment.id, status: payment.status || '', receiptUrl: payment.receipt_url || '', totalCents: payment.amount_money.amount!, feeCents: attempt.snapshot.method === 'card' ? attempt.snapshot.cardFee.cents : 0 };
-  await paymentRepo().settle(key, state, result);
+  await paymentRepo().settle(key, state, result, attempt.fingerprint);
   if (state === 'completed') await fulfillPayment(key);
 }

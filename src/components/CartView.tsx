@@ -90,7 +90,7 @@ export default function CartView() {
       if (body.ok) {
         forgetAttempt();
         setOutcome({ state: "sent", number: body.number, paid: body.paid }); clear();
-      } else setOutcome({ state: "pending", failed: body.failed === true, message: body.failed ? "Square confirmed this payment failed. You can return to checkout and use another payment method." : paymentWarning });
+      } else setOutcome({ state: "pending", failed: body.failed === true, message: body.failed ? body.error || "The payment failed. You can return to checkout and use another payment method." : paymentWarning });
     } catch { setOutcome({ state: "pending", message: paymentWarning }); }
     finally { submitLock.current = false; }
   }
@@ -318,7 +318,7 @@ export default function CartView() {
         setOutcome({ state: "sent", number: body.number, paid: body.paid });
         clear();
       } else if (cardPayload && res.status !== 400) {
-        setOutcome({ state: "pending", message: body?.error || paymentWarning });
+        setOutcome({ state: "pending", failed:body?.failed===true,message: body?.error || paymentWarning });
       } else if (res.status === 400 || res.status === 402) {
         forgetAttempt();
         setOutcome({ state: "invalid", message: body?.error || "Something in the order needs another look." });

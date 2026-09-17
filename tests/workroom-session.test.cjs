@@ -1,6 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),crypto=require('node:crypto');
 const ts=require('typescript'),test=require('node:test'),assert=require('node:assert/strict');
-function load(file,mocks={},env={}){const module={exports:{}};const source=ts.transpileModule(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new vm.Script(source).runInNewContext({module,exports:module.exports,require:n=>{if(n==='server-only')return {};if(n==='node:crypto')return crypto;if(Object.hasOwn(mocks,n))return mocks[n];throw Error(n);},process:{env},Buffer,Date});return module.exports;}
+function load(file,mocks={},env={}){const module={exports:{}};const source=ts.transpileModule(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new vm.Script(source).runInNewContext({module,exports:module.exports,require:n=>{if(n==='server-only')return {};if(n==='node:crypto')return crypto;if(n==='node:net')return require('node:net');if(Object.hasOwn(mocks,n))return mocks[n];throw Error(n);},process:{env},Buffer,Date,URL,Request});return module.exports;}
 const session=load('src/lib/workroom/session.ts'),secret='fixture-secret-'.repeat(4),pins={staff:'2468',owner:'9753'},now=1700000000000;
 test('issued sessions authorize the correct role without storing credentials',()=>{
  for(const role of ['staff','owner']){const token=session.issueSession(role,pins[role],secret,now);assert.equal(session.sessionRole(token,secret,pins,now),role);const payload=JSON.parse(Buffer.from(token.split('.')[0],'base64url'));assert.equal(payload.role,role);assert.equal(payload.pin,undefined);assert.equal(session.sessionRole(pins[role],secret,pins,now),null);}
@@ -30,12 +30,12 @@ test('auth helpers retain owner/staff boundaries and set secure signed cookies',
 
 test('login limiter rejects attempt eleven and recovers after its window or a successful login',async()=>{
  const limiter=load('src/lib/workroom/login-limit.ts',{}, {NODE_ENV:'test'});
- for(let i=0;i<10;i++)assert.equal(await limiter.allowLogin(1000),true);
- assert.equal(await limiter.allowLogin(1000),false);
- assert.equal(await limiter.allowLogin(601001),true);
- await limiter.clearLoginAttempts();assert.equal(await limiter.allowLogin(601001),true);
+ for(let i=0;i<10;i++)assert.equal(await limiter.allowLogin('a',1000),true);
+ assert.equal(await limiter.allowLogin('a',1000),false);
+ assert.equal(await limiter.allowLogin('a',601001),true);
+ await limiter.clearLoginAttempts('a');assert.equal(await limiter.allowLogin('a',601001),true);
 });
 test('production sign-in limiter fails closed without a persistent database',async()=>{
  const limiter=load('src/lib/workroom/login-limit.ts',{}, {NODE_ENV:'production'});
- await assert.rejects(()=>limiter.allowLogin(),/database/);
+ await assert.rejects(()=>limiter.allowLogin('a'),/database/);
 });

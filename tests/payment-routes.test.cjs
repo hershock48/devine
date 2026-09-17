@@ -7,6 +7,7 @@ function load(file, mocks, env = {}) {
     if (name === 'server-only') return {};
     if (name === 'node:crypto') return crypto;
     if (Object.hasOwn(mocks, name)) return mocks[name];
+    if(name==='./payment-engine')return load('src/lib/square/payment-engine.ts',{});
     throw Error(`Unexpected import: ${name}`);
   }, process: { env }, console: { error() {} }, URLSearchParams, Date });
   return module.exports;
@@ -52,6 +53,10 @@ test('ambiguous payment and storage failures never report unpaid intake or invit
     assert.equal(response.value.ok, false); assert.equal(response.value.pending, true);
     assert.equal(app.calls.unpaidMail, 0); assert.equal(app.calls.fulfill, 0);
   }
+});
+test('a confirmed online failure returns a retryable 402 and never sends an unpaid order',async()=>{
+ const app=online({outcome:'failed'}),response=await app.post();
+ assert.equal(response.status,402);assert.equal(response.value.failed,true);assert.equal(response.value.pending,false);assert.equal(app.calls.unpaidMail,0);assert.equal(app.calls.fulfill,0);
 });
 test('provider order and payment keys are stable, distinct, and different for another attempt', async () => {
   const calls = [];

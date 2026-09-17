@@ -21,6 +21,7 @@ function mount(file, options = {}) {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, '@/lib/catalog': catalog,
     '@/components/Cart': { useCart: () => ({ items: [{ product, qty: 1 }], lines: [{ slug: 'maeve', qty: 1 }], subtotal: 65, count: 1, clear() {}, add() {}, remove() {}, setQty() {} }) },
     '@/components/ProductImage': { default: 'image' }, '@/lib/nav': { href: p => '/demo' + (p || '') },
+    '@/components/workroom/ui': {textButton:{}},
     '@/lib/site': { site: { deliveryFees: { '49068': 8.95 }, deliveryMinimums: { marshall: 45, outside: 55 }, marshallZip: '49068', deliveryZips: ['49068'], phone: '269-789-0830', phoneHref: 'tel:2697890830', email: 'test@example.invalid', delivery: {} } },
     '@/lib/occasions': { occasions: [] },
     '@/lib/square/web-sdk': { loadSquareSdk: async () => { loads++; if (options.sdkFails) throw Error('SDK offline'); } },
@@ -31,12 +32,12 @@ function mount(file, options = {}) {
   const FrozenDate = class extends Date { constructor(...args) { super(...(args.length ? args : ['2026-09-17T01:00:00Z'])); } };
   new vm.Script(source).runInNewContext({ module, exports: module.exports, require: name => { if (!(name in modules)) throw Error(name); return modules[name]; }, Date: FrozenDate, Intl, localStorage: storage, sessionStorage: storage,
     window: { scrollTo() {}, Square: { payments: async () => ({ card: async () => ({ attach: async () => { attaches++; }, destroy: async () => {}, tokenize: async () => ({ status: "OK", token: "test-token" }) }) }) } },
-    setInterval: () => 1, clearInterval() {}, FormData: class { get() { return null; } }, crypto: { randomUUID: () => "fixture-attempt" },
-    fetch: async url => ({ ok: false, status: 503, json: async () => url === '/api/checkout/config' ? config : options.recovery || { ok: false, failed: true } }),
+    setInterval: () => 1, clearInterval() {}, setTimeout:()=>1, clearTimeout(){}, AbortSignal, FormData: class { get() { return null; } }, crypto: require('node:crypto'),
+    fetch: options.fetch || (async url => ({ ok: false, status: 503, json: async () => url === '/api/checkout/config' ? config : options.recovery || { ok: false, failed: true } })),
   });
   const component = module.exports.default || module.exports.CartProvider;
   function nodes(node = tree, result = []) { if (!node || typeof node !== 'object') return result; if (Array.isArray(node)) { node.forEach(n => nodes(n ?? null, result)); return result; } result.push(node); if (node.props?.children !== undefined) nodes(node.props.children, result); return result; }
-  async function flush() { for (let i = 0; i < 20; i++) { if (dirty) { dirty = false; cursor = 0; tree = component({ children: null }); nodes().forEach(n => { if (n.props?.ref) n.props.ref.current = { focus() {} }; }); const pending = jobs; jobs = []; pending.forEach(fn => fn()); } await new Promise(resolve => setImmediate(resolve)); if (!dirty && !jobs.length) return; } throw Error('Render loop did not settle'); }
+  async function flush() { for (let i = 0; i < 20; i++) { if (dirty) { dirty = false; cursor = 0; tree = component({ children: null,...options.props }); nodes().forEach(n => { if (n.props?.ref) n.props.ref.current = { focus() {} }; }); const pending = jobs; jobs = []; pending.forEach(fn => fn()); } await new Promise(resolve => setImmediate(resolve)); if (!dirty && !jobs.length) return; } throw Error('Render loop did not settle'); }
   const find = predicate => { const found = nodes().find(predicate); assert.ok(found, 'Expected control exists'); return found; };
   return { flush, find, nodes, get tree() { return tree; }, get loads() { return loads; }, get attaches() { return attaches; } };
 }
@@ -94,4 +95,32 @@ test('pending payment recovery destroys and remounts card entry on the same chec
   await ui.find(n => n.props.children === 'Check payment status').props.onClick(); await ui.flush();
   ui.find(n => n.props.children === 'Return to checkout').props.onClick(); await ui.flush();
   assert.equal(ui.attaches, 2);
+});
+
+test('staff can switch a declined card to cash without an owner and sends the exact failed reference',async()=>{
+ const attempts=[];let paid=0;
+ const reference='bb3328c9-7bd1-4ef9-831e-46c57718d0c9';
+ const ui=mount('src/components/workroom/PayControls.tsx',{props:{orderId:'fixture',subtotal:20,onPaid:()=>paid++},fetch:async(url,options)=>{
+  if(url.endsWith('square-web'))return {ok:true,json:async()=>({applicationId:'fixture',locationId:'fixture',env:'sandbox'})};
+  attempts.push(JSON.parse(options.body));return {ok:attempts.length>1,json:async()=>attempts.length===1?{failed:true,retryOf:reference,error:'Declined. Try another payment method.'}:{ok:true}};
+ }});
+ await ui.flush();ui.find(n=>n.props.children==='Take card').props.onClick();await ui.flush();
+ await ui.find(n=>typeof n.props.children==='string'&&n.props.children.startsWith('Charge $')).props.onClick();await ui.flush();
+ assert.equal(ui.find(n=>n.props.children==='Record cash').props.disabled,false);
+ ui.find(n=>n.props.children==='Record cash').props.onClick();await ui.flush();
+ await ui.find(n=>n.props.children==='Record $20.00 cash').props.onClick();await ui.flush();
+ assert.equal(paid,1);assert.equal(attempts[1].retryOf,reference);assert.equal(attempts[1].method,'cash');assert.notEqual(attempts[0].attemptId,attempts[1].attemptId);
+});
+test('a lost workroom response disables another collection rather than offering a safe retry',async()=>{
+ let requests=0;
+ const ui=mount('src/components/workroom/PayControls.tsx',{props:{orderId:'fixture',subtotal:20,onPaid(){}},fetch:async()=>{requests++;throw Error('Response lost');}});
+ await ui.flush();ui.find(n=>n.props.children==='Record cash').props.onClick();await ui.flush();
+ await ui.find(n=>n.props.children==='Record $20.00 cash').props.onClick();await ui.flush();
+ const button=ui.find(n=>n.props.children==='Record $20.00 cash');assert.equal(button.props.disabled,true);await button.props.onClick();assert.equal(requests,1);
+});
+test('a known unsubmitted online payment immediately exposes Return to checkout',async()=>{
+ const message='No payment was submitted. Return to checkout after payment setup is checked.';
+ const ui=mount('src/components/CartView.tsx',{fetch:async url=>url==='/api/checkout/config'?{ok:true,json:async()=>({cards:true,applicationId:'test',locationId:'test',env:'sandbox'})}:{ok:false,status:402,json:async()=>({ok:false,failed:true,pending:false,error:message})}});
+ await openPickup(ui);await ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){},currentTarget:{}});await ui.flush();
+ assert.ok(ui.find(n=>n.props.children==='Return to checkout'));assert.ok(ui.find(n=>n.props.children===message));
 });

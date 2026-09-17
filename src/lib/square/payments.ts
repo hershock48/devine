@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { square, SquareError } from "./client";
+import { PaymentNotSubmitted } from "./payment-engine";
 import type { ResolvedSquare } from "./oauth";
 
 /** Shared Square adapter. The caller must first save and claim a durable attempt.
@@ -85,7 +86,9 @@ export async function chargeBoardOrder(
   },
 ) {
   const subtotalCents = opts.lines.reduce((sum, l) => sum + cents(l.each) * l.qty, 0);
-  if (subtotalCents <= 0) throw new Error("This order has no priced lines to charge.");
+  if (!Number.isSafeInteger(subtotalCents)||subtotalCents<=0||opts.lines.some(l=>!Number.isSafeInteger(l.qty)||l.qty<=0||!Number.isFinite(l.each)||l.each<0)) throw new PaymentNotSubmitted("INVALID_PRICED_LINES");
+  if(opts.method==='card'&&!opts.sourceId)throw new PaymentNotSubmitted('MISSING_CARD_TOKEN');
+  if(!Number.isSafeInteger(opts.cardFee.cents)||opts.cardFee.cents<0||!Number.isSafeInteger(opts.cardFee.appFeeCents)||opts.cardFee.appFeeCents<0)throw new PaymentNotSubmitted('INVALID_FEE');
 
   const feeCents = opts.method === "card" ? Math.max(0, Math.round(opts.cardFee.cents)) : 0;
   const totalCents = subtotalCents + feeCents;
@@ -108,7 +111,8 @@ export async function chargeBoardOrder(
     });
   }
 
-  const created = await square<CreateOrderResponse>(cfg, "POST", "/v2/orders", {
+  let created:CreateOrderResponse;
+  try{created = await square<CreateOrderResponse>(cfg, "POST", "/v2/orders", {
     idempotency_key: providerKey(opts.attemptKey, "order"),
     order: {
       location_id: cfg.locationId,
@@ -117,14 +121,14 @@ export async function chargeBoardOrder(
       // The note is what a person sees scanning her dashboard.
       note: `Board order ${opts.orderNumber}`,
     },
-  });
+  });}catch{throw new PaymentNotSubmitted('ORDER_CREATION_FAILED');}
   const squareOrderId = created.order?.id;
-  if (!squareOrderId) throw new Error("Square did not return an order id.");
+  if (!squareOrderId) throw new PaymentNotSubmitted("MISSING_PROVIDER_ORDER");
   // Square's total is the truth the payment must match; a mismatch here
   // means our line math drifted and the sale must not go through fuzzy.
   const squareTotal = created.order?.total_money?.amount;
-  if (squareTotal !== undefined && squareTotal !== totalCents) {
-    throw new Error(`Order total mismatch: ours ${totalCents}, Square's ${squareTotal}.`);
+  if (squareTotal !== totalCents) {
+    throw new PaymentNotSubmitted('ORDER_TOTAL_MISMATCH');
   }
 
   const body: Record<string, unknown> = {

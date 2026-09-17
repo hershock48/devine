@@ -22,6 +22,10 @@ export async function POST(req: Request) {
   const id = typeof p.id === "string" ? p.id : "";
   const method = p.method === "card" || p.method === "cash" || p.method === "manual" ? p.method : null;
   const sourceId = typeof p.sourceId === "string" ? p.sourceId : undefined;
+  const attemptId=typeof p.attemptId==='string'?p.attemptId:'';
+  const retryOf=typeof p.retryOf==='string'?p.retryOf:undefined;
+  const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+  if(!uuid.test(attemptId)||(retryOf!==undefined&&!uuid.test(retryOf)))return NextResponse.json({error:'Refresh this payment form before collecting money.'},{status:400});
 
   if (!id || !method) return NextResponse.json({ error: "Order id and method are required." }, { status: 400 });
   if (method === "card" && !sourceId) return NextResponse.json({ error: "No card token arrived." }, { status: 400 });
@@ -58,10 +62,11 @@ export async function POST(req: Request) {
   const key = `board_${order.id}`;
   const cardFee = { name: `Card fee (${site.cardFeePct}%)`, cents: method === "card" ? Math.round((Math.round(subtotal * 100) * site.cardFeePct) / 100) : 0, appFeeCents: 0 };
   try {
-    const outcome = await takePayment(key, paymentFingerprint({ id: order.id, lines, method, cardFee }), {
+    const outcome = await takePayment(key, paymentFingerprint({ attemptId,id: order.id, lines, method, cardFee }), {
       order: { ...order, lines, subtotal }, method, gateway: cfg ? gatewayIdentity(cfg) : null, cardFee,
-    }, sourceId);
-    if (outcome.kind !== "completed") return NextResponse.json({ error: outcome.kind === "failed" ? "Square confirmed the attempt failed. Review it under Payment recovery." : pendingMessage, pending: true }, { status: 409 });
+    }, sourceId,retryOf);
+    if(outcome.kind==='failed')return NextResponse.json({failed:true,pending:false,retryOf:outcome.attempt.snapshot.referenceId,error:outcome.attempt.result?.status==='NOT_SUBMITTED'?'No payment was submitted. Refresh the order and check payment setup before trying again.':'The payment was declined or canceled. Try another card, record cash, or choose another payment method.'},{status:402});
+    if (outcome.kind !== "completed") return NextResponse.json({ error: pendingMessage, pending: true }, { status: 409 });
     await fulfillPayment(key);
     return NextResponse.json({ ok: true, payment: settledPayment(outcome.attempt), receiptUrl: outcome.attempt.result?.receiptUrl });
   } catch {

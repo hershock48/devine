@@ -19,8 +19,23 @@ export async function paymentDatabase(){
 }
 const mapped=<T>(row:Record<string,unknown>):Attempt<T>=>({key:row.attempt_key as string,fingerprint:row.fingerprint as string,state:row.state as AttemptState,snapshot:row.snapshot as T,result:row.result as PaymentResult|null,createdAt:Number(row.created_at)});
 export function attemptRepository<T>():AttemptRepository<T>{return {
- async prepare(key,fingerprint,snapshot){const db=await paymentDatabase();await db.query(`INSERT INTO devine_payment_attempts(attempt_key,fingerprint,state,snapshot,created_at,updated_at) VALUES($1,$2,'prepared',$3,$4,$4) ON CONFLICT DO NOTHING`,[key,fingerprint,JSON.stringify(snapshot),Date.now()]);const result=await db.query('SELECT * FROM devine_payment_attempts WHERE attempt_key=$1',[key]);return mapped<T>(result.rows[0]);},
- async claim(key){const db=await paymentDatabase();const result=await db.query("UPDATE devine_payment_attempts SET state='processing',updated_at=$2 WHERE attempt_key=$1 AND state='prepared' RETURNING attempt_key",[key,Date.now()]);return result.rowCount===1;},
- async settle(key,state,result){const db=await paymentDatabase();await db.query("UPDATE devine_payment_attempts SET state=$2,result=$3,updated_at=$4 WHERE attempt_key=$1 AND state<>'completed'",[key,state,result?JSON.stringify(result):null,Date.now()]);},
+ async prepare(key,fingerprint,snapshot,retryOf){
+  const client=await (await paymentDatabase()).connect();
+  try{
+   await client.query('BEGIN');
+   await client.query(`INSERT INTO devine_payment_attempts(attempt_key,fingerprint,state,snapshot,created_at,updated_at) VALUES($1,$2,'prepared',$3,$4,$4) ON CONFLICT DO NOTHING`,[key,fingerprint,JSON.stringify(snapshot),Date.now()]);
+   let result=await client.query('SELECT * FROM devine_payment_attempts WHERE attempt_key=$1 FOR UPDATE',[key]);
+   const prior=result.rows[0];
+   // Explicitly acknowledge this exact failed attempt. The row lock makes two
+   // staff retry clicks converge; pending/unknown/completed rows never release.
+   if(key.startsWith('board_')&&prior.state==='failed'&&retryOf&&prior.snapshot.referenceId===retryOf){
+    await client.query('UPDATE devine_payment_attempts SET attempt_key=$2 WHERE attempt_key=$1',[key,`archived:${key}:${retryOf}`]);
+    result=await client.query(`INSERT INTO devine_payment_attempts(attempt_key,fingerprint,state,snapshot,created_at,updated_at) VALUES($1,$2,'prepared',$3,$4,$4) RETURNING *`,[key,fingerprint,JSON.stringify(snapshot),Date.now()]);
+   }
+   await client.query('COMMIT');return mapped<T>(result.rows[0]);
+  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+ },
+ async claim(key,fingerprint){const db=await paymentDatabase();const result=await db.query("UPDATE devine_payment_attempts SET state='processing',updated_at=$2 WHERE attempt_key=$1 AND state='prepared' AND ($3::text IS NULL OR fingerprint=$3) RETURNING attempt_key",[key,Date.now(),fingerprint??null]);return result.rowCount===1;},
+ async settle(key,state,result,fingerprint){const db=await paymentDatabase();await db.query("UPDATE devine_payment_attempts SET state=$2,result=$3,updated_at=$4 WHERE attempt_key=$1 AND state<>'completed' AND ($5::text IS NULL OR fingerprint=$5)",[key,state,result?JSON.stringify(result):null,Date.now(),fingerprint??null]);},
  async read(key){const db=await paymentDatabase();const result=await db.query('SELECT * FROM devine_payment_attempts WHERE attempt_key=$1',[key]);return result.rows[0]?mapped<T>(result.rows[0]):null;},
 };}
