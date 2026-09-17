@@ -1,3 +1,14 @@
+/** The Postgres side of payment-engine.ts: the devine_payment_attempts table
+ * (one row per key with its state, snapshot and result) and the
+ * devine_payment_reviews audit table behind the owner's stuck-row override.
+ *
+ * What it protects against: a retry, a late timeout or a replayed form
+ * changing a row it should not. Row locks make concurrent staff clicks
+ * converge; settle() never overwrites completed, never lets an old
+ * fingerprint touch a newer generation, and never lets a late provider
+ * timeout erase the owner's finding. A released row is archived under
+ * archived:<key>:<reference>, not deleted, so the evidence outlives it.
+ * The schema creates itself on first use, same as the workroom store. */
 import 'server-only';
 import type {Attempt,AttemptRepository,AttemptState,PaymentResult} from './payment-engine';
 import type {Pool} from 'pg';

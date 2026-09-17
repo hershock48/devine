@@ -5,9 +5,36 @@ import { square, SquareError } from "./client";
 import { PaymentNotSubmitted } from "./payment-engine";
 import type { ResolvedSquare } from "./oauth";
 
-/** Shared Square adapter. The caller must first save and claim a durable attempt.
- * The customer fee and platform share retain the agreed pricing rules. The
- * existing one-fifth threshold is a conservative studio policy, not Square's limit.
+/**
+ * Card and cash payments through the shop's own Square account, with the
+ * Glazed platform fee. Written dormant on 2026-08-21 (checkout took no card
+ * online; payment on the confirming call was the owner's own operation) so
+ * that the day cards turned on would be a checkout change, not a plumbing
+ * project. Cards turned on 2026-09-01. Every caller now arrives through
+ * payment-engine.ts with a saved, claimed attempt, and the idempotency keys
+ * below derive from that attempt so a retried request cannot double charge.
+ *
+ * THE FEE RIDES INSIDE THE PAYMENT, NOT ON TOP OF IT. app_fee_money is
+ * Square splitting the amount already being charged: the customer pays
+ * totalCents, the shop's account receives totalCents minus processing
+ * minus the fee, and the fee accrues to the Glazed account that owns the
+ * app. So a checkout that wants the customer to pay the fee (the model: a
+ * visible fee line such as "Convenience fee", never a hidden markup) must
+ * ADD the fee to the order total it charges, then name the platform's
+ * share of it in cardFee.appFeeCents.
+ *
+ * Two hard rules from Square, enforced here rather than discovered in a
+ * 400: the fee is only legal on an OAuth-token payment made with the
+ * PAYMENTS_WRITE_ADDITIONAL_RECIPIENTS scope, and on small totals it may
+ * not exceed 60 percent of the payment. The code keeps a wider margin (the
+ * fee rides only when it is under a fifth of the total; a studio choice,
+ * not Square's number), and tiny totals drop the fee rather than fail the
+ * sale; losing 99 cents beats losing the order.
+ *
+ * What comes back matters as much as what goes out: only Square's
+ * documented decline codes turn into a FAILED result the staff may retry.
+ * A timeout, a reused token or an unfamiliar answer is thrown, and the
+ * engine parks the attempt as unknown until reconciliation reads Square.
  */
 
 /** Cents. 99 is the portfolio-standard platform fee; SQUARE_APP_FEE_CENTS
@@ -92,9 +119,9 @@ export async function chargeBoardOrder(
 
   const feeCents = opts.method === "card" ? Math.max(0, Math.round(opts.cardFee.cents)) : 0;
   const totalCents = subtotalCents + feeCents;
-  // The studio's conservative one-fifth threshold: the
-  // platform's share only rides when it is well under the total, and it
-  // can never exceed the fee line the customer actually paid.
+  // Square's 60-percent rule with margin (see the file header): the
+  // platform's share only rides when it is under a fifth of the total, and
+  // it can never exceed the fee line the customer actually paid.
   const appFeeWanted = Math.min(feeCents, Math.max(0, Math.round(opts.cardFee.appFeeCents)));
   const appFee = opts.method === "card" && cfg.viaOAuth && appFeeWanted > 0 && appFeeWanted * 5 <= totalCents ? appFeeWanted : 0;
 

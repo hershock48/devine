@@ -1,6 +1,15 @@
 /** Payment lifecycle shared by online checkout and the workroom.
- * Persist the intent before a provider call. An uncertain attempt is never
- * automatically charged again; signed provider events/reconciliation settle it.
+ *
+ * What it protects against: charging a customer twice. The intent is saved
+ * and claimed (prepared, then processing) BEFORE the provider is called,
+ * under one key per board order or per browser attempt online, so a double
+ * click, a retried request or two instances racing converge on one charge.
+ * An attempt whose answer was lost is parked as unknown and is never charged
+ * again automatically; reconciliation reads Square, or the owner records an
+ * audited finding, before the key is released. Only a PaymentNotSubmitted
+ * thrown BEFORE CreatePayment may be treated as "no money moved". No I/O of
+ * its own: the repository is injected, which is how the tests run it on
+ * PGlite with a fake Square.
  */
 export type PaymentResult={paymentId:string;status:string;receiptUrl:string;totalCents:number;feeCents:number;failureCode?:string};
 /** Only throw this before CreatePayment is invoked. Creating a Square order
