@@ -222,3 +222,57 @@ test('sign-in distinguishes trusted-address setup from database outages without 
   else {assert.equal(body.reason,'trusted_address_unavailable');assert.equal(counts,0);}
  }
 });
+
+// R2 from the 2026-09-17 re-review, exercised end to end: the owner's form
+// action, the real reconcilePayment against a fake Square, and the real
+// PGlite repository. The unit tests above prove each fence in isolation;
+// this proves the wiring between them, which is where a stuck row would
+// otherwise stay stuck or, worse, get released over a payment Square holds.
+test('owner override through the real service: releases an unknown attempt Square has no record of, refuses one Square reports, refuses completed, refuses staff',async()=>{
+ for(const scenario of ['no-record','square-has-payment','completed','staff']) {
+  const f=await database();
+  try {
+   const key='board_override',snapshot={...intent,referenceId:crypto.randomUUID()};
+   // The board row must exist so fulfillment can save a payment Square turns out to hold.
+   await f.pool.query('CREATE TABLE workroom_orders (id text PRIMARY KEY, status text NOT NULL, created_at bigint NOT NULL, data jsonb NOT NULL)');
+   await f.pool.query('INSERT INTO workroom_orders(id,status,created_at,data) VALUES($1,$2,$3,$4)',[order.id,order.status,order.createdAt,JSON.stringify(order)]);
+   // A CreatePayment whose response was lost: unknown, no paymentId, nothing settled.
+   await engine.runPayment(f.repo,key,'first',snapshot,async()=>{throw Error('response lost');});
+   if(scenario==='completed')await f.repo.settle(key,'completed',completed,'first');
+   await f.pool.query('UPDATE devine_payment_attempts SET updated_at=$1',[Date.now()-600000]);
+   const held={id:'sq-found',status:'COMPLETED',reference_id:snapshot.referenceId,location_id:cfg.locationId,amount_money:{amount:2060,currency:'USD'},receipt_url:''};
+   let searches=0;
+   const service=load('src/lib/square/payment-service.ts',{
+    './payment-attempts':f.repository,'./payment-engine':engine,'@/lib/intake':{},'./payments':{},
+    '@/lib/workroom/store':{getStore:()=>({backend:'postgres',getOrder:async()=>order})},
+    './oauth':{resolveSquare:async()=>cfg},
+    './client':{square:async(c,method,url)=>{searches++;assert.equal(method,'GET');assert.match(url,/^\/v2\/payments\?/);return {payments:scenario==='square-has-payment'?[held]:[]};}},
+   });
+   const actions=load('src/app/workroom/payments/actions.ts',{
+    'next/navigation':{redirect:url=>{throw Error('redirect:'+url);}},
+    '@/lib/workroom/auth':{isWorkroomOwner:async()=>scenario!=='staff'},
+    '@/lib/square/payment-attempts':f.repository,
+    '@/lib/square/payment-service':service,
+   });
+   const data=new FormData();data.set('key',key);data.set('referenceId',snapshot.referenceId);data.set('fingerprint','first');data.set('verified','yes');
+   data.set('evidence','Owner checked the Square dashboard for this reference and support ticket 12345 confirms nothing was charged.');
+   const expected={'no-record':'/workroom/payments?notice=released','square-has-payment':'/workroom/payments?notice=review-refused',completed:'/workroom/payments?notice=review-refused',staff:'/workroom'}[scenario];
+   await assert.rejects(actions.confirmNoPayment(data),{message:'redirect:'+expected},scenario);
+   const row=await f.repo.read(key),reviews=(await f.pool.query('SELECT count(*) AS n FROM devine_payment_reviews')).rows[0].n;
+   if(scenario==='no-record'){
+    assert.equal(row.state,'failed');assert.equal(row.result.status,'OWNER_CONFIRMED_NO_PAYMENT');assert.equal(reviews,1);assert.equal(searches,1);
+    // The board key is free again: a staff retry naming the released reference opens a new generation and charges exactly once.
+    let charges=0;
+    const retry=await engine.runPayment(f.repo,key,'second',{...intent,method:'cash',referenceId:crypto.randomUUID()},async()=>{charges++;return completed;},snapshot.referenceId);
+    assert.equal(retry.kind,'completed');assert.equal(charges,1);
+   }
+   if(scenario==='square-has-payment'){
+    // Reconciliation found the charge first, so the override was refused and the payment was saved instead.
+    assert.equal(row.state,'completed');assert.equal(row.result.paymentId,'sq-found');assert.equal(reviews,0);
+    assert.equal((await f.pool.query('SELECT data FROM workroom_orders WHERE id=$1',[order.id])).rows[0].data.payment.squarePaymentId,'sq-found');
+   }
+   if(scenario==='completed'){assert.equal(row.state,'completed');assert.equal(row.result.paymentId,completed.paymentId);assert.equal(reviews,0);}
+   if(scenario==='staff'){assert.equal(row.state,'unknown');assert.equal(reviews,0);assert.equal(searches,0);}
+  } finally { await f.db.close(); }
+ }
+});
