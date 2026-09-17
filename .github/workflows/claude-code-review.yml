@@ -2,7 +2,12 @@
 # AGENTS.md: Codex reviews through its GitHub integration, Claude reviews here,
 # Kevin merges. Runs on the Claude Max subscription through a long-lived OAuth
 # token (claude setup-token), never an API key. Findings land on the pull
-# request as inline comments, or one summary comment when there are none.
+# request as inline comments plus one summary comment.
+#
+# Why a plain prompt and not the code-review plugin: on 2026-09-17 the plugin
+# launched background helper agents for its eligibility check, ended its own
+# turn to wait for them, and the headless run exited before any review was
+# written. A single-turn prompt with the tools it needs is deterministic.
 # Draft pull requests and fork pull requests are skipped by design.
 name: Claude review
 on:
@@ -15,20 +20,29 @@ jobs:
   review:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: read
       id-token: write
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          fetch-depth: 0
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
-          plugins: "code-review@claude-code-plugins"
-          prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
-          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
+          # Kept on so a silent failure in the prompt path is diagnosable from the run log.
+          show_full_output: true
+          prompt: |
+            Review pull request ${{ github.repository }}#${{ github.event.pull_request.number }} for correctness. Do all of the work in this turn yourself: do not launch background agents, do not schedule wakeups, do not wait for anything.
+
+            1. Run `gh pr view ${{ github.event.pull_request.number }} --json title,body,author,baseRefName,headRefName` and `gh pr diff ${{ github.event.pull_request.number }}` to get the change. If the diff is over 4000 lines, review the files most likely to hold defects (code before docs, money and auth before UI) and say in the summary which files you skipped.
+            2. Read AGENTS.md and CLAUDE.md in the repo root if they exist. They carry the house rules. If AGENTS.md points at ../glazedweb/glaze.md and that path does not exist on this runner, work from AGENTS.md alone.
+            3. Look for: logic bugs, unhandled cases, security holes (auth, sessions, PIN handling, injection, secrets), money paths that could charge twice or lose a payment, behavior changes the pull request description does not mention (cookie flags, rate limits, TLS, line endings flipped LF to CRLF), reasoning comments deleted or code minified, em dashes added anywhere, and any edit to a rules file (glaze.md, standards.md, proposal.md, brand.md, ledger.md, AGENTS.md) that changes a rule.
+            4. For each real finding, post an inline comment with the mcp__github_inline_comment__create_inline_comment tool on the exact file and line: one sentence on what is wrong, one on why it matters, and a severity of HIGH, MEDIUM or LOW. Quote the line. Do not rewrite the code.
+            5. Finish with exactly one summary comment via `gh pr comment ${{ github.event.pull_request.number }} --body "<text>"` (pass the body inline; you have no file-writing tool). The body starts with the line "Claude review" and then lists every finding ranked by severity as "SEVERITY path:line summary", then a line "Tests: <what you ran or 'not run'>", then a line "Skipped: <files or 'none'>". If there are no findings, the body is "Claude review" followed by "No defects found. Checked: <short list of what you looked at>."
+
+            Rules for your own writing: no praise, no summary of what the code does, no em dashes, American spelling, one idea per sentence. An empty finding list is a fine answer. Never claim you ran something you did not run.
+          claude_args: '--max-turns 40 --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment"'
