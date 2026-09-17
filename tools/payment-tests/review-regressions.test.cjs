@@ -222,7 +222,7 @@ test('sign-in distinguishes trusted-address setup from database outages without 
   else {
    // loginClient threw (no VERCEL, no header, or a forged chain). The owner
    // reads this sentence on the sign-in screen, so it names the hosting
-   // setting rather than blaming storage. Same wording as copperac.
+   // setting rather than blaming storage.
    assert.equal(body.reason,'trusted_address_unavailable');assert.equal(counts,0);
    assert.equal(body.error,'Sign-in is off until the hosting settings let the site see your connection address.');
   }

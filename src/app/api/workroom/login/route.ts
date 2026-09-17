@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
   // Two different 503s on purpose. This one means the hosting setup, not the
   // database: the owner reads it on the sign-in screen and knows which
-  // setting to flip. Same sentence as copperac.
+  // setting to flip.
   let client:string;
   try { client=loginClient(req); }
   catch { return NextResponse.json({ error: "Sign-in is off until the hosting settings let the site see your connection address.", reason: "trusted_address_unavailable" }, { status: 503 }); }

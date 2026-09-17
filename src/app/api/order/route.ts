@@ -7,7 +7,8 @@ import { appFeeCents } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/workroom/store";
 
 /**
- * POST /api/order. The only route on the site with a side effect.
+ * POST /api/order. Takes a customer order. The workroom pay, login and
+ * orders routes and the Square webhook write too; this is the customer side.
  *
  * TWO SHAPES OF ORDER since 2026-09-01, anchored on different events:
  *
