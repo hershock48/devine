@@ -11,11 +11,19 @@
  * The schema creates itself on first use, same as the workroom store. */
 import 'server-only';
 import type {Attempt,AttemptRepository,AttemptState,PaymentResult} from './payment-engine';
+import {NOTICE_SCHEMA} from './payment-notices';
 import type {Pool} from 'pg';
+/** No durable store is configured at all, which is a different fact from a
+ * store that is configured and unreachable. The first is the memory backend
+ * and nothing about it improves by being asked again; the second is
+ * transient. Callers that answer a provider need to tell them apart. */
+export class NoPaymentStore extends Error {
+ constructor(){super('Payments require persistent storage before contacting the provider.');}
+}
 let sharedPool:Pool|undefined,ready:Promise<unknown>|undefined;
 export async function paymentDatabase(){
  const url=process.env.DATABASE_URL||process.env.POSTGRES_URL;
- if(!url)throw new Error('Payments require persistent storage before contacting the provider.');
+ if(!url)throw new NoPaymentStore();
  if(!sharedPool){const {Pool}=await import('pg');sharedPool=new Pool({connectionString:url,max:3,connectionTimeoutMillis:7000});}
  if(!ready)ready=sharedPool.query(`CREATE TABLE IF NOT EXISTS devine_payment_attempts (
  attempt_key text PRIMARY KEY, fingerprint text NOT NULL, state text NOT NULL,
@@ -24,6 +32,8 @@ export async function paymentDatabase(){
  updated_at bigint NOT NULL);
  ALTER TABLE devine_payment_attempts ADD COLUMN IF NOT EXISTS notify_until bigint NOT NULL DEFAULT 0;
  ALTER TABLE devine_payment_attempts ADD COLUMN IF NOT EXISTS customer_notified boolean NOT NULL DEFAULT false;
+ ALTER TABLE devine_payment_attempts ADD COLUMN IF NOT EXISTS provider_conflict jsonb;
+ ${NOTICE_SCHEMA}
  CREATE INDEX IF NOT EXISTS devine_payment_reference ON devine_payment_attempts ((snapshot->>'referenceId'));
  CREATE INDEX IF NOT EXISTS devine_payment_recovery ON devine_payment_attempts (state,fulfilled,notified);
  CREATE TABLE IF NOT EXISTS devine_payment_reviews (
@@ -107,4 +117,41 @@ export async function recordNoPaymentReview(input: {
   await client.query('ROLLBACK');
   throw error;
  } finally { client.release(); }
+}
+
+/** A provider payment that contradicts the saved intent, filed on the attempt
+ * row for the owner to read on /workroom/payments.
+ *
+ * It is NOT put in devine_payment_reviews. That table is the record of a
+ * human finding, one row per reference, and a machine-written row there would
+ * both occupy the reference the owner may later need and make
+ * recordNoPaymentReview's replay check treat the owner's own form as already
+ * answered. This changes no payment state and settles nothing: a webhook body
+ * that disagrees with what we saved is a question for a person, not a fact
+ * about money. Only the first sighting is kept, so a redelivery does not
+ * overwrite the date the shop first had a chance to see it. Once the owner has
+ * cleared a finding, a later contradiction is a new one and is filed.
+ */
+export async function recordProviderConflict(key:string,detail:{reason:string;paymentId:string;status:string;amountCents:number|null;locationId:string},now=Date.now()){
+ const db=await paymentDatabase();
+ await db.query(`UPDATE devine_payment_attempts SET provider_conflict=$2,updated_at=$3
+  WHERE attempt_key=$1 AND (provider_conflict IS NULL OR provider_conflict->>'clearedAt' IS NOT NULL)`,
+  [key,JSON.stringify({...detail,seenAt:now}),now]);
+}
+
+/** The owner has looked the payment up at Square and is finished with it.
+ *
+ * Without this there was no way out at all: the row satisfied
+ * `provider_conflict IS NOT NULL` for the life of the table, and the board
+ * lists the oldest hundred first, so unclosable findings collect at the top and
+ * push newer recovery work off the page. The finding itself is kept, stamped
+ * with when it was cleared, because the evidence should outlive the board
+ * entry. Nothing here settles a payment, moves money or touches Square.
+ */
+export async function clearProviderConflict(key:string,now=Date.now()):Promise<boolean>{
+ const db=await paymentDatabase();
+ const done=await db.query(`UPDATE devine_payment_attempts
+  SET provider_conflict=provider_conflict||jsonb_build_object('clearedAt',$2::bigint),updated_at=$2
+  WHERE attempt_key=$1 AND provider_conflict IS NOT NULL AND provider_conflict->>'clearedAt' IS NULL`,[key,now]);
+ return done.rowCount===1;
 }
