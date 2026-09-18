@@ -35,13 +35,28 @@ import { getStore, type SquareSale, type SquareSaleLine } from "@/lib/workroom/s
  * finds out when the loop ends and the sale is simply gone.
  *
  * Two cases used to be on the wrong side of that line. A shop running without
- * a database (the memory backend) had every completed payment answered 500,
- * forever, because the payment store was required before the sale was written
- * at all. And a payload that disagreed with the saved intent threw into the
- * same catch, so Square redelivered the identical contradiction until it gave
- * up. Now the first is logged plainly and the sale is still recorded, and the
- * second is filed on the attempt for the owner to read on /workroom/payments.
- * The store dedupes redeliveries by payment id.
+ * a database had every completed payment answered 500, forever, because the
+ * payment store was required before the sale was written at all. And a payload
+ * that disagreed with the saved intent threw into the same catch, so Square
+ * redelivered the identical contradiction until it gave up. The second is now
+ * filed on the attempt for the owner to read on /workroom/payments. The store
+ * dedupes redeliveries by payment id.
+ *
+ * THE MISSING DATABASE ANSWERS DIFFERENTLY IN PRODUCTION THAN OUT OF IT, and
+ * the two answers are both right for what they are.
+ *
+ *   production   no DATABASE_URL on a deployed shop is a misconfiguration:
+ *                the integration is not attached yet, or was removed, or was
+ *                lost in a rollout. That is fixable, and Square's day of
+ *                retries is exactly the window somebody fixes it in. So 500,
+ *                and the redelivery lands in the database once it exists.
+ *                Answering 200 would take the sale into memory that dies with
+ *                the lambda and throw away the row, its lines and its board
+ *                link for good, leaving one console line behind.
+ *
+ *   anywhere else  development, a local run, the memory-backed demo. There is
+ *                no Square on the other end to retry, and a database was never
+ *                promised, so the sale is recorded in memory and said plainly.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -196,10 +211,11 @@ export async function POST(req: Request) {
     THE ATTEMPT THIS PAYMENT SETTLES, if the shop has a durable payment store
     at all. Four outcomes, and only the last is Square's business to retry:
 
-      no durable store   the memory backend, which means no saved intents
-                         exist to settle against. Nothing Square resends will
-                         change that, so it is logged plainly and the sale
-                         still gets recorded below.
+      no durable store   no DATABASE_URL, so no saved intents exist to settle
+                         against. Off production that is the memory backend
+                         working as intended and the sale is still recorded
+                         below; on production it is a misconfiguration and the
+                         answer at the end of this handler is a 500.
       mismatch           the payload disagrees with what we saved. Filed for
                          the owner and answered 200: redelivering the same
                          contradiction for a day only buries the sale.
@@ -250,7 +266,13 @@ export async function POST(req: Request) {
     }
   }
 
-  const workroomOrderId = settledOrderId || await matchWorkroomOrder(detail.referenceId, payment.note ?? "");
+  // A payload filed as a conflict does not get to claim a board ticket either.
+  // derive.ts and the dashboard both skip a sale that carries a workroomOrderId,
+  // because the ticket is taken to be telling that story already; linking one we
+  // have just called unmatchable would take its amount and its stems out of
+  // every total while the contradiction is still open. Unlinked, it shows up as
+  // the register ring it is.
+  const workroomOrderId = conflicted ? "" : settledOrderId || await matchWorkroomOrder(detail.referenceId, payment.note ?? "");
   const sale: SquareSale = {
     id: payment.id,
     workroomOrderId: workroomOrderId || undefined,
@@ -270,8 +292,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not stored." }, { status: 500 });
   }
   if (store.backend !== "postgres" || !durable) {
-    // Said once, plainly, rather than by failing: this instance took the sale
-    // into memory that dies with it. Retrying cannot fix a missing database.
+    // On a deployed shop this is a database that should be there and is not,
+    // which somebody can fix inside Square's retry window. Keep the sale alive
+    // by asking Square to come back, rather than logging the loss and calling
+    // it handled. Off production nothing is retrying, so say it plainly and go.
+    if (process.env.NODE_ENV === "production") {
+      console.error(`square webhook: sale ${payment.id} has no durable store to land in, so Square will retry. Attach the database.`);
+      return NextResponse.json({ error: "Not stored." }, { status: 500 });
+    }
     console.log(`square webhook: sale ${payment.id} was recorded without a durable store, so it will not reach the workroom.`);
   }
 

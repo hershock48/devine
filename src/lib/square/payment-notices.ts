@@ -27,11 +27,13 @@
 import 'server-only';
 
 export type NoticeAudience = 'shop' | 'customer';
-/** sending: an attempt is open. sent: the provider took it. failed: the
- * provider refused it. unconfirmed: an attempt was left open, so it may or
- * may not have gone out. unconfigured: no mailbox is set up here.
- * not-needed: there is no address to send to, which is settled, not owed. */
-export type NoticeState = 'pending' | 'sending' | 'sent' | 'failed' | 'unconfirmed' | 'unconfigured' | 'not-needed';
+/** sending: an attempt is open. sent: the provider took every address. failed:
+ * the provider refused it. sent-with-refusals: the provider took some of the
+ * addresses and refused the rest, so a copy exists and the address list is
+ * wrong. unconfirmed: an attempt was left open, so it may or may not have gone
+ * out. unconfigured: no mailbox is set up here. not-needed: there is no address
+ * to send to, which is settled, not owed. */
+export type NoticeState = 'pending' | 'sending' | 'sent' | 'failed' | 'sent-with-refusals' | 'unconfirmed' | 'unconfigured' | 'not-needed';
 export type NoticeRow = {
   key: string; attemptKey: string; orderNumber: string; audience: NoticeAudience;
   state: NoticeState; messageId: string; providerMessageId: string | null;
@@ -41,9 +43,23 @@ export type NoticeRow = {
 /** The send outcome as intake.ts reports it, kept here so the state machine
  * and the mail code agree on the vocabulary. */
 export type NoticeSend = {
-  outcome: 'sent' | 'send-failed' | 'unconfigured' | 'not-needed';
+  outcome: 'sent' | 'sent-with-refusals' | 'send-failed' | 'unconfigured' | 'not-needed';
   providerMessageId: string | null; providerResponse: string | null; error: string | null;
 };
+
+/**
+ * What beginNotice answers with. `open` means this caller holds the attempt
+ * and owes finishNotice a result.
+ *
+ * A refusal still has to say whether the audience is SETTLED, because the flag
+ * on the payment row ("this order's shop email is done") turns on that and not
+ * on whether a send happened just now. A notice already recorded as sent whose
+ * flag write was lost used to be read as a failure, which left the payment on
+ * the recovery board for work that had in fact been done.
+ */
+export type NoticeStart =
+  | { open: true; messageId: string; attempts: number }
+  | { open: false; settled: boolean; state: NoticeState | null };
 
 type Query = (sql: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[]; rowCount?: number | null }>;
 type Database = { query: Query; connect: () => Promise<{ query: Query; release: () => void }> };
@@ -70,10 +86,17 @@ const readRow = (row: Record<string, unknown>): NoticeRow => ({
 });
 
 const SETTLED: NoticeState[] = ['sent', 'not-needed'];
+/** States a send is never repeated from on its own, only on the owner's say so.
+ * Both of them may already have put a copy in somebody's inbox: an unconfirmed
+ * attempt possibly did, and a partly refused one certainly did at the addresses
+ * that were taken. Recovery running over either would post a second copy every
+ * pass, so the decision belongs to a person. */
+const OWNER_ONLY: NoticeState[] = ['unconfirmed', 'sent-with-refusals'];
 
 /**
- * Open one attempt, or refuse to. Returns the Message-ID to send under, or
- * null when this notice must not be sent right now. The row is written
+ * Open one attempt, or refuse to. An open answer carries the Message-ID to
+ * send under; a refusal carries whether the audience is already settled, which
+ * is what the caller's flag turns on. The row is written
  * inside the transaction that reads it, so the attempt exists in storage
  * before any mail server is contacted; a storage outage here means no send
  * happened at all, which is the safe direction.
@@ -85,7 +108,7 @@ export async function beginNotice(
   db: Database,
   input: { key: string; attemptKey: string; orderNumber: string; audience: NoticeAudience; messageId: string; force?: boolean },
   now = Date.now(),
-): Promise<{ messageId: string; attempts: number } | null> {
+): Promise<NoticeStart> {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -95,6 +118,18 @@ export async function beginNotice(
       [input.key, input.attemptKey, input.orderNumber, input.audience, input.messageId, now],
     );
     const found = await client.query('SELECT * FROM devine_order_notices WHERE notice_key=$1 FOR UPDATE', [input.key]);
+    // The insert and the select can BOTH come back with nothing. Under READ
+    // COMMITTED a concurrent uncommitted insert of the same notice_key makes
+    // ON CONFLICT DO NOTHING do nothing, and the select then sees no committed
+    // row to lock. The notify_until lease does not fence this, because the
+    // lease is keyed on the payment attempt while a notice is keyed on the
+    // board order, so two attempts on one order are not on one lease. Refuse,
+    // and say nothing is settled: the other transaction owns the attempt and
+    // this caller must not read undefined or claim the audience is done.
+    if (!found.rows[0]) {
+      await client.query('ROLLBACK');
+      return { open: false, settled: false, state: null };
+    }
     const row = readRow(found.rows[0]);
     // An attempt still marked sending never reported back. Say so in storage
     // before deciding anything, so the board stops calling it in flight.
@@ -102,16 +137,17 @@ export async function beginNotice(
     if (state !== row.state) {
       await client.query('UPDATE devine_order_notices SET state=$2,updated_at=$3 WHERE notice_key=$1', [input.key, state, now]);
     }
-    if (SETTLED.includes(state) || (state === 'unconfirmed' && !input.force)) {
+    const settled = SETTLED.includes(state);
+    if (settled || (OWNER_ONLY.includes(state) && !input.force)) {
       await client.query('COMMIT');
-      return null;
+      return { open: false, settled, state };
     }
     await client.query(
       `UPDATE devine_order_notices SET state='sending',attempts=attempts+1,last_error=NULL,updated_at=$2 WHERE notice_key=$1`,
       [input.key, now],
     );
     await client.query('COMMIT');
-    return { messageId: row.messageId, attempts: row.attempts + 1 };
+    return { open: true, messageId: row.messageId, attempts: row.attempts + 1 };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
@@ -124,7 +160,10 @@ export async function beginNotice(
  * that arrives after someone else took the row over cannot overwrite it. */
 export async function finishNotice(db: Database, key: string, result: NoticeSend, now = Date.now()): Promise<void> {
   const state: NoticeState =
-    result.outcome === 'sent' ? 'sent' : result.outcome === 'not-needed' ? 'not-needed' : result.outcome === 'unconfigured' ? 'unconfigured' : 'failed';
+    result.outcome === 'sent' ? 'sent'
+      : result.outcome === 'sent-with-refusals' ? 'sent-with-refusals'
+        : result.outcome === 'not-needed' ? 'not-needed'
+          : result.outcome === 'unconfigured' ? 'unconfigured' : 'failed';
   await db.query(
     `UPDATE devine_order_notices SET state=$2,
      provider_message_id=COALESCE($3,provider_message_id),provider_response=COALESCE($4,provider_response),
@@ -155,6 +194,7 @@ export function noticeWording(row: NoticeRow): string {
     sending: 'a send is running',
     sent: 'sent',
     failed: 'not sent',
+    'sent-with-refusals': 'sent, and the mail server refused one of the addresses on it',
     unconfirmed: 'the mail server never answered, so this may or may not have gone out',
     unconfigured: 'not sent: no mailbox is set up here',
     'not-needed': 'no email address on this order, so there is nothing to send',

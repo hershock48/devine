@@ -129,10 +129,29 @@ export async function recordNoPaymentReview(input: {
  * answered. This changes no payment state and settles nothing: a webhook body
  * that disagrees with what we saved is a question for a person, not a fact
  * about money. Only the first sighting is kept, so a redelivery does not
- * overwrite the date the shop first had a chance to see it.
+ * overwrite the date the shop first had a chance to see it. Once the owner has
+ * cleared a finding, a later contradiction is a new one and is filed.
  */
 export async function recordProviderConflict(key:string,detail:{reason:string;paymentId:string;status:string;amountCents:number|null;locationId:string},now=Date.now()){
  const db=await paymentDatabase();
- await db.query(`UPDATE devine_payment_attempts SET provider_conflict=$2,updated_at=$3 WHERE attempt_key=$1 AND provider_conflict IS NULL`,
+ await db.query(`UPDATE devine_payment_attempts SET provider_conflict=$2,updated_at=$3
+  WHERE attempt_key=$1 AND (provider_conflict IS NULL OR provider_conflict->>'clearedAt' IS NOT NULL)`,
   [key,JSON.stringify({...detail,seenAt:now}),now]);
+}
+
+/** The owner has looked the payment up at Square and is finished with it.
+ *
+ * Without this there was no way out at all: the row satisfied
+ * `provider_conflict IS NOT NULL` for the life of the table, and the board
+ * lists the oldest hundred first, so unclosable findings collect at the top and
+ * push newer recovery work off the page. The finding itself is kept, stamped
+ * with when it was cleared, because the evidence should outlive the board
+ * entry. Nothing here settles a payment, moves money or touches Square.
+ */
+export async function clearProviderConflict(key:string,now=Date.now()):Promise<boolean>{
+ const db=await paymentDatabase();
+ const done=await db.query(`UPDATE devine_payment_attempts
+  SET provider_conflict=provider_conflict||jsonb_build_object('clearedAt',$2::bigint),updated_at=$2
+  WHERE attempt_key=$1 AND provider_conflict IS NOT NULL AND provider_conflict->>'clearedAt' IS NULL`,[key,now]);
+ return done.rowCount===1;
 }

@@ -26,7 +26,7 @@ function setup({ customerFails = false, boardFails = false, noMatch = false } = 
     },
     // The notice record has its own tests on PGlite; here it is stubbed open
     // so this file stays a test of the service's own flags and board writes.
-    './payment-notices': { noticeKey: (id, audience) => `notice:${id}:${audience}`, beginNotice: async (database, input) => ({ messageId: input.messageId, attempts: 1 }), finishNotice: async () => {} },
+    './payment-notices': { noticeKey: (id, audience) => `notice:${id}:${audience}`, beginNotice: async (database, input) => ({ open: true, messageId: input.messageId, attempts: 1 }), finishNotice: async () => {} },
     '@/lib/workroom/store': { getStore: () => ({ backend: 'postgres', getOrder: async () => order }) },
     './payment-attempts': { attemptRepository: () => repo, paymentDatabase: async () => db },
     './payment-engine': {}, './payments': {}, './oauth': { resolveSquare: async () => gateway },

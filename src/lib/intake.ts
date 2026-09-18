@@ -354,13 +354,28 @@ export function noticeMessageId(noticeKey: string): string {
 const noticeResult = (outcome: NoticeSend["outcome"], rest: Partial<NoticeSend> = {}): NoticeSend =>
   ({ outcome, providerMessageId: null, providerResponse: null, error: null, ...rest });
 
+/**
+ * The addresses nodemailer reports back, as plain strings. It answers with
+ * `accepted` and `rejected` lists whose entries are addresses, or objects
+ * carrying one when the send was addressed with objects, so both shapes are
+ * read here and anything else is dropped rather than printed at the owner.
+ */
+const addressList = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value
+        .map((entry) => (typeof entry === "string" ? entry : String((entry as { address?: string })?.address ?? "")).trim())
+        .filter(Boolean)
+    : [];
+
 /** Separate paid notices let recovery retry the customer receipt without resending the shop ticket. */
 export async function sendPaymentNotice(o: PricedOrder, paid: PaidOnline, audience: "shop" | "customer", messageId?: string): Promise<NoticeSend> {
   const host = process.env.SMTP_HOST, user = process.env.SMTP_USER, pass = process.env.SMTP_PASS, to = process.env.ORDER_TO;
   // Nothing to deliver is settled, not owed: an order with no address given
   // is not a receipt the shop still has to chase.
   if (audience === "customer" && !o.email) return noticeResult("not-needed");
-  if (!host || !user || !pass || !to) return noticeResult("unconfigured", { error: "SMTP_HOST, SMTP_USER, SMTP_PASS or ORDER_TO is not set." });
+  // Owner-facing, so it says what is missing in the shop's own terms. The
+  // names of the settings are the operator's business and live in the README.
+  if (!host || !user || !pass || !to) return noticeResult("unconfigured", { error: "This site has no mail account and no shop address saved yet, so there is nowhere to send from or to." });
   const port = Number(process.env.SMTP_PORT || 465);
   const transport = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass }, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000 });
   try {
@@ -372,12 +387,36 @@ export async function sendPaymentNotice(o: PricedOrder, paid: PaidOnline, audien
       text: audience === "shop" ? shopTicket(o, paid) : customerCopy(o, paid),
       messageId,
     });
-    // A server can answer 250 and still have taken nobody's address. That is
-    // a failure with a polite face, and recording it as sent would tell the
-    // owner a receipt went out that never will.
-    if (Array.isArray(info.accepted) && info.accepted.length === 0) {
+    /*
+      WHO ACTUALLY TOOK IT. A 250 is not a delivery report, it is a report per
+      address, and nodemailer hands back both lists. Reading only `accepted`
+      missed the case that happens: ORDER_TO is a raw env string, nodemailer
+      splits it on commas, and the send RESOLVES as soon as one of those
+      addresses is taken, with the refused ones sitting in `rejected`. The
+      empty-accepted branch below is the rarer one, because a send where
+      nobody at all was accepted rejects with EENVELOPE and lands in the catch.
+
+      A partly accepted send is recorded as SENT WITH REFUSALS, not as failed.
+      Calling it failed would be untrue: a copy is in the mailbox that took it,
+      and the owner's only repair on a failed notice is to send it again, which
+      cannot fix an address the server refuses and would drop a second copy on
+      the address that worked. It is not counted as settled either, so the
+      payment stays on /workroom/payments with the refused addresses named,
+      until someone fixes the address list and asks for it again.
+    */
+    const accepted = addressList(info.accepted);
+    const refused = addressList(info.rejected);
+    if (accepted.length === 0) {
       console.error(`[devine] ${audience} notification for ${o.number} accepted no recipient`);
-      return noticeResult("send-failed", { error: "The mail server accepted no recipient." });
+      return noticeResult("send-failed", { error: "The mail server accepted no address on it." });
+    }
+    if (refused.length > 0) {
+      console.error(`[devine] ${audience} notification for ${o.number} refused for ${refused.join(", ")}`);
+      return noticeResult("sent-with-refusals", {
+        providerMessageId: info.messageId || messageId || null,
+        providerResponse: typeof info.response === "string" ? info.response.slice(0, 300) : null,
+        error: `The mail server took ${accepted.join(", ")} and refused ${refused.join(", ")}. Correct or remove the refused address, then send this one again.`.slice(0, 300),
+      });
     }
     return noticeResult("sent", {
       providerMessageId: info.messageId || messageId || null,
