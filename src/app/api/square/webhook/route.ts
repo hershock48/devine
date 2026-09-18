@@ -1,10 +1,10 @@
-import { paymentDatabase } from "@/lib/square/payment-attempts";
-import { settleProviderPayment } from "@/lib/square/payment-service";
+import { paymentDatabase, recordProviderConflict, NoPaymentStore } from "@/lib/square/payment-attempts";
+import { settleProviderPayment, PaymentIntentMismatch } from "@/lib/square/payment-service";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { bySlug } from "@/lib/catalog";
 import { square, type SquareConfig } from "@/lib/square/client";
-import { resolveSquare } from "@/lib/square/oauth";
+import { resolveSquare, type ResolvedSquare } from "@/lib/square/oauth";
 import { getStore, type SquareSale, type SquareSaleLine } from "@/lib/workroom/store";
 
 /**
@@ -27,10 +27,21 @@ import { getStore, type SquareSale, type SquareSaleLine } from "@/lib/workroom/s
  * SQUARE_WEBHOOK_URL holds the exact dashboard string and req.url is only the
  * fallback for local tunnels.
  *
- * Status codes are the retry contract: Square redelivers on any non-2xx. So
- * "not for us" events return 200 (retrying them would change nothing) and
- * genuine processing failures return 500 on purpose, so the sale is not lost
- * to one cold Neon start. The store dedupes redeliveries by payment id.
+ * STATUS CODES ARE THE RETRY CONTRACT: Square redelivers on any non-2xx, and
+ * gives up after about a day. So the only thing that earns a 500 is a failure
+ * that asking again could actually fix: a cold Neon start, a dropped
+ * connection, a Square read that timed out. Everything else answers 200, even
+ * when it is bad news, because a shop whose sale is stuck behind a retry loop
+ * finds out when the loop ends and the sale is simply gone.
+ *
+ * Two cases used to be on the wrong side of that line. A shop running without
+ * a database (the memory backend) had every completed payment answered 500,
+ * forever, because the payment store was required before the sale was written
+ * at all. And a payload that disagreed with the saved intent threw into the
+ * same catch, so Square redelivered the identical contradiction until it gave
+ * up. Now the first is logged plainly and the sale is still recorded, and the
+ * second is filed on the attempt for the owner to read on /workroom/payments.
+ * The store dedupes redeliveries by payment id.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -140,9 +151,9 @@ async function matchWorkroomOrder(referenceId: string, note: string): Promise<st
 }
 
 export async function POST(req: Request) {
-  const cfg = await resolveSquare();
-  if (!cfg) return NextResponse.json({ error: "Square is not configured." }, { status: 503 });
-
+  // The signature is checked before anything else is read or reached: this
+  // endpoint is public by necessity, and an unsigned POST should not cost the
+  // shop an OAuth lookup or a database connection either.
   const raw = await req.text();
   const url = process.env.SQUARE_WEBHOOK_URL?.trim() || req.url;
   if (!verified(raw, req.headers.get("x-square-hmacsha256-signature"), url)) {
@@ -161,52 +172,135 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, ignored: payment?.status ?? "no payment" });
   }
 
+  let cfg: ResolvedSquare | null;
   try {
-    const detail = payment.order_id
-      ? await toLines(cfg, payment.order_id)
-      : { lines: [], referenceId: "" };
-    const db = await paymentDatabase();
-    const saved = await db.query("SELECT attempt_key,snapshot FROM devine_payment_attempts WHERE snapshot->>'referenceId'=$1 LIMIT 1", [payment.reference_id || detail.referenceId]);
-    if (saved.rows[0]) await settleProviderPayment(saved.rows[0].attempt_key, { ...payment, reference_id: payment.reference_id || detail.referenceId }, cfg);
-    const workroomOrderId = saved.rows[0]?.snapshot.order.id || await matchWorkroomOrder(detail.referenceId, payment.note ?? "");
-    const sale: SquareSale = {
-      id: payment.id,
-      workroomOrderId: workroomOrderId || undefined,
-      orderId: payment.order_id ?? "",
-      locationId: payment.location_id ?? "",
-      source: payment.source_type ?? "UNKNOWN",
-      totalCents: payment.total_money?.amount ?? 0,
-      paidAt: payment.created_at ?? "",
-      lines: detail.lines,
-      createdAt: Date.now(),
-    };
-    await getStore().upsertSquareSale(sale);
+    cfg = await resolveSquare();
+  } catch (err) {
+    console.error("square webhook: the Square connection could not be read, Square will retry", err);
+    return NextResponse.json({ error: "Not stored." }, { status: 500 });
+  }
+  if (!cfg) return NextResponse.json({ error: "Square is not configured." }, { status: 503 });
 
-    // A linked sale marks its board order paid, unless the order already is
-    // (our /pay route marks synchronously; this covers the register-rung
-    // fallback and any race). Best effort: a failed mark is a log line, the
-    // sale itself is already stored and Square must not redeliver over it.
-    if (workroomOrderId) {
+  // Reading the order's lines is a call to Square. A failure is transient by
+  // nature, and the sale is worth redelivering for, so it keeps the 500.
+  let detail: { lines: SquareSaleLine[]; referenceId: string };
+  try {
+    detail = payment.order_id ? await toLines(cfg, payment.order_id) : { lines: [], referenceId: "" };
+  } catch (err) {
+    console.error("square webhook: order lines unavailable, Square will retry", err);
+    return NextResponse.json({ error: "Not stored." }, { status: 500 });
+  }
+  const referenceId = payment.reference_id || detail.referenceId;
+
+  /*
+    THE ATTEMPT THIS PAYMENT SETTLES, if the shop has a durable payment store
+    at all. Four outcomes, and only the last is Square's business to retry:
+
+      no durable store   the memory backend, which means no saved intents
+                         exist to settle against. Nothing Square resends will
+                         change that, so it is logged plainly and the sale
+                         still gets recorded below.
+      mismatch           the payload disagrees with what we saved. Filed for
+                         the owner and answered 200: redelivering the same
+                         contradiction for a day only buries the sale.
+      settled, not saved the payment is recorded and only the board row is
+                         missing. /workroom/payments finishes that, and
+                         another delivery would fail at the same place.
+      anything else      transient. 500, and Square asks again.
+  */
+  let settledOrderId = "";
+  let durable = true;
+  let conflicted = false;
+  try {
+    const db = await paymentDatabase();
+    const saved = await db.query("SELECT attempt_key,snapshot FROM devine_payment_attempts WHERE snapshot->>'referenceId'=$1 LIMIT 1", [referenceId]);
+    if (saved.rows[0]) {
+      settledOrderId = saved.rows[0].snapshot.order.id || "";
       try {
-        const order = await getStore().getOrder(workroomOrderId);
-        if (order && !order.payment) {
-          await getStore().setOrderPayment(workroomOrderId, {
-            at: Date.now(),
-            method: payment.source_type === "CASH" ? "cash" : "register",
-            squarePaymentId: payment.id,
-            totalCents: payment.total_money?.amount ?? 0,
-            feeCents: 0,
-          });
-        }
+        await settleProviderPayment(saved.rows[0].attempt_key, { ...payment, reference_id: referenceId }, cfg);
       } catch (err) {
-        console.error(`square webhook: sale ${payment.id} stored but order ${workroomOrderId} not marked paid`, err);
+        if (err instanceof PaymentIntentMismatch) {
+          conflicted = true;
+          await recordProviderConflict(saved.rows[0].attempt_key, {
+            reason: err.reason,
+            paymentId: payment.id,
+            status: payment.status ?? "",
+            amountCents: payment.amount_money?.amount ?? payment.total_money?.amount ?? null,
+            locationId: payment.location_id ?? "",
+          });
+          console.error(`square webhook: payment ${payment.id} does not match the saved intent (${err.reason}); recorded for owner review`);
+        } else {
+          // Settling records the payment first and the board row second. If
+          // the payment landed and the board did not, the money is safe and
+          // /workroom/payments can finish the job; another delivery would only
+          // fail at the same place and cost the shop its sale row as well.
+          const after = await db.query("SELECT state FROM devine_payment_attempts WHERE attempt_key=$1", [saved.rows[0].attempt_key]);
+          if (after.rows[0]?.state !== "completed") throw err;
+          console.error(`square webhook: payment ${payment.id} is recorded but its order needs recovery on /workroom/payments`, err);
+        }
       }
     }
-    return NextResponse.json({ ok: true });
+  } catch (err) {
+    if (err instanceof NoPaymentStore) {
+      durable = false;
+      console.log(`square webhook: no durable payment store is configured, so payment ${payment.id} settles no saved order.`);
+    } else {
+      console.error("square webhook: the payment store could not be read, Square will retry", err);
+      return NextResponse.json({ error: "Not stored." }, { status: 500 });
+    }
+  }
+
+  const workroomOrderId = settledOrderId || await matchWorkroomOrder(detail.referenceId, payment.note ?? "");
+  const sale: SquareSale = {
+    id: payment.id,
+    workroomOrderId: workroomOrderId || undefined,
+    orderId: payment.order_id ?? "",
+    locationId: payment.location_id ?? "",
+    source: payment.source_type ?? "UNKNOWN",
+    totalCents: payment.total_money?.amount ?? 0,
+    paidAt: payment.created_at ?? "",
+    lines: detail.lines,
+    createdAt: Date.now(),
+  };
+  const store = getStore();
+  try {
+    await store.upsertSquareSale(sale);
   } catch (err) {
     console.error("square webhook: sale not stored, Square will retry", err);
     return NextResponse.json({ error: "Not stored." }, { status: 500 });
   }
+  if (store.backend !== "postgres" || !durable) {
+    // Said once, plainly, rather than by failing: this instance took the sale
+    // into memory that dies with it. Retrying cannot fix a missing database.
+    console.log(`square webhook: sale ${payment.id} was recorded without a durable store, so it will not reach the workroom.`);
+  }
+
+  // A linked sale marks its board order paid, unless the order already is
+  // (our /pay route marks synchronously; this covers the register-rung
+  // fallback and any race). Best effort: a failed mark is a log line, the
+  // sale itself is already stored and Square must not redeliver over it.
+  //
+  // Never off a payment we just filed as a conflict. That payload did not
+  // match the saved order, which is exactly why a person has to look at it;
+  // marking the ticket paid from it would settle by the back door what the
+  // front door refused.
+  if (workroomOrderId && !conflicted) {
+    try {
+      const order = await store.getOrder(workroomOrderId);
+      if (order && !order.payment) {
+        await store.setOrderPayment(workroomOrderId, {
+          at: Date.now(),
+          method: payment.source_type === "CASH" ? "cash" : "register",
+          squarePaymentId: payment.id,
+          totalCents: payment.total_money?.amount ?? 0,
+          feeCents: 0,
+        });
+      }
+    } catch (err) {
+      console.error(`square webhook: sale ${payment.id} stored but order ${workroomOrderId} not marked paid`, err);
+    }
+  }
+  return NextResponse.json({ ok: true });
 }
 
 /** For a browser poke while wiring things up. Says whether the pieces exist. */

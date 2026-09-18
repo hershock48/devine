@@ -1,8 +1,9 @@
 import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
-import { sendPaymentNotice, type PricedOrder } from '@/lib/intake';
+import { sendPaymentNotice, noticeMessageId, type PricedOrder, type PaidOnline } from '@/lib/intake';
 import { getStore, type WorkroomOrder, type OrderPayment } from '@/lib/workroom/store';
 import { paymentDatabase, attemptRepository } from './payment-attempts';
+import { beginNotice, finishNotice, noticeKey, type NoticeAudience } from './payment-notices';
 import { runPayment, PaymentNotSubmitted, type Attempt, type PaymentResult } from './payment-engine';
 import { chargeBoardOrder } from './payments';
 import { resolveSquare, type ResolvedSquare } from './oauth';
@@ -93,15 +94,64 @@ export async function fulfillPayment(key: string) {
   if (!lease.rowCount) return;
   let sent = lease.rows[0].notified, customerSent = lease.rows[0].customer_notified;
   try {
-    const paid = {
-      totalCents: attempt.result.totalCents, feeCents: attempt.result.feeCents,
-      deliveryCents: attempt.snapshot.online.deliveryCents,
-    };
-    if (!sent) sent = await sendPaymentNotice(attempt.snapshot.online.order, paid, 'shop') === 'sent';
-    if (!customerSent) customerSent = await sendPaymentNotice(attempt.snapshot.online.order, paid, 'customer') === 'sent';
+    if (!sent) sent = await deliverNotice(db, attempt, 'shop');
+    if (!customerSent) customerSent = await deliverNotice(db, attempt, 'customer');
   } finally {
     await db.query('UPDATE devine_payment_attempts SET notified=notified OR $2,customer_notified=customer_notified OR $3,notify_until=0 WHERE attempt_key=$1 AND notify_until=$4', [key, sent, customerSent, leaseUntil]);
   }
+}
+
+const paidFigures = (attempt: Attempt<PaymentIntent>): PaidOnline => ({
+  totalCents: attempt.result!.totalCents, feeCents: attempt.result!.feeCents,
+  deliveryCents: attempt.snapshot.online!.deliveryCents,
+});
+
+/**
+ * One notification attempt, recorded before the mail server is contacted so
+ * that a lost answer leaves evidence instead of nothing. Returns true when
+ * the audience is settled, which is what flips the attempt row's flag: a
+ * delivered notice, or an order with no address to send to.
+ *
+ * Charges nothing. It reads a completed attempt and sends mail; no code path
+ * from here reaches Square. `force` is the owner's resend from the board and
+ * is the only way a notice whose answer was lost is sent a second time.
+ */
+async function deliverNotice(db: Awaited<ReturnType<typeof paymentDatabase>>, attempt: Attempt<PaymentIntent>, audience: NoticeAudience, force = false): Promise<boolean> {
+  const order = attempt.snapshot.order;
+  const key = noticeKey(order.id, audience);
+  const begun = await beginNotice(db, {
+    key, attemptKey: attempt.key, orderNumber: order.number, audience, messageId: noticeMessageId(key), force,
+  });
+  if (!begun) return false;
+  const result = await sendPaymentNotice(attempt.snapshot.online!.order, paidFigures(attempt), audience, begun.messageId);
+  await finishNotice(db, key, result);
+  return result.outcome === 'sent' || result.outcome === 'not-needed';
+}
+
+/**
+ * The owner's resend from /workroom/payments. Moves no money: it takes an
+ * attempt that is already completed and re-runs one of its two emails under
+ * the same Message-ID, behind the same lease that stops two clicks sending
+ * twice. A notice already delivered is refused by beginNotice, so a second
+ * click on a send that worked does nothing.
+ */
+export async function resendNotice(key: string, audience: NoticeAudience): Promise<boolean> {
+  const attempt = await paymentRepo().read(key);
+  if (!attempt || attempt.state !== 'completed' || !attempt.result || !attempt.snapshot.online) {
+    throw new Error('Only a paid online order has a notification to send again.');
+  }
+  const db = await paymentDatabase();
+  const leaseUntil = Date.now() + 180000;
+  const lease = await db.query(`UPDATE devine_payment_attempts SET notify_until=$2 WHERE attempt_key=$1 AND notify_until<$3 RETURNING notified`, [key, leaseUntil, Date.now()]);
+  if (!lease.rowCount) throw new Error('A delivery attempt is already running. Wait for it to finish.');
+  let delivered = false;
+  try {
+    delivered = await deliverNotice(db, attempt, audience, true);
+  } finally {
+    await db.query('UPDATE devine_payment_attempts SET notified=notified OR $2,customer_notified=customer_notified OR $3,notify_until=0 WHERE attempt_key=$1 AND notify_until=$4',
+      [key, audience === 'shop' && delivered, audience === 'customer' && delivered, leaseUntil]);
+  }
+  return delivered;
 }
 
 type ProviderPayment = { id?: string; status?: string; reference_id?: string; location_id?: string; amount_money?: { amount?: number; currency?: string }; receipt_url?: string };
@@ -133,11 +183,25 @@ export async function reconcilePayment(key: string) {
   return paymentRepo().read(key);
 }
 
+/** A provider payment that contradicts the saved intent is a fact about the
+ * provider, not a storage failure, and asking again will not change it. Typed
+ * so a caller answering a webhook can file it for the owner and stop the
+ * redeliveries instead of looping on a 500. The reason names which check
+ * failed; it goes in the owner's record, never to a customer. */
+export class PaymentIntentMismatch extends Error {
+  constructor(public reason: string) { super('Payment does not match the saved intent.'); }
+}
+
 export async function settleProviderPayment(key: string, payment: ProviderPayment, cfg: ResolvedSquare) {
   const attempt = await paymentRepo().read(key);
-  if (!attempt || !payment.id || payment.reference_id !== attempt.snapshot.referenceId || payment.location_id !== cfg.locationId
-    || !sameGateway(gatewayIdentity(cfg),attempt.snapshot.gateway)
-    || payment.amount_money?.amount !== expectedTotal(attempt.snapshot) || payment.amount_money.currency !== 'USD') throw new Error('Payment does not match the saved intent.');
+  const reason = !attempt ? 'no saved attempt'
+    : !payment.id ? 'no provider payment id'
+    : payment.reference_id !== attempt.snapshot.referenceId ? 'reference'
+    : payment.location_id !== cfg.locationId ? 'location'
+    : !sameGateway(gatewayIdentity(cfg), attempt.snapshot.gateway) ? 'connection'
+    : payment.amount_money?.amount !== expectedTotal(attempt.snapshot) ? 'amount'
+    : payment.amount_money.currency !== 'USD' ? 'currency' : '';
+  if (reason || !attempt || !payment.id || !payment.amount_money) throw new PaymentIntentMismatch(reason || 'incomplete payment');
   const state = payment.status === 'COMPLETED' ? 'completed' : ['FAILED', 'CANCELED'].includes(payment.status || '') ? 'failed' : 'unknown';
   const result: PaymentResult = { paymentId: payment.id, status: payment.status || '', receiptUrl: payment.receipt_url || '', totalCents: payment.amount_money.amount!, feeCents: attempt.snapshot.method === 'card' ? attempt.snapshot.cardFee.cents : 0 };
   await paymentRepo().settle(key, state, result, attempt.fingerprint);

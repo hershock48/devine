@@ -20,7 +20,13 @@ function setup({ customerFails = false, boardFails = false, noMatch = false } = 
     return { rows: [] };
   } };
   const mocks = {
-    '@/lib/intake': { sendPaymentNotice: async (order, paid, audience) => { notices.push(audience); return audience === 'customer' && customerFails ? 'send-failed' : 'sent'; } },
+    '@/lib/intake': {
+      noticeMessageId: key => `<${key}@fixture.invalid>`,
+      sendPaymentNotice: async (order, paid, audience) => { notices.push(audience); return { outcome: audience === 'customer' && customerFails ? 'send-failed' : 'sent', providerMessageId: 'fixture-provider-id', providerResponse: '250 queued', error: null }; },
+    },
+    // The notice record has its own tests on PGlite; here it is stubbed open
+    // so this file stays a test of the service's own flags and board writes.
+    './payment-notices': { noticeKey: (id, audience) => `notice:${id}:${audience}`, beginNotice: async (database, input) => ({ messageId: input.messageId, attempts: 1 }), finishNotice: async () => {} },
     '@/lib/workroom/store': { getStore: () => ({ backend: 'postgres', getOrder: async () => order }) },
     './payment-attempts': { attemptRepository: () => repo, paymentDatabase: async () => db },
     './payment-engine': {}, './payments': {}, './oauth': { resolveSquare: async () => gateway },

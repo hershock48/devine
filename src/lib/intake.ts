@@ -1,7 +1,9 @@
 import "server-only";
 
 import nodemailer from "nodemailer";
+import { createHash } from "node:crypto";
 import { bySlug, money } from "@/lib/catalog";
+import type { NoticeSend } from "@/lib/square/payment-notices";
 import { site, addressOneLine } from "@/lib/site";
 import { occasions as OCCASIONS } from "@/lib/occasions";
 
@@ -332,23 +334,59 @@ export async function sendWorkroomReceipt(o: {
     .catch((err) => console.error(`[devine] receipt for ${o.number} not sent:`, err));
 }
 
+/**
+ * The Message-ID a notice rides under, the same one every time that notice is
+ * attempted. SMTP gives us no idempotency key, so this header is the nearest
+ * thing to one: a resend carries the identical id, which is what mail clients
+ * and servers thread and deduplicate on. Derived from the notice key, so it
+ * survives a restart and needs nothing stored to be recomputed. The domain is
+ * the sending mailbox's own, which is the only domain this site can speak for.
+ */
+export function noticeMessageId(noticeKey: string): string {
+  const from = process.env.ORDER_FROM || process.env.SMTP_USER || "";
+  const domain = from.split("@")[1]?.trim() || "glazedweb.com";
+  return `<${createHash("sha256").update(noticeKey).digest("hex").slice(0, 40)}@${domain}>`;
+}
+
+/** The provider's own identifiers are kept when it accepts: the queue line it
+ * answered with, and the message id it confirmed. The shape itself belongs to
+ * payment-notices.ts, which is the state machine that stores it. */
+const noticeResult = (outcome: NoticeSend["outcome"], rest: Partial<NoticeSend> = {}): NoticeSend =>
+  ({ outcome, providerMessageId: null, providerResponse: null, error: null, ...rest });
+
 /** Separate paid notices let recovery retry the customer receipt without resending the shop ticket. */
-export async function sendPaymentNotice(o: PricedOrder, paid: PaidOnline, audience: "shop" | "customer"): Promise<SendResult> {
+export async function sendPaymentNotice(o: PricedOrder, paid: PaidOnline, audience: "shop" | "customer", messageId?: string): Promise<NoticeSend> {
   const host = process.env.SMTP_HOST, user = process.env.SMTP_USER, pass = process.env.SMTP_PASS, to = process.env.ORDER_TO;
-  if (audience === "customer" && !o.email) return "sent";
-  if (!host || !user || !pass || !to) return "unconfigured";
+  // Nothing to deliver is settled, not owed: an order with no address given
+  // is not a receipt the shop still has to chase.
+  if (audience === "customer" && !o.email) return noticeResult("not-needed");
+  if (!host || !user || !pass || !to) return noticeResult("unconfigured", { error: "SMTP_HOST, SMTP_USER, SMTP_PASS or ORDER_TO is not set." });
   const port = Number(process.env.SMTP_PORT || 465);
   const transport = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass }, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000 });
   try {
-    await transport.sendMail({
+    const info = await transport.sendMail({
       from: process.env.ORDER_FROM || user,
       to: audience === "shop" ? to : o.email,
       replyTo: audience === "shop" ? o.email || undefined : to,
       subject: audience === "shop" ? `PAID order ${o.number}: ${o.fulfillment} ${o.date}, ${o.name}` : `Your ${site.shortName} order ${o.number}`,
       text: audience === "shop" ? shopTicket(o, paid) : customerCopy(o, paid),
+      messageId,
     });
-    return "sent";
-  } catch { console.error(`[devine] ${audience} notification pending for ${o.number}`); return "send-failed"; }
+    // A server can answer 250 and still have taken nobody's address. That is
+    // a failure with a polite face, and recording it as sent would tell the
+    // owner a receipt went out that never will.
+    if (Array.isArray(info.accepted) && info.accepted.length === 0) {
+      console.error(`[devine] ${audience} notification for ${o.number} accepted no recipient`);
+      return noticeResult("send-failed", { error: "The mail server accepted no recipient." });
+    }
+    return noticeResult("sent", {
+      providerMessageId: info.messageId || messageId || null,
+      providerResponse: typeof info.response === "string" ? info.response.slice(0, 300) : null,
+    });
+  } catch (err) {
+    console.error(`[devine] ${audience} notification pending for ${o.number}`);
+    return noticeResult("send-failed", { error: String((err as Error)?.message || err).slice(0, 300) });
+  }
   finally { transport.close(); }
 }
 
