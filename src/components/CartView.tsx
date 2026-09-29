@@ -9,40 +9,7 @@ import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
 import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
 
-/**
- * THE CART, AND A CHECKOUT THAT SENDS SOMEWHERE.
- *
- * Phase 1 of the DeVine build: the order form is real. It POSTs to /api/order,
- * which prices the cart on the server and emails a ticket to the shop over SMTP.
- * No card is taken online; the shop calls to confirm the details and take
- * payment, which is how a florist already handles every phone order it gets.
- *
- * glaze.md's line still governs the failure modes: "What is not acceptable is a
- * stub that waits half a second and says 'Thanks, we got it' while sending
- * nowhere." So the form has exactly three honest outcomes:
- *
- *   sent         "Order DV-0821-4183 is in. We'll call you." The cart clears.
- *   not sent     (mail unconfigured, or the send failed) The visitor is told
- *                plainly that nothing reached the shop, and handed the two
- *                routes that always work: the phone, and a mailto carrying
- *                every field they typed. Nothing to retype, nothing pretended.
- *   bad order    the server's validation message, next to the button.
- *
- * NOTE ON THE TOTAL: still no tax line and no delivery fee. Their site publishes
- * neither a delivery fee nor an order minimum, and inventing either would put a
- * number in front of a customer that the shop never agreed to. The ticket and
- * the confirmation both say the subtotal is settled on the confirm call. Both
- * facts stay on the README checklist as questions for the owner.
- *
- * CARD PAYMENT (2026-09-01), behind the CHECKOUT_CARDS switch and PICKUP
- * ONLY: a pickup subtotal IS the total, so it can be charged honestly; a
- * delivery total still depends on the unanswered delivery-fee question, and
- * charging a number that a fee might later change would be this checkout
- * lying. When the switch is off, or Square is unconnected, none of this
- * renders and the flow above is exactly what it was. The fee is shown as
- * its own Convenience fee line before the button quotes the total; the server
- * recomputes everything and the browser's numbers decide nothing.
- */
+/** Server-priced checkout; uncertain card requests keep an opaque recovery reference across reloads. */
 
 const field: React.CSSProperties = {
   width: "100%",
@@ -63,6 +30,7 @@ const labelText: React.CSSProperties = {
 };
 
 type Outcome =
+  | { state: "pending"; message: string; failed?: boolean }
   | { state: "idle" }
   | { state: "sending" }
   | { state: "sent"; number: string; paid?: { totalCents: number; feeCents: number; receiptUrl?: string } }
@@ -96,6 +64,37 @@ const ADD_ON_POOL = (() => {
 export default function CartView() {
   const { items, subtotal, setQty, remove, count, clear, add, lines } = useCart();
   const [checkingOut, setCheckingOut] = useState(false);
+  const attemptRef = useRef("");
+  const submitLock = useRef(false);
+  const paymentWarning = "Payment is awaiting confirmation. Do not pay again or place a replacement order. Check its status below or call the shop.";
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("devine-payment-attempt");
+      if (saved) { attemptRef.current = saved; setOutcome({ state: "pending", message: paymentWarning }); }
+    } catch {
+      // Pay-on-call still works when browser storage is disabled. Card submission
+      // must persist its recovery reference before it can contact the server.
+    }
+  }, []);
+  function forgetAttempt() {
+    // A storage cleanup failure must not turn a confirmed order into a failure.
+    try { localStorage.removeItem("devine-payment-attempt"); } catch { /* keep the confirmed result */ }
+    attemptRef.current = "";
+  }
+  async function checkPayment() {
+    if (submitLock.current) return;
+    submitLock.current = true;
+    try {
+      const response = await fetch("/api/order/payment-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attemptKey: attemptRef.current }) });
+      const body = await response.json();
+      if (body.ok) {
+        forgetAttempt();
+        setOutcome({ state: "sent", number: body.number, paid: body.paid }); clear();
+      } else setOutcome({ state: "pending", failed: body.failed === true, message: body.failed ? body.error || "The payment failed. You can return to checkout and use another payment method." : paymentWarning });
+    } catch { setOutcome({ state: "pending", message: paymentWarning }); }
+    finally { submitLock.current = false; }
+  }
+
   const [outcome, setOutcome] = useState<Outcome>({ state: "idle" });
 
   /*
@@ -195,9 +194,11 @@ export default function CartView() {
 
   // Mount Square's field only while the card option is chosen; tear it
   // down when it is not, same lifecycle as the workroom's pane.
+  const showCard = checkingOut && items.length > 0 && cardAllowed && payMethod === "card" && outcome.state !== "pending" && outcome.state !== "sent";
   useEffect(() => {
-    if (payMethod !== "card" || !cfg.cards || !cfg.applicationId || !cfg.locationId) return;
+    if (!showCard || !cfg.applicationId || !cfg.locationId) return;
     let dead = false;
+    let mountedCard: SquareCard | null = null;
     setCardReady(false);
     (async () => {
       try {
@@ -205,16 +206,19 @@ export default function CartView() {
         if (dead || !window.Square) return;
         const payments = await window.Square.payments(cfg.applicationId!, cfg.locationId!);
         const card = await payments.card();
+        mountedCard = card;
         if (dead || !holderRef.current) {
           await card.destroy().catch(() => {});
           return;
         }
         await card.attach(holderRef.current);
+        if (dead) { await card.destroy().catch(() => {}); return; }
         cardRef.current = card;
         if (!dead) setCardReady(true);
       } catch {
         if (!dead) {
           // The honest fallback is the flow that always works.
+          setPayChosen(true);
           setPayMethod("call");
           setOutcome({ state: "invalid", message: "Card entry did not open; you can place the order and pay on the confirming call." });
         }
@@ -222,11 +226,11 @@ export default function CartView() {
     })();
     return () => {
       dead = true;
-      cardRef.current?.destroy().catch(() => {});
-      cardRef.current = null;
+      mountedCard?.destroy().catch(() => {});
+      if (cardRef.current === mountedCard) cardRef.current = null;
       setCardReady(false);
     };
-  }, [payMethod, cfg]);
+  }, [showCard, cfg]);
 
   /* The single Convenience fee line (Kevin, 2026-09-04): the shop's card
      fee percent on subtotal plus delivery, plus the flat platform fee.
@@ -237,15 +241,18 @@ export default function CartView() {
   const convenienceCents = Math.round((baseCents * (cfg.cardPct ?? 3)) / 100) + (cfg.feeCents ?? 99);
   const cardTotalCents = baseCents + convenienceCents;
 
-  // Client date, not build date: a statically frozen "today" once sold birds for
-  // the wrong year (glaze.md failure log). This runs per visit, in the browser.
-  const today = new Date().toISOString().slice(0, 10);
+  // Fulfillment follows the shop's calendar, including customers ordering from
+  // another timezone. UTC midnight is still the previous evening in Michigan.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
   const delivering = fulfillment === "delivery";
   const zipKnown = (site.deliveryZips as readonly string[]).includes(zip.trim());
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitLock.current) return;
+    if (attemptRef.current) { await checkPayment(); return; }
+    submitLock.current = true;
     setOutcome({ state: "sending" });
 
     // The DOM is the truth for typed fields: autofill can fill inputs
@@ -270,15 +277,21 @@ export default function CartView() {
     // Tokenize first when paying by card: no token, no POST, and the
     // message names what to fix. The card number itself never leaves
     // Square's iframe.
-    let cardPayload: { sourceId: string } | undefined;
+    let cardPayload: { sourceId: string; attemptKey: string } | undefined;
     if (payMethod === "card") {
       try {
         if (!cardRef.current) throw new Error("The card field is not ready yet.");
         const t = await cardRef.current.tokenize();
         if (t.status !== "OK" || !t.token) throw new Error(t.errors?.[0]?.message || "The card did not go through. Check the number.");
-        cardPayload = { sourceId: t.token };
+        const attemptKey = crypto.randomUUID();
+        // Persist only the opaque ID, never customer fields or the card token.
+        try { localStorage.setItem("devine-payment-attempt", attemptKey); }
+        catch { throw new Error("Card checkout needs browser storage to keep your payment reference. Allow site storage or choose to pay when we call."); }
+        attemptRef.current = attemptKey;
+        cardPayload = { sourceId: t.token, attemptKey };
       } catch (err) {
         setOutcome({ state: "invalid", message: err instanceof Error ? err.message : "The card did not go through." });
+        submitLock.current = false;
         return;
       }
     }
@@ -301,17 +314,20 @@ export default function CartView() {
       });
       const body = await res.json().catch(() => null);
       if (res.ok && body?.ok) {
+        forgetAttempt();
         setOutcome({ state: "sent", number: body.number, paid: body.paid });
         clear();
+      } else if (cardPayload && res.status !== 400) {
+        setOutcome({ state: "pending", failed:body?.failed===true,message: body?.error || paymentWarning });
       } else if (res.status === 400 || res.status === 402) {
+        forgetAttempt();
         setOutcome({ state: "invalid", message: body?.error || "Something in the order needs another look." });
       } else {
         setOutcome({ state: "unreached", reason: body?.reason === "unconfigured" ? "unconfigured" : "send-failed" });
       }
     } catch {
-      // The fetch itself failed: offline, or the site is down. Same honesty.
-      setOutcome({ state: "unreached", reason: "send-failed" });
-    }
+      setOutcome(cardPayload ? { state: "pending", message: paymentWarning } : { state: "unreached", reason: "send-failed" });
+    } finally { submitLock.current = false; }
   }
 
   /* Everything the visitor typed, ready to travel by email instead. */
@@ -330,6 +346,16 @@ export default function CartView() {
   ].filter((l): l is string => l !== null).join("\n");
   const mailtoHref = `mailto:${site.email}?subject=${encodeURIComponent("Flower order")}&body=${encodeURIComponent(mailtoBody + "\n")}`;
 
+  if (outcome.state === "pending") return (
+    <section className="section"><div className="wrap" style={{ maxWidth: 760 }}>
+      <h1>Check your payment</h1><p role="status">{outcome.message}</p>
+      <p>Checkout reference: {attemptRef.current}</p>
+      <button className="btn" type="button" onClick={checkPayment}>Check payment status</button>
+      {outcome.failed && <button className="btn" type="button" onClick={() => { forgetAttempt(); setOutcome({ state: "idle" }); }}>Return to checkout</button>}
+      <p><a href={`tel:${site.phone.replace(/[^+0-9]/g, "")}`}>Call the shop</a></p>
+    </div></section>
+  );
+
   if (outcome.state === "sent") {
     return (
       <section className="section">
@@ -344,7 +370,9 @@ export default function CartView() {
           {outcome.paid ? (
             <p style={{ maxWidth: "58ch" }}>
               Paid: <strong>{money(outcome.paid.totalCents / 100)}</strong> by card.{" "}
-              {date === today ? (
+              {!date ? (
+                <>Your payment is confirmed. Call the shop if you need to check the fulfillment details.</>
+              ) : date === today ? (
                 <>
                   It&rsquo;s wanted <strong>today</strong>, and we&rsquo;ll handle it from here.
                 </>

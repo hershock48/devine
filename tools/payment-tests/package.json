@@ -1,0 +1,7 @@
+{
+  "name": "devine-payment-review-tests",
+  "private": true,
+  "type": "commonjs",
+  "devDependencies": { "@electric-sql/pglite": "0.5.8" },
+  "scripts": { "test": "node --test --test-isolation=none *.test.cjs" }
+}

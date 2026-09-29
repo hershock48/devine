@@ -332,6 +332,26 @@ export async function sendWorkroomReceipt(o: {
     .catch((err) => console.error(`[devine] receipt for ${o.number} not sent:`, err));
 }
 
+/** Separate paid notices let recovery retry the customer receipt without resending the shop ticket. */
+export async function sendPaymentNotice(o: PricedOrder, paid: PaidOnline, audience: "shop" | "customer"): Promise<SendResult> {
+  const host = process.env.SMTP_HOST, user = process.env.SMTP_USER, pass = process.env.SMTP_PASS, to = process.env.ORDER_TO;
+  if (audience === "customer" && !o.email) return "sent";
+  if (!host || !user || !pass || !to) return "unconfigured";
+  const port = Number(process.env.SMTP_PORT || 465);
+  const transport = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass }, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000 });
+  try {
+    await transport.sendMail({
+      from: process.env.ORDER_FROM || user,
+      to: audience === "shop" ? to : o.email,
+      replyTo: audience === "shop" ? o.email || undefined : to,
+      subject: audience === "shop" ? `PAID order ${o.number}: ${o.fulfillment} ${o.date}, ${o.name}` : `Your ${site.shortName} order ${o.number}`,
+      text: audience === "shop" ? shopTicket(o, paid) : customerCopy(o, paid),
+    });
+    return "sent";
+  } catch { console.error(`[devine] ${audience} notification pending for ${o.number}`); return "send-failed"; }
+  finally { transport.close(); }
+}
+
 export async function sendOrder(o: PricedOrder, paid?: PaidOnline): Promise<SendResult> {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;

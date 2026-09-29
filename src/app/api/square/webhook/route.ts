@@ -1,3 +1,5 @@
+import { paymentDatabase } from "@/lib/square/payment-attempts";
+import { settleProviderPayment } from "@/lib/square/payment-service";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { bySlug } from "@/lib/catalog";
@@ -38,6 +40,9 @@ type PaymentEvent = {
   data?: {
     object?: {
       payment?: {
+        reference_id?: string;
+        amount_money?: { amount?: number; currency?: string };
+        receipt_url?: string;
         id?: string;
         status?: string;
         order_id?: string;
@@ -144,7 +149,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Bad signature." }, { status: 401 });
   }
 
-  const event = JSON.parse(raw) as PaymentEvent;
+  let event: PaymentEvent;
+  try { event = JSON.parse(raw) as PaymentEvent; } catch { return NextResponse.json({ error: "Invalid event." }, { status: 400 }); }
   if (event.type !== "payment.created" && event.type !== "payment.updated") {
     return NextResponse.json({ ok: true, ignored: event.type ?? "unknown" });
   }
@@ -159,7 +165,10 @@ export async function POST(req: Request) {
     const detail = payment.order_id
       ? await toLines(cfg, payment.order_id)
       : { lines: [], referenceId: "" };
-    const workroomOrderId = await matchWorkroomOrder(detail.referenceId, payment.note ?? "");
+    const db = await paymentDatabase();
+    const saved = await db.query("SELECT attempt_key,snapshot FROM devine_payment_attempts WHERE snapshot->>'referenceId'=$1 LIMIT 1", [payment.reference_id || detail.referenceId]);
+    if (saved.rows[0]) await settleProviderPayment(saved.rows[0].attempt_key, { ...payment, reference_id: payment.reference_id || detail.referenceId }, cfg);
+    const workroomOrderId = saved.rows[0]?.snapshot.order.id || await matchWorkroomOrder(detail.referenceId, payment.note ?? "");
     const sale: SquareSale = {
       id: payment.id,
       workroomOrderId: workroomOrderId || undefined,

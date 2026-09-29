@@ -1,5 +1,24 @@
 # devine
 
+## Debug pass, September 16, 2026
+
+Fixed checkout SDK fallback retrying itself, card fields failing to remount after
+payment recovery, unhandled browser-storage reads/cleanup, blank fulfillment dates
+after recovered payments, the UTC-based checkout date minimum, and repeated product
+adds exceeding the server's 99-item cap. Recovery references must still be saved
+before any card request is sent. Disabled storage leaves pay-on-call usable.
+Fixed homepage horizontal overflow caused by `100vw` including the scrollbar;
+the two full-width sections already sit directly inside the full-width main.
+
+Validation: 33 tests pass with `node --test --test-isolation=none tests/*.test.cjs`
+(the seven new component tests mock Square and storage; they do not charge cards).
+TypeScript and the production webpack build pass. Browser smoke checks covered
+16 storefront routes at 390 and 1440px, plus product/cart navigation and the $65 +
+$8.95 Marshall delivery total. Homepage and expanded checkout have no horizontal
+overflow at 320, 390, 768, and 1440px. No console errors were recorded in those
+checks. This was not a full axe/performance audit, authenticated workroom audit,
+or live email/payment test. Changes are local; deployment remains outstanding.
+
 Glazed Web pitch and concept build for **DeVine's Flowers & Botanicals**, Marshall,
 Michigan. Read `glaze.md` in the `glazedweb` repo before touching any of this.
 
@@ -375,3 +394,69 @@ Confirmed from their own pages on 2026-08-20:
 - Incumbent vendor: Creative Web Designing, Inc. of Coldwater, credited in their footer.
 
 Anything not on this list is unconfirmed. Ask rather than write it down.
+
+## Launch hardening: workroom sessions
+
+Staff/owner cookies are now signed 18-hour sessions, never PIN values. Set a random `WORKROOM_SESSION_SECRET` of at least 32 characters before deploying; missing/short secrets close production access. Staff and owner PINs must differ. Rotating the secret revokes all sessions; changing a PIN revokes that role's sessions. Old PIN cookies require sign-in again. Logout clears this browser; secret rotation is the global revocation mechanism.
+
+Production sign-in requires Postgres (`DATABASE_URL` or `POSTGRES_URL`) and reserves ten attempts per ten minutes for each trusted client address. Empty requests count against that address, so a remote stranger cannot exhaust every staff member's allowance. Counters are atomic across instances, bounded, and expired rows are pruned. Vercel uses its overwritten `x-vercel-forwarded-for` header. A different host must configure an overwriting trusted proxy and `WORKROOM_TRUSTED_IP_HEADER`; missing/invalid client identity or storage fails closed. Do not trust a forwarded header on a directly reachable server. Clients sharing an address share its limit. Successful login clears only that address. Local loopback development uses bounded memory buckets.
+
+Verification: six isolated session/login-limit tests passed and TypeScript checks passed. Coverage includes raw PIN cookies, modified roles/signatures, expiry, PIN/secret rotation, secure cookie attributes, owner/staff separation, rate limiting and production failure without configuration. Live database concurrency and deployed login/handover still need verification before rollout. Payment retry/recovery hardening remains separate work; these session changes alone do not certify live payments.
+
+## Payment attempts and recovery (review branch, September 14)
+
+Online card checkout and workroom card/cash/manual recording now save a durable intent in Postgres before contacting Square. Every attempt has an immutable provider reference and separate deterministic Square order/payment keys. A concurrent submission cannot claim the same attempt twice. Card tokens and connection credentials are not saved in the intent. The customer browser retains only an opaque checkout reference so a lost response or reload opens a payment status check instead of another charge.
+
+Only a matching `COMPLETED` Square payment marks an order paid. Explicit documented card declines are failed attempts; timeouts, reused-token errors, unfamiliar errors and incomplete authorizations remain unconfirmed. Status recovery reads Square; it never issues another charge. A bounded search without a match remains unconfirmed. The saved environment, location, reference, currency and amount must match before reconciliation can settle an attempt. The adapter retains the agreed 3% shop fee and online 99-cent platform fee; its conservative one-fifth fee threshold is studio policy, not Square's maximum.
+
+`/workroom/payments` lists unconfirmed payments and paid orders still awaiting board or email delivery. Signed staff sessions can check status and recover. A confirmed decline or known failure before CreatePayment returns the failed reference to the order card. Staff can explicitly retry another card or switch to cash without owner intervention. The next request acknowledges that exact failed reference; a transaction archives it and reserves one new generation. Concurrent or delayed clicks cannot charge another generation. Failed attempts remain in history. Unknown attempts cannot be released. Resolve those in the original Square location before collecting payment again. Manual payment recording uses the same order-level attempt key as card/cash, preventing competing app submissions from independently settling an order.
+
+Board fulfillment and its completion flag share a database transaction. Shop tickets and customer receipts have separate delivery flags and a retry lease. SMTP delivery is at-least-once: if acknowledgement is lost, a retry may resend a notice with the same order number. It never creates a new order or payment. No background scheduler has been deployed; signed completed-payment webhooks and explicit recovery checks perform recovery. Check this screen at opening and before closing until scheduled monitoring is installed.
+
+Deployment requires a persistent database even in a payment sandbox, table/index migration privileges, configured SMTP, the existing Square permissions including payment reads for reconciliation, and the L02 signed-session settings above. The new table is `devine_payment_attempts`; protect and back it up with the order board because it holds customer fulfillment details. Keep card checkout off until the sandbox acceptance checks pass. Do not merge/deploy this work merely because local checks pass.
+
+Local verification command: `node --test --test-isolation=none tests/payment-engine.test.cjs tests/payment-routes.test.cjs tests/payment-recovery.test.cjs tests/workroom-session.test.cjs`. The isolation option avoids child-process restrictions on this Windows workspace. Tests cover concurrent claims, response loss, storage failures, replayed orders, mismatched contents/totals/location/currency, recovery rollback, and separate notification retries. They use isolated provider/database fixtures, not live Square or Postgres. Build check: set `STUDIO_BUILD_CHECK=1` and run `next build --webpack`; this writes `.next-check` and uses supported in-process TypeScript/worker-thread settings without replacing a running preview's build.
+
+Still required: actual Postgres concurrent-request/rollback checks; Square sandbox completed/declined/delayed/lost-response and signed-webhook redelivery checks; notification outage/recovery with a controlled inbox; mobile checkout and staff handover; cancellation/refund journey review. Confirm pricing and deployment settings with the account before launch.
+
+Provider behavior references: [CreatePayment](https://developer.squareup.com/reference/square/payments/create-payment), [payment errors](https://developer.squareup.com/docs/payments-api/error-codes), and [ListPayments](https://developer.squareup.com/reference/square/payments/list-payments).
+
+## Canceled payments and refund confirmation (September 16 review)
+
+Canceling a paid order leaves it in "Canceled, money to return". Complete the
+refund through the original payment method first: Square for linked card/register
+payments, cash for cash, or the recorded external method for manual payments.
+The board does not move money or independently verify a refund. Only an owner
+can confirm a full refund; partial refunds stay open for review. The confirmation
+prompt states this explicitly, and closed orders label the result as owner
+confirmation. Staff can still see which canceled orders need money returned.
+
+Storage atomically requires a canceled order with a payment and preserves the
+original confirmation timestamp on repeat requests. Missing/ineligible orders
+and storage outages do not report success. The board displays failed updates
+and refreshes search history after successful changes. Additional local checks:
+`node --test --test-isolation=none tests/order-refunds.test.cjs`.
+
+These checks cover route permissions and local store behavior. Actual Postgres
+concurrency, payment/cancellation races, provider refund evidence and mobile
+owner handover remain launch verification work.
+
+## September 17 review corrections (H5, H6, H7)
+
+Known pre-payment errors (changed order/connection, invalid lines/fee/token, CreateOrder rejection or missing/mismatched total) settle as NOT_SUBMITTED. CreateOrder does not collect money. A CreatePayment timeout, reused-token error or unfamiliar result remains unknown and blocks collection pending reconciliation. Gateway comparison uses explicit fields because PostgreSQL jsonb can reorder keys. Online failures expose Return to checkout; recovery text distinguishes a decline from no payment submission. Staff retry and route files must deploy together; refresh older open payment forms. Existing unknown attempts are never automatically relabeled because this code cannot prove whether an earlier request reached Square.
+
+Regression commands: npm ci --ignore-scripts --prefix tools/payment-tests, then node --test --test-isolation=none tests/*.test.cjs tools/payment-tests/*.test.cjs. SQL checks use local PGlite, with fake Square/mail adapters and a serialized connection. Actual hosted PostgreSQL concurrency, Square sandbox and staff-device checks remain rollout gates. No customer charge or deployment was performed for this review.
+
+## Trusted address setup for sign-in
+
+On Vercel, enable **Automatically expose System Environment Variables** in the project environment settings and redeploy. The deployed server must receive `VERCEL=1` and the platform-provided `x-vercel-forwarded-for` header. Leave `WORKROOM_TRUSTED_IP_HEADER` unset there. A missing or invalid trusted address returns HTTP 503 with `reason: trusted_address_unavailable`; database failures instead report sign-in storage unavailable. This distinction does not bypass throttling or accept an arbitrary forwarded header.
+
+On another host, configure an overwriting trusted proxy, block direct access to the application, and set `WORKROOM_TRUSTED_IP_HEADER` to that header. Verify a correct login and an independent address after deployment. The hosted toggle and actual edge header have not been verified by the local tests.
+
+## Audited recovery of unresolved payments
+
+An owner can expand **Record verified absence of payment** on /workroom/payments after independently checking the original provider/location, amount, date and payment reference. Record who checked and a support reference or other evidence, then confirm there is no pending or completed payment. A search returning no matches is not sufficient evidence. The action rechecks Square, waits at least five minutes after the latest local activity, and refuses known provider payments, completed/fulfilled attempts, missing evidence and stale generations. A provider outage refuses the action.
+
+The finding and original snapshot/result are inserted into devine_payment_reviews in the same transaction that records OWNER_CONFIRMED_NO_PAYMENT. No charge or refund occurs. The old row remains failed until staff explicitly retries its exact reference, or an online customer returns to checkout. A replayed owner form cannot release a newer attempt. Late unknown responses cannot erase the owner finding; confirmed provider evidence can still settle a payment. The audit records the authenticated owner role and the entered identity/evidence, not an independently identified staff account. The owner is responsible for the external finding; elapsed time and an empty search do not prove absence of a charge.
+
+The earlier owner-only release for ordinary declines stays retired: staff can retry definitive declines directly. Deploy recovery actions, schema, routes and UI together. LF normalization is an additive commit; no published component pins or history are rewritten. Local tests and a production Next/PGlite browser verify the save, retained audit, responsive 320px form, and role/generation fences. Hosted concurrency and real Square evidence remain rollout checks.

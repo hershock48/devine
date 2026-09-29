@@ -1,32 +1,13 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
-import { square } from "./client";
+import { createHash } from "node:crypto";
+import { square, SquareError } from "./client";
+import { PaymentNotSubmitted } from "./payment-engine";
 import type { ResolvedSquare } from "./oauth";
 
-/**
- * Card payments with the Glazed platform fee. DORMANT ON PURPOSE: nothing
- * calls this yet, because the checkout deliberately takes no card online
- * (payment on the confirming call, the owner's own operation, decided
- * 2026-08-21 and recorded in glaze/clients/devine.md). It exists now so
- * the day cards turn on is a checkout change, not a plumbing project, and
- * so the fee mechanics are written down where the first caller will find
- * them.
- *
- * THE FEE RIDES INSIDE THE PAYMENT, NOT ON TOP OF IT. app_fee_money is
- * Square splitting the amount already being charged: customer pays
- * amountCents, the shop's account receives amountCents minus processing
- * minus the fee, and the fee accrues to the Glazed account that owns the
- * app. So the checkout that wants the customer to pay the fee (the model:
- * a visible fee line such as "Convenience fee", never a hidden markup)
- * must ADD the fee to the order total it charges, then name the platform's
- * share of it here.
- *
- * Two hard rules from Square, enforced here rather than discovered in a
- * 400: the fee is only legal on an OAuth-token payment made with the
- * PAYMENTS_WRITE_ADDITIONAL_RECIPIENTS scope, and on small totals it may
- * not exceed 60 percent of the payment. Tiny totals therefore drop the fee
- * rather than fail the sale; losing 99 cents beats losing the order.
+/** Shared Square adapter. The caller must first save and claim a durable attempt.
+ * The customer fee and platform share retain the agreed pricing rules. The
+ * existing one-fifth threshold is a conservative studio policy, not Square's limit.
  */
 
 /** Cents. 99 is the portfolio-standard platform fee; SQUARE_APP_FEE_CENTS
@@ -38,39 +19,8 @@ export function appFeeCents(): number {
   return Number.isFinite(n) && n >= 0 ? Math.round(n) : 99;
 }
 
-export type CardPayment = {
-  /** From Square's Web Payments SDK card tokenization in the browser. */
-  sourceId: string;
-  /** The full amount the customer pays, service fee already included. */
-  amountCents: number;
-  /** Our order id, so a payment can be traced back from either dashboard. */
-  referenceId: string;
-  note?: string;
-  buyerEmail?: string;
-};
-
-type PaymentResponse = {
-  payment?: { id?: string; status?: string; receipt_url?: string };
-};
-
-export async function createCardPayment(cfg: ResolvedSquare, p: CardPayment) {
-  const fee = appFeeCents();
-  // The 60 percent floor with margin: fee only when it is under a fifth of
-  // the total, which for 99 cents means orders of five dollars and up.
-  const feeLegal = cfg.viaOAuth && fee > 0 && fee * 5 <= p.amountCents;
-  const body: Record<string, unknown> = {
-    idempotency_key: randomUUID(),
-    source_id: p.sourceId,
-    amount_money: { amount: p.amountCents, currency: "USD" },
-    location_id: cfg.locationId,
-    reference_id: p.referenceId,
-    note: p.note,
-    buyer_email_address: p.buyerEmail,
-  };
-  if (feeLegal) body.app_fee_money = { amount: fee, currency: "USD" };
-  const res = await square<PaymentResponse>(cfg, "POST", "/v2/payments", body);
-  return { payment: res.payment, appFeeCents: feeLegal ? fee : 0 };
-}
+type PaymentResponse = { payment?: { id?: string; status?: string; receipt_url?: string; reference_id?: string; location_id?: string; amount_money?: { amount?: number; currency?: string } }; errors?: { code?: string }[] };
+const DECLINED = new Set(["ADDRESS_VERIFICATION_FAILURE", "CARDHOLDER_INSUFFICIENT_PERMISSIONS", "CARD_EXPIRED", "CARD_NOT_SUPPORTED", "CARD_TOKEN_EXPIRED", "CVV_FAILURE", "EXPIRATION_FAILURE", "GENERIC_DECLINE", "INSUFFICIENT_FUNDS", "INVALID_ACCOUNT", "INVALID_CARD", "INVALID_CARD_DATA", "INVALID_EXPIRATION", "INVALID_PIN", "PAN_FAILURE", "PAYMENT_LIMIT_EXCEEDED", "TRANSACTION_LIMIT", "VOICE_FAILURE", "CARD_DECLINED_VERIFICATION_REQUIRED"]);
 
 /* ------------------- board orders: the settled money ------------------- */
 
@@ -109,9 +59,15 @@ type CreateOrderResponse = {
 
 const cents = (dollars: number) => Math.round(dollars * 100);
 
+export function providerKey(attemptKey: string, operation: "order" | "payment") {
+  if (!attemptKey) throw new Error("A durable payment attempt is required.");
+  return createHash("sha256").update(`${operation}:${attemptKey}`).digest("hex").slice(0, 40);
+}
+
 export async function chargeBoardOrder(
   cfg: ResolvedSquare,
   opts: {
+    attemptKey: string;
     /** The workroom order id; rides as reference_id so the webhook links the sale. */
     workroomOrderId: string;
     /** The DV number, for the human reading her Square dashboard. */
@@ -130,11 +86,13 @@ export async function chargeBoardOrder(
   },
 ) {
   const subtotalCents = opts.lines.reduce((sum, l) => sum + cents(l.each) * l.qty, 0);
-  if (subtotalCents <= 0) throw new Error("This order has no priced lines to charge.");
+  if (!Number.isSafeInteger(subtotalCents)||subtotalCents<=0||opts.lines.some(l=>!Number.isSafeInteger(l.qty)||l.qty<=0||!Number.isFinite(l.each)||l.each<0)) throw new PaymentNotSubmitted("INVALID_PRICED_LINES");
+  if(opts.method==='card'&&!opts.sourceId)throw new PaymentNotSubmitted('MISSING_CARD_TOKEN');
+  if(!Number.isSafeInteger(opts.cardFee.cents)||opts.cardFee.cents<0||!Number.isSafeInteger(opts.cardFee.appFeeCents)||opts.cardFee.appFeeCents<0)throw new PaymentNotSubmitted('INVALID_FEE');
 
   const feeCents = opts.method === "card" ? Math.max(0, Math.round(opts.cardFee.cents)) : 0;
   const totalCents = subtotalCents + feeCents;
-  // Square's 60-percent rule with margin (see createCardPayment): the
+  // The studio's conservative one-fifth threshold: the
   // platform's share only rides when it is well under the total, and it
   // can never exceed the fee line the customer actually paid.
   const appFeeWanted = Math.min(feeCents, Math.max(0, Math.round(opts.cardFee.appFeeCents)));
@@ -153,8 +111,9 @@ export async function chargeBoardOrder(
     });
   }
 
-  const created = await square<CreateOrderResponse>(cfg, "POST", "/v2/orders", {
-    idempotency_key: randomUUID(),
+  let created:CreateOrderResponse;
+  try{created = await square<CreateOrderResponse>(cfg, "POST", "/v2/orders", {
+    idempotency_key: providerKey(opts.attemptKey, "order"),
     order: {
       location_id: cfg.locationId,
       reference_id: opts.workroomOrderId,
@@ -162,18 +121,18 @@ export async function chargeBoardOrder(
       // The note is what a person sees scanning her dashboard.
       note: `Board order ${opts.orderNumber}`,
     },
-  });
+  });}catch{throw new PaymentNotSubmitted('ORDER_CREATION_FAILED');}
   const squareOrderId = created.order?.id;
-  if (!squareOrderId) throw new Error("Square did not return an order id.");
+  if (!squareOrderId) throw new PaymentNotSubmitted("MISSING_PROVIDER_ORDER");
   // Square's total is the truth the payment must match; a mismatch here
   // means our line math drifted and the sale must not go through fuzzy.
   const squareTotal = created.order?.total_money?.amount;
-  if (squareTotal !== undefined && squareTotal !== totalCents) {
-    throw new Error(`Order total mismatch: ours ${totalCents}, Square's ${squareTotal}.`);
+  if (squareTotal !== totalCents) {
+    throw new PaymentNotSubmitted('ORDER_TOTAL_MISMATCH');
   }
 
   const body: Record<string, unknown> = {
-    idempotency_key: randomUUID(),
+    idempotency_key: providerKey(opts.attemptKey, "payment"),
     order_id: squareOrderId,
     location_id: cfg.locationId,
     amount_money: { amount: totalCents, currency: "USD" },
@@ -191,8 +150,19 @@ export async function chargeBoardOrder(
     body.cash_details = { buyer_supplied_money: { amount: totalCents, currency: "USD" } };
   }
 
-  const res = await square<PaymentResponse>(cfg, "POST", "/v2/payments", body);
+  let res: PaymentResponse;
+  try { res = await square<PaymentResponse>(cfg, "POST", "/v2/payments", body); }
+  catch (error) {
+    // Only explicit documented declines release the attempt. A reused token,
+    // timeout, server error, or unknown response must still be reconciled.
+    if (error instanceof SquareError && [400, 402].includes(error.status)) {
+      const payload = error.body as PaymentResponse | null;
+      if (payload?.errors?.length && payload.errors.every(item => DECLINED.has(item.code || "")) && !payload.payment) return { paymentId: "", status: "FAILED", receiptUrl: "", totalCents, feeCents };
+    }
+    throw error;
+  }
   if (!res.payment?.id) throw new Error("Square did not return a payment.");
+  if (res.payment.amount_money?.amount !== totalCents || res.payment.amount_money.currency !== "USD" || res.payment.reference_id !== opts.workroomOrderId || res.payment.location_id !== cfg.locationId) throw new Error("Square payment does not match the saved order.");
   return {
     paymentId: res.payment.id,
     status: res.payment.status ?? "",

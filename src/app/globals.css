@@ -197,7 +197,9 @@ a:hover { color: var(--rose-ink); text-decoration-color: currentColor; }
 .wrap { width: min(100% - (var(--inset) * 2), var(--wrap)); margin-inline: auto; }
 /* Full width of the viewport, for imagery. The scrollbar is accounted for so a
    bleed section cannot itself create a horizontal scrollbar. */
-.bleed { width: 100vw; margin-inline: calc(50% - 50vw); max-width: 100vw; }
+/* Both bleed sections are direct children of the full-width main. 100vw
+   includes the desktop scrollbar and creates horizontal overflow. */
+.bleed { width: 100%; margin-inline: 0; max-width: 100%; }
 .text { max-width: var(--wrap-text); }
 .narrow { width: min(100% - (var(--inset) * 2), 760px); margin-inline: auto; }
 

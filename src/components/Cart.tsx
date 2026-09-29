@@ -88,16 +88,20 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [lines]);
 
   const add = useCallback((slug: string, qty = 1) => {
+    if (!bySlug.has(slug) || !Number.isFinite(qty) || qty <= 0) return;
+    qty = Math.min(99, Math.max(1, Math.round(qty)));
     setLines((cur) => {
       const at = cur.findIndex((l) => l.slug === slug);
       if (at === -1) return [...cur, { slug, qty }];
       const next = [...cur];
-      next[at] = { ...next[at], qty: next[at].qty + qty };
+      next[at] = { ...next[at], qty: Math.min(99, next[at].qty + qty) };
       return next;
     });
   }, []);
 
   const setQty = useCallback((slug: string, qty: number) => {
+    if (!Number.isFinite(qty)) return;
+    qty = qty <= 0 ? 0 : Math.min(99, Math.max(1, Math.round(qty)));
     setLines((cur) =>
       qty <= 0 ? cur.filter((l) => l.slug !== slug) : cur.map((l) => (l.slug === slug ? { ...l, qty } : l)),
     );

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "components": [
+    {
+      "id": "workroom-session",
+      "version": "1.0.0",
+      "file": "src/lib/workroom/session.ts",
+      "sha256LF": "05f92124e258bafc6a837be37516fff20d78c897738f1035d6cd0ea1971eb657",
+      "sourceRepository": "https://github.com/hershock48/glazedweb",
+      "sourceCommit": "a106b003168e4ca9de1ba5f69cf9e321d03f1482",
+      "sourcePath": "glaze/assets/workroom-session/1.0.0/session.ts",
+      "localChanges": false,
+      "verifiedOn": "2026-09-16",
+      "verification": "Source hash matches reference; deployment not inspected",
+      "deployment": "unknown"
+    }
+  ]
+}
