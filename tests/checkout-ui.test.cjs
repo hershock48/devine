@@ -20,7 +20,7 @@ function mount(file, options = {}) {
   const modules = {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' }, '@/lib/catalog': catalog,
     '@/components/Cart': { useCart: () => ({ items: [{ product, qty: 1 }], lines: [{ slug: 'maeve', qty: 1 }], subtotal: 65, count: 1, clear() {}, add() {}, remove() {}, setQty() {} }) },
-    '@/components/ProductImage': { default: 'image' }, '@/lib/nav': { href: p => '/demo' + (p || '') },
+    '@/components/ProductImage': { default: 'image' }, '@/lib/nav': { href: p => p || '/' },
     '@/components/workroom/ui': {textButton:{}},
     '@/lib/site': { site: { deliveryFees: { '49068': 8.95 }, deliveryMinimums: { marshall: 45, outside: 55 }, marshallZip: '49068', deliveryZips: ['49068'], phone: '269-789-0830', phoneHref: 'tel:2697890830', email: 'test@example.invalid', delivery: {} } },
     '@/lib/occasions': { occasions: [] },

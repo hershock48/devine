@@ -25,12 +25,11 @@ const body = Karla({
   display: "swap",
 });
 
+// The shop's name for anything outside the storefront's own layout (the
+// root 404, mostly). The storefront and the workroom set their own.
 export const metadata: Metadata = {
-  title: "Glazed Web",
-  description: "Internal placeholder.",
-  // NOINDEX WHILE THIS IS A PITCH. Goes away with the header in next.config.ts and
-  // src/app/robots.ts, together, on the day this becomes their site.
-  robots: { index: false, follow: false },
+  title: "DeVine's Flowers & Botanicals",
+  description: "Florist in Marshall, Michigan.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
