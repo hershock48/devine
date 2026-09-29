@@ -4,7 +4,9 @@ import { isWorkroomAuthed, isWorkroomOwner } from '@/lib/workroom/auth';
 import { paymentDatabase } from '@/lib/square/payment-attempts';
 import { expectedTotal, conflictWording, type PaymentIntent } from '@/lib/square/payment-service';
 import { noticesForAttempts, noticeWording, type NoticeRow } from '@/lib/square/payment-notices';
-import { recover, confirmNoPayment, sendNoticeAgain, clearConflict } from './actions';
+import { recover, confirmNoPayment, sendNoticeAgain, clearConflict, disconnectSquare, syncSquareCatalog } from './actions';
+import { squareApp, grantEnv } from '@/lib/square/oauth';
+import { getStore, type SquareTokens } from '@/lib/workroom/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,10 +14,30 @@ export const dynamic = 'force-dynamic';
 const shopTime = (at: number | string) => new Date(Number(at)).toLocaleString('en-US', { timeZone: 'America/Detroit' });
 const noticesOf = (all: NoticeRow[], attemptKey: string) => all.filter(item => item.attemptKey === attemptKey);
 
-export default async function PaymentsPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
+/** What the owner's Square panel reports after a button or the trip to
+    Square and back (the OAuth callback lands here with ?square=). */
+const squareMessages: Record<string, string> = {
+  connected: 'Square is connected. Card payments now go to the account you just approved.',
+  denied: 'Connecting was canceled on the Square page. Nothing changed.',
+  badstate: 'That connect link had expired. Press Connect Square again.',
+  nodatabase: 'Square needs the database set up before it can connect.',
+  failed: 'Square did not finish connecting. Try again.',
+  unconfigured: 'The Square app is not set up in the site settings yet (SQUARE_APP_ID and SQUARE_APP_SECRET).',
+  disconnected: 'Square is disconnected. Card payments stop until it is connected again.',
+  synced: 'The catalog was sent to the register.',
+  'sync-failed': 'The catalog did not reach the register. Try again, or check Square.',
+};
+
+export default async function PaymentsPage({ searchParams }: { searchParams: Promise<{ notice?: string; square?: string }> }) {
   if (!(await isWorkroomAuthed())) redirect('/workroom');
   const owner = await isWorkroomOwner();
-  const { notice } = await searchParams;
+  const { notice, square } = await searchParams;
+  // The owner's Square panel: which Square this site is set to, and whether
+  // a connection from THAT Square is saved (a sandbox grant is ignored in
+  // production, see grantEnv).
+  const squareMode = squareApp()?.env ?? (process.env.SQUARE_ENV?.trim() === 'production' ? 'production' : 'sandbox');
+  const grant: SquareTokens | null = owner ? await getStore().getSquareTokens().catch(() => null) : null;
+  const grantMatches = !!grant && grantEnv(grant) === squareMode;
   const messages: Record<string, string> = {
     retry: 'Recovery could not finish. Check the connection and try again.',
     checked: 'Status checked. Any unfinished work remains below.',
@@ -42,10 +64,12 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
     // this list ever gets shorter at the top.
     //
     // count(*) OVER() runs before the LIMIT, so the page can say how many are
-    // waiting rather than quietly showing the oldest hundred of them.
+    // waiting rather than quietly showing the oldest hundred of them. Rows
+    // with no order in the snapshot are releaseUnsubmitted's markers for a
+    // checkout that never reached Square: nothing to show, nothing to do.
     rows = (await db.query(`SELECT a.*,r.evidence AS review_evidence,r.reviewed_at,count(*) OVER() AS waiting_total FROM devine_payment_attempts a
       LEFT JOIN devine_payment_reviews r ON r.reference_id=a.snapshot->>'referenceId'
-      WHERE a.attempt_key NOT LIKE 'archived:%' AND (a.state<>'completed' OR a.fulfilled=false OR a.notified=false OR a.customer_notified=false
+      WHERE a.attempt_key NOT LIKE 'archived:%' AND a.snapshot ? 'order' AND (a.state<>'completed' OR a.fulfilled=false OR a.notified=false OR a.customer_notified=false
         OR (a.provider_conflict IS NOT NULL AND a.provider_conflict->>'clearedAt' IS NULL))
       ORDER BY a.created_at ASC LIMIT 100`)).rows as AttemptRow[];
     notices = await noticesForAttempts(db, rows.map(row => row.attempt_key));
@@ -56,6 +80,17 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
     <h1>Payment recovery</h1>
     <p>Check uncertain payments with Square and retry delivery of confirmed orders to the board and shop inbox. This does not charge or refund a customer.</p>
     {notice && messages[notice] && <p role="status">{messages[notice]}</p>}
+    {owner && <section aria-labelledby="square-h" style={{ border: '1px solid var(--line)', borderRadius: 3, padding: 16, margin: '16px 0 24px', maxWidth: 640 }}>
+      <h2 id="square-h" style={{ marginTop: 0, fontSize: 24 }}>Square</h2>
+      {square && squareMessages[square] && <p role="status"><strong>{squareMessages[square]}</strong></p>}
+      <p>Mode: {squareMode === 'production' ? 'live, real cards' : 'sandbox, practice cards only'}.{' '}
+        {grantMatches ? `Connected to ${grant!.locationName || grant!.locationId}.` : grant ? `The saved connection is from the ${grantEnv(grant)} Square, so it is not used. Connect again.` : 'Not connected.'}</p>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        {!grantMatches && <a className="btn btn--solid" href="/api/square/connect">Connect Square</a>}
+        {grantMatches && <form action={syncSquareCatalog}><button className="btn">Send the catalog to the register</button></form>}
+        {grant && <form action={disconnectSquare}><button className="btn">Disconnect Square</button></form>}
+      </div>
+    </section>}
     {waiting > rows.length && <p role="alert">Showing the {rows.length} oldest of {waiting} waiting. Work these off to see the rest.</p>}
     {unavailable ? <p role="alert">Payment storage is unavailable. Do not retry charges until the connection is restored.</p> : rows.length === 0 ? <p>No payment recovery work is waiting.</p> : rows.map(row => <section key={row.attempt_key} style={{ borderBottom: '1px solid var(--line)', paddingBlock: 20 }}>
       <h2>{row.snapshot.order.number} · {row.snapshot.order.name}</h2>

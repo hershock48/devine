@@ -72,7 +72,7 @@ function useSubmit(kindPayload: () => Record<string, string>, mailtoBody: () => 
       });
       const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
       if (res.ok && body?.ok) setOutcome({ state: "sent" });
-      else if (res.status === 400) setOutcome({ state: "invalid", message: body?.error || "Something needs another look." });
+      else if (res.status === 400 || res.status === 429) setOutcome({ state: "invalid", message: body?.error || "Something needs another look." });
       else setOutcome({ state: "unreached" });
     } catch {
       setOutcome({ state: "unreached" });
@@ -134,7 +134,7 @@ export function WeddingInquiry() {
       <div className="panel" role="status">
         <h3 style={{ marginTop: 0 }}>It&rsquo;s in.</h3>
         <p>
-          A person reads every inquiry; we&rsquo;ll reply from the shop, usually within a day. The
+          A person reads every inquiry, and we&rsquo;ll reply from the shop. The
           pictures you have saved? Email them to{" "}
           <a href={`mailto:${site.email}`}>{site.email}</a> or bring them to the consult; either
           works.

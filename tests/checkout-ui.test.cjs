@@ -48,22 +48,34 @@ async function openPickup(ui) {
   ui.nodes().filter(n => n.type === 'input' && n.props.name === 'fulfillment')[1].props.onChange(); await ui.flush();
 }
 
-test('Square failure settles on pay-on-call without automatic retrying', async () => {
+// Online orders are card only (Kevin, 2026-09-29): when Square's field will
+// not open, the cart says so once, points at the phone, and offers no unpaid
+// "Send the order" fallback.
+test('Square failure shows one message with the phone, without retrying or an unpaid fallback', async () => {
   const ui = mount('src/components/CartView.tsx', { sdkFails: true }); await openPickup(ui);
   assert.equal(ui.loads, 1);
-  assert.ok(ui.find(n => n.type === 'button' && n.props.children === 'Send the order'));
+  assert.ok(ui.find(n => typeof n.props.children === 'string' && n.props.children.startsWith('Card entry did not open')));
+  assert.equal(ui.nodes().some(n => n.props.children === 'Send the order'), false);
 });
 
-test('switching payment methods remounts the card field', async () => {
+test('leaving and returning to an orderable checkout remounts the card field', async () => {
   const ui = mount('src/components/CartView.tsx'); await openPickup(ui); assert.equal(ui.attaches, 1);
-  // Removing the card option and restoring it is the same mount boundary as
-  // returning from the recovery screen; exercise both DOM lifetimes.
-  const radios = () => ui.nodes().filter(n => n.type === 'input' && n.props.name === 'paymethod');
-  radios()[1].props.onChange(); await ui.flush();
-  radios()[0].props.onChange(); await ui.flush(); assert.equal(ui.attaches, 2);
+  // A delivery with no priced zip cannot be placed online, which tears the
+  // field down; back to pickup mounts it again. Same mount boundary as
+  // returning from the recovery screen.
+  const fulfillment = () => ui.nodes().filter(n => n.type === 'input' && n.props.name === 'fulfillment');
+  fulfillment()[0].props.onChange(); await ui.flush();
+  fulfillment()[1].props.onChange(); await ui.flush(); assert.equal(ui.attaches, 2);
 });
 
-test('blocked browser storage still allows pay-on-call checkout to render', async () => {
+test('with card checkout off, the cart points to the phone and offers no checkout', async () => {
+  const ui = mount('src/components/CartView.tsx', { fetch: async url => ({ ok: true, status: 200, json: async () => url === '/api/checkout/config' ? { cards: false } : {} }) });
+  await ui.flush();
+  assert.equal(ui.nodes().some(n => n.props.children === 'Continue to checkout'), false);
+  assert.ok(ui.nodes().some(n => Array.isArray(n.props.children) && n.props.children.some(c => typeof c === 'string' && c.includes('Online ordering isn'))));
+});
+
+test('blocked browser storage still renders the cart and its checkout', async () => {
   const ui = mount('src/components/CartView.tsx', { storage: { getItem() { throw Error('blocked'); } } });
   await ui.flush(); assert.ok(ui.find(n => n.props.children === 'Continue to checkout'));
 });

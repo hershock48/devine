@@ -37,8 +37,7 @@ export default function Shop() {
           <p className="kicker">The shop</p>
           <h1>Everything we make, ready to send.</h1>
           <p className="lede">
-            Designed in the studio on Industrial Road, from whatever came in fresh that
-            morning.
+            Designed in the studio on Industrial Road.
           </p>
         </div>
       </section>

@@ -73,6 +73,29 @@ export function attemptRepository<T>():AttemptRepository<T>{return {
  async read(key){const db=await paymentDatabase();const result=await db.query('SELECT * FROM devine_payment_attempts WHERE attempt_key=$1',[key]);return result.rows[0]?mapped<T>(result.rows[0]):null;},
 };}
 
+/** The customer's way out of an online checkout that never reached Square
+ * (2026-09-28 audit: a request that died before prepare, or between prepare
+ * and claim, left the status check saying "awaiting confirmation, do not pay
+ * again" forever, with no Return to checkout, for a charge that never began).
+ *
+ * Both cases are provably unpaid. No row means prepare never ran; a row still
+ * 'prepared' means claim never ran, and claim is what precedes CreatePayment.
+ * No row: a failed marker is written under the key, so a copy of the request
+ * still in flight finds it at prepare and returns failed without charging.
+ * The marker's snapshot carries no order, which is how the payments page and
+ * the webhook tell it from a real attempt. 'prepared': flipped to failed only
+ * once it has sat for 15 seconds, so a request between prepare and claim is
+ * not raced (claim matches state='prepared', so the row lock decides either
+ * way). Online keys only: the caller passes the browser's UUID. */
+export async function releaseUnsubmitted(key:string,now=Date.now()):Promise<void>{
+ const db=await paymentDatabase();
+ const notSubmitted=(failureCode:string)=>JSON.stringify({paymentId:'',status:'NOT_SUBMITTED',receiptUrl:'',totalCents:0,feeCents:0,failureCode});
+ await db.query(`INSERT INTO devine_payment_attempts(attempt_key,fingerprint,state,snapshot,result,created_at,updated_at)
+  VALUES($1,'unsubmitted','failed','{"unsubmitted":true}',$2,$3,$3) ON CONFLICT DO NOTHING`,[key,notSubmitted('NEVER_REACHED_SERVER'),now]);
+ await db.query(`UPDATE devine_payment_attempts SET state='failed',result=$2,updated_at=$3
+  WHERE attempt_key=$1 AND state='prepared' AND updated_at<$4`,[key,notSubmitted('STOPPED_BEFORE_CHARGE'),now,now-15000]);
+}
+
 /** This is a manual finding, not a provider result. Keep it separately so a
  * later webhook or staff retry cannot erase who released which generation.
  * Callers must authenticate the owner and reconcile Square before entering. */

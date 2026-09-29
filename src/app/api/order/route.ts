@@ -1,34 +1,32 @@
 import { fulfillPayment, gatewayIdentity, paymentFingerprint, pendingMessage, takePayment } from "@/lib/square/payment-service";
 import { NextResponse } from "next/server";
-import { priceOrder, sendOrder, type PricedOrder } from "@/lib/intake";
+import { priceOrder, type PricedOrder } from "@/lib/intake";
 import { site } from "@/lib/site";
 import { resolveSquare } from "@/lib/square/oauth";
 import { appFeeCents } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/workroom/store";
+import { allowFormPost } from "@/lib/workroom/login-limit";
 
 /**
  * POST /api/order. Takes a customer order. The workroom pay, login and
  * orders routes and the Square webhook write too; this is the customer side.
  *
- * TWO SHAPES OF ORDER since 2026-09-01, anchored on different events:
+ * EVERY ONLINE ORDER IS PAID BY CARD (Kevin, 2026-09-29: an order placed on
+ * the website cannot be paid by phone or in cash). The unpaid shape that
+ * emailed a ticket and took payment on a confirming call is gone; a request
+ * without a card is refused with a 400 that sends the customer to the phone,
+ * which is where every order the site cannot take belongs.
  *
- * UNPAID (the default, and the only shape until CHECKOUT_CARDS is "on"):
- * the ticket email is the order. The response vocabulary is small so
- * CartView can be honest about each case:
+ *   400 { ok: false, error }   the order itself is wrong, or cannot be paid
+ *                              online; nothing was charged and nothing is
+ *                              saved, so the cart forgets the attempt
  *
- *   200 { ok: true,  number }        the shop's inbox has the ticket
- *   400 { ok: false, error }         the order itself is wrong; fix and resubmit
- *   503 { ok: false, reason: "unconfigured" }   mail was never set up here
- *   502 { ok: false, reason: "send-failed" }    mail is set up and did not work
- *
- * 503/502 mean "did not reach the shop", the cart says exactly that, and
- * never thanks a visitor for an order nobody received.
- *
- * PAID BY CARD (payload carries card.sourceId and card.attemptKey): the
- * CHARGE is the order. Sequence: price, gate delivery (a zip must be on the
- * owner's fee sheet and the flowers must clear her minimum; anything else
- * falls back to the pay-on-call flow, see paidFlow), then hand the whole
- * intent to takePayment, which saves it to Postgres under the browser's
+ * The CHARGE is the order (payload carries card.sourceId and
+ * card.attemptKey). Sequence: price, gate delivery (a zip must be on the
+ * owner's fee sheet and the flowers must clear her minimum), confirm Square
+ * and storage are reachable at all (the 2026-09-28 audit: a 503 here left the
+ * cart on "awaiting confirmation" forever for a charge that never started),
+ * then hand the whole intent to takePayment, which saves it to Postgres under the browser's
  * attemptKey BEFORE Square is called. The board id derives from that key,
  * so a retried request lands on the same row instead of a second order.
  * After a successful charge, fulfillPayment writes the board row and sends
@@ -52,6 +50,12 @@ import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/wo
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  // Twenty card attempts per ten minutes per address: room for a customer
+  // retrying declines, not for a script walking stolen cards through Square.
+  // Refused before anything is saved, so the cart treats it like a 400.
+  if (!(await allowFormPost("order", req, 20))) {
+    return NextResponse.json({ ok: false, error: `Too many tries from this connection. Wait a few minutes, or call the shop at ${site.phone}.` }, { status: 429 });
+  }
   let raw: unknown;
   try {
     raw = await req.json();
@@ -67,41 +71,30 @@ export async function POST(req: Request) {
   const card = (raw as { card?: { sourceId?: unknown; attemptKey?: unknown } }).card;
   const sourceId = typeof card?.sourceId === "string" ? card.sourceId : "";
 
-  if (sourceId) return paidFlow(priced.order, sourceId, typeof card?.attemptKey === "string" ? card.attemptKey : "");
-
-  const result = await sendOrder(priced.order);
-  if (result === "sent") {
-    /*
-      Onto the workroom board too, but only an order that actually reached the
-      shop. On "unconfigured" and "send-failed" the customer is told to call
-      instead, and a board row for an order the customer was told did not go
-      through is a ghost someone will make flowers for. Best-effort: the email
-      is the order; a board miss is a log line, never a failed checkout.
-    */
-    try {
-      await getStore().createOrder(toWorkroomOrder(priced.order, "new", null));
-    } catch (err) {
-      console.error(`[devine] order ${priced.order.number} not written to the board:`, err);
-    }
-    return NextResponse.json({ ok: true, number: priced.order.number });
+  if (!sourceId) {
+    return NextResponse.json({ ok: false, error: `Online orders are paid by card at checkout. To order another way, call the shop at ${site.phone}.` }, { status: 400 });
   }
-  return NextResponse.json(
-    { ok: false, reason: result },
-    { status: result === "unconfigured" ? 503 : 502 },
-  );
+  return paidFlow(priced.order, sourceId, typeof card?.attemptKey === "string" ? card.attemptKey : "");
 }
+
+/** The checkout's "cannot be paid online right now" answer. A 400, because
+    nothing was saved and nothing was sent to Square: the cart forgets the
+    attempt and the customer is free to try again or pick up the phone. */
+const cardsUnavailable = () =>
+  NextResponse.json(
+    { ok: false, error: `Card payment isn't available right now, so nothing was charged. Call the shop at ${site.phone} and we'll take your order by phone.` },
+    { status: 400 },
+  );
 
 async function paidFlow(order: PricedOrder, sourceId: string, attemptKey: string) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptKey)) return NextResponse.json({ ok: false, error: "Refresh checkout before paying." }, { status: 400 });
-  if (process.env.CHECKOUT_CARDS?.trim() !== "on") {
-    return NextResponse.json({ ok: false, error: "Card payment is not available online yet." }, { status: 400 });
-  }
+  if (process.env.CHECKOUT_CARDS?.trim() !== "on") return cardsUnavailable();
 
   /*
     DELIVERY CAN PAY BY CARD since 2026-09-01: the owner confirmed her
     per-zip fee sheet and minimums, which dissolved the reason this was
     pickup-only (an unpriceable delivery meant an unchargeable total).
-    Two honest gates remain, both with the pay-on-call flow as the out:
+    Two honest gates remain, both with the shop's phone as the out:
     a zip off her sheet cannot be priced, and the flowers subtotal must
     clear her minimum ($45 Marshall / $55 outside, the stricter
     fee-excluded reading; see site.ts).
@@ -111,7 +104,7 @@ async function paidFlow(order: PricedOrder, sourceId: string, attemptKey: string
     const fee = site.deliveryFees[order.zip];
     if (fee === undefined) {
       return NextResponse.json(
-        { ok: false, error: "We can only price delivery to zips on our list, so card payment is off for this one. Send the order and we will sort delivery on the confirming call." },
+        { ok: false, error: `We take delivery orders online for the zips on our delivery list. For anywhere else, call the shop at ${site.phone} and we will sort it out.` },
         { status: 400 },
       );
     }
@@ -119,17 +112,20 @@ async function paidFlow(order: PricedOrder, sourceId: string, attemptKey: string
     const min = inMarshall ? site.deliveryMinimums.marshall : site.deliveryMinimums.outside;
     if (order.subtotal < min) {
       return NextResponse.json(
-        { ok: false, error: `Delivery orders start at $${min} in flowers ${inMarshall ? "in Marshall" : "outside Marshall"}. Add a little more, or send the order unpaid and we will talk it through on the confirming call.` },
+        { ok: false, error: `Delivery orders start at $${min} in flowers ${inMarshall ? "in Marshall" : "outside Marshall"}. Add a little more to place it online, or call the shop at ${site.phone}.` },
         { status: 400 },
       );
     }
     deliveryFee = fee;
   }
 
-  const cfg = await resolveSquare();
-  if (!cfg) {
-    return NextResponse.json({ ok: false, error: "Card payment is not available right now; the order was not placed. You can order and pay on the confirming call instead." }, { status: 503 });
-  }
+  // Both checks happen before takePayment saves anything, so a "no" here is
+  // provably not a charge and the cart may forget the attempt (400). Letting
+  // either failure reach takePayment turned it into an ambiguous 503.
+  if (getStore().backend !== "postgres") return cardsUnavailable();
+  let cfg: Awaited<ReturnType<typeof resolveSquare>>;
+  try { cfg = await resolveSquare(); } catch { return cardsUnavailable(); }
+  if (!cfg) return cardsUnavailable();
 
   const id = `web_${attemptKey.replaceAll("-", "")}`;
   const chargeLines = [

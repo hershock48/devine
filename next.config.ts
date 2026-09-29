@@ -45,6 +45,22 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] },
+      /* Security headers, permanent (2026-09-28 audit found none). Nothing
+         here frames the site's own pages, so framing is refused outright;
+         Square's card field is an iframe INSIDE our page, which
+         frame-ancestors does not govern. No full Content-Security-Policy
+         yet: the Square SDK and Next's inline scripts need a nonce setup
+         that is its own careful change. HSTS comes from Vercel. */
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), browsing-topics=()" },
+        ],
+      },
     ];
   },
 };

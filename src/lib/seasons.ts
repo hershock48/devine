@@ -126,6 +126,10 @@ export type HeroPhoto = {
   height: number;
   alt: string;
   traced: boolean;
+  /** An 800px-wide copy for phones, offered through srcset. The 2026-09-28
+      audit measured the homepage's largest paint at 3.4s on a throttled
+      phone, all of it the full-size hero sharing the connection. */
+  small?: { src: string; width: number };
 };
 
 /** The photograph the site shipped with, and the one the trace belongs to. */
@@ -133,6 +137,7 @@ const DEFAULT_HERO: HeroPhoto = {
   src: "/img/shop/shop-4.webp",
   width: 1000,
   height: 1100,
+  small: { src: "/img/shop/shop-4-800.webp", width: 800 },
   alt: "A hand-tied arrangement of purple lisianthus, delphinium and pink alstroemeria, made at DeVine's",
   traced: true,
 };
@@ -226,6 +231,7 @@ export const SEASONS: Record<SeasonSlug, Season> = {
       src: "/img/seasons/fall.webp",
       width: 1000,
       height: 967,
+      small: { src: "/img/seasons/fall-800.webp", width: 800 },
       alt: "A hand-tied fall bouquet held outside the shop: a sunflower, peach dahlias, cream lisianthus, black-eyed Susans, burgundy scabiosa and mums, goldenrod and wild grasses, wrapped in burlap",
       traced: false,
     },

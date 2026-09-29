@@ -6,7 +6,7 @@ import { href } from "@/lib/nav";
 export const metadata: Metadata = {
   title: "Workshops at the shop",
   description:
-    "Floral design workshops, seasonal plant events and DIY arranging mornings at DeVine's Flowers & Botanicals in Marshall, Michigan.",
+    "Floral design workshops and seasonal plant events at DeVine's Flowers & Botanicals in Marshall, Michigan.",
 };
 
 /**
@@ -59,9 +59,8 @@ export default function Workshops() {
             <p className="kicker">At the shop</p>
             <h1>Come and make something.</h1>
             <p className="lede">
-              Flower workshops, seasonal plant events, and mornings spent building an
-              arrangement with a cup of coffee going cold beside you. The open workshop area
-              sits right next to the design studio, so you are working where the flowers are.
+              Flower workshops and seasonal plant events. The open workshop area sits right
+              next to the design studio, so you are working where the flowers are.
             </p>
           </div>
           <div style={{ maxWidth: 380, marginInline: "auto", width: "100%" }}>
@@ -86,9 +85,8 @@ export default function Workshops() {
               <p className="kicker">What is coming up</p>
               <p className="pull">Nothing on the calendar this minute.</p>
               <p className="pull-note">
-                Workshops are announced a few weeks out and they fill quickly. The fastest
-                way to hear about the next one is to follow along, or to call the shop and
-                ask us to put your name down.
+                The fastest way to hear about the next one is to follow along, or to call
+                the shop and ask.
               </p>
               <p className="btnrow">
                 <a className="btn btn--solid" href={site.phoneHref}>
@@ -152,8 +150,8 @@ export default function Workshops() {
             <div>
               <h3>Private groups</h3>
               <p>
-                Birthdays, showers, or a team that would like an evening with its hands busy.
-                Ask us what a group of your size would look like.
+                Birthdays, showers, or a team that would like time with its hands busy. Ask
+                us what a group of your size would look like.
               </p>
             </div>
           </div>

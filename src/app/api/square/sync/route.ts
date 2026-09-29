@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isWorkroomAuthed, workroomPin } from "@/lib/workroom/auth";
+import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { syncCatalogToSquare } from "@/lib/square/sync";
 import { getStore } from "@/lib/workroom/store";
@@ -9,37 +9,18 @@ import { getStore } from "@/lib/workroom/store";
  * where the integration stands. Behind the workroom gate, same as everything
  * the shop operates.
  *
- * The PIN is ALSO accepted as an x-workroom-pin header, because during setup
- * this gets driven by curl and a cookie jar is a silly requirement for that.
- * Same throttle as the login route: 10 wrong tries per 10 minutes per IP,
- * because a header check with no throttle is a 10,000-guess keyspace.
+ * A signed workroom session only. The PIN used to be accepted as an
+ * x-workroom-pin header for setup by curl, behind a per-instance memory
+ * throttle keyed on a client-supplied address; the 2026-09-28 audit got the
+ * PIN through it by changing that address on every guess. The push to the
+ * register is the owner's, like connecting Square, and has a button on
+ * /workroom/payments.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const tries = new Map<string, { n: number; until: number }>();
-
-function headerPinOk(req: Request): boolean {
-  const pin = workroomPin();
-  const given = req.headers.get("x-workroom-pin");
-  if (!pin || !given) return false;
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const t = tries.get(ip);
-  if (t && t.n >= 10 && Date.now() < t.until) return false;
-  if (given === pin) {
-    tries.delete(ip);
-    return true;
-  }
-  tries.set(ip, { n: (t && Date.now() < t.until ? t.n : 0) + 1, until: Date.now() + 10 * 60_000 });
-  return false;
-}
-
-async function authed(req: Request): Promise<boolean> {
-  return (await isWorkroomAuthed()) || headerPinOk(req);
-}
-
-export async function GET(req: Request) {
-  if (!(await authed(req))) return NextResponse.json({ error: "Locked." }, { status: 401 });
+export async function GET() {
+  if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const cfg = await resolveSquare();
   const store = getStore();
   const sales = await store.listSquareSales(7).catch(() => []);
@@ -64,8 +45,8 @@ export async function GET(req: Request) {
   });
 }
 
-export async function POST(req: Request) {
-  if (!(await authed(req))) return NextResponse.json({ error: "Locked." }, { status: 401 });
+export async function POST() {
+  if (!(await isWorkroomOwner())) return NextResponse.json({ error: "Only the owner can push the catalog to the register." }, { status: 403 });
   const cfg = await resolveSquare();
   if (!cfg) {
     return NextResponse.json(

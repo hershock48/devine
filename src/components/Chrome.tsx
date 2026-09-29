@@ -67,7 +67,7 @@ export function Header() {
       once. The footer repeats both facts for anyone mid-page.
     */}
     <div className="head-strip">
-      <a href={href("/delivery")}>Same-day to {site.deliveryTowns.length} towns</a>
+      <a href={href("/delivery")}>Same-day when we can, {site.deliveryTowns.length} towns</a>
       <a href={site.phoneHref}>{site.phone}</a>
     </div>
     </>

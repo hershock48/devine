@@ -17,7 +17,10 @@ export type Product = {
   slug: string;
   name: string;
   price: number;
-  /** Set only where their shop shows a strikethrough. One product has one. */
+  /** A struck-through "was" price, shown as On sale. None is set: the Classic
+      Red Dozen's $126.95 came from the Aug 20 harvest of their old shop and
+      was no longer true (Kevin, 2026-09-29). Setting one is a code edit
+      today; an owner-set sale needs a workroom control (on the launch list). */
   regularPrice?: number;
   cats: string[];
   /** Their own product copy, verbatim. */
@@ -172,7 +175,7 @@ export const products: Product[] = [
   // ---- Anniversary ----
   { slug: "hanna", name: "Hanna", price: 60, cats: ["anniversary"], img: "2026/08/IMG_0557-scaled.jpeg",
     desc: "Delicately sweet. A clear regency vase with mixed greenery, petite peach spray roses and baby's breath. The right size for a kitchen counter or a work desk, as an everyday reminder." },
-  { slug: "dozen-roses", name: "Classic Red Dozen", price: 75, regularPrice: 126.95, cats: ["anniversary"], img: "2026/01/IMG_0513-scaled.jpeg",
+  { slug: "dozen-roses", name: "Classic Red Dozen", price: 75, cats: ["anniversary"], img: "2026/01/IMG_0513-scaled.jpeg",
     desc: "The classic way to say I love you. Twelve long stemmed red roses in a large clear vase, filled abundantly with greens and filler accents, finished with a satin bow." },
   { slug: "serena", name: "Serena", price: 100, cats: ["anniversary"], img: "2026/08/IMG_0754-scaled.jpeg",
     desc: "A romantic display of neutral tones. White lilies, hydrangeas, mums, alstroemeria, snapdragons and classic white roses in mixed seasonal greenery, intertwined with white waxflower in a clear tapered vase." },

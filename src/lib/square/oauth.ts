@@ -150,8 +150,17 @@ export async function exchangeCode(app: SquareApp, code: string): Promise<Square
     locationId: active[0].id!,
     locationName: active[0].name ?? "",
     connectedAt: Date.now(),
+    env: app.env,
   };
 }
+
+/** The Square a saved grant belongs to. Grants saved before the field existed
+    were all sandbox (the pitch never connected a real account), so absence
+    reads as sandbox. The 2026-09-28 audit found the trap this closes: the
+    grant row carried no environment, so flipping SQUARE_ENV to production
+    would have sent a sandbox token to the production API and refreshed it
+    with production credentials. */
+export const grantEnv = (t: SquareTokens) => t.env ?? "sandbox";
 
 /** Days until the access token dies; 0 for expired or unparsable. */
 function daysLeft(t: SquareTokens): number {
@@ -192,6 +201,9 @@ export async function resolveSquare(): Promise<ResolvedSquare | null> {
       // webhook into a retry loop over config resolution.
       t = null;
     }
+    // A grant from the other Square is not this app's to use or refresh: it
+    // reads as not connected until the owner connects again.
+    if (t && grantEnv(t) !== app.env) t = null;
     if (t) {
       if (daysLeft(t) < 7) {
         try {
@@ -234,7 +246,9 @@ export async function resolveSquare(): Promise<ResolvedSquare | null> {
     "the owner asked to disconnect and we kept the token" is the worse bug. */
 export async function revokeAndClear(app: SquareApp): Promise<void> {
   const t = await getStore().getSquareTokens().catch(() => null);
-  if (t) {
+  // A grant from the other Square cannot be revoked with this app's
+  // credentials; it is only forgotten (Square expires it on its own).
+  if (t && grantEnv(t) === app.env) {
     await fetch(`${app.base}/oauth2/revoke`, {
       method: "POST",
       headers: {
