@@ -217,7 +217,18 @@ export const SEASONS: Record<SeasonSlug, Season> = {
     // autumn out loud, and all six are photographed. This is the set the
     // catalog used to export as `featured` before the seasons took over.
     featuredSlugs: ["helene", "maeve", "ginger", "gwendolyn", "harper-2", "della"],
-    hero: null, // PLACEHOLDER until her fall photo lands; see HeroPhoto
+    // Her fall photo, from the shop (Kevin, 2026-09-17). Processed from the
+    // 2048px original to the hero's working width, same as the shop set.
+    // traced stays false until someone re-traces against THESE pixels; the
+    // existing trace belongs to shop-4 and would outline flowers that are
+    // not here (see HeroPhoto).
+    hero: {
+      src: "/img/seasons/fall.webp",
+      width: 1000,
+      height: 967,
+      alt: "A hand-tied fall bouquet held outside the shop: a sunflower, peach dahlias, cream lisianthus, black-eyed Susans, burgundy scabiosa and mums, goldenrod and wild grasses, wrapped in burlap",
+      traced: false,
+    },
   },
   winter: {
     slug: "winter",
