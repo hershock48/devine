@@ -72,3 +72,26 @@ export async function clearLoginAttempts(client:string){
  if(process.env.NODE_ENV!=='production'&&!process.env.DATABASE_URL&&!process.env.POSTGRES_URL){shared.__devineClientLogins?.delete(key);return;}
  await(await pool()).query('DELETE FROM devine_login_attempts WHERE id=$1',[key]);
 }
+
+/** Public forms (2026-09-28 audit: nothing limited them, and the inquiry form
+ * emails the shop and files a draft quote for anyone). The same durable
+ * counter as sign-in, under its own key per form, so a flood of inquiries
+ * cannot eat a person's sign-in tries or the reverse.
+ *
+ * It fails OPEN, the opposite of sign-in: with no trusted address, no
+ * database, or the database down, the post goes through. A limiter that
+ * turns away a real customer when it cannot count is worse than the flood it
+ * exists for; sign-in fails closed because a missed count there is a guess
+ * at a PIN. */
+export async function allowFormPost(form:'inquiry'|'order',req:Request,limit:number,now=Date.now()):Promise<boolean>{
+ let client:string;
+ try{client=loginClient(req);}catch{return true;}
+ if(!process.env.DATABASE_URL&&!process.env.POSTGRES_URL)return true;
+ try{
+  const db=await pool();await db.query('DELETE FROM devine_login_attempts WHERE started<=$1',[now-WINDOW_MS]);
+  const result=await db.query(`INSERT INTO devine_login_attempts(id,attempts,started) VALUES($1,1,$2)
+  ON CONFLICT(id) DO UPDATE SET attempts=CASE WHEN devine_login_attempts.started<=$3 THEN 1 ELSE LEAST(devine_login_attempts.attempts,$4)+1 END,
+  started=CASE WHEN devine_login_attempts.started<=$3 THEN $2 ELSE devine_login_attempts.started END RETURNING attempts`,[`${form}:${client}`,now,now-WINDOW_MS,limit]);
+  return result.rows[0].attempts<=limit;
+ }catch(err){console.error('[devine] form limit unavailable, allowing the post',err);return true;}
+}

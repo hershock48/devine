@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import { site } from "@/lib/site";
 import { getStore, newId, type Quote } from "@/lib/workroom/store";
 import { QUOTE_DEFAULTS } from "@/lib/workroom/quote-templates";
+import { allowFormPost } from "@/lib/workroom/login-limit";
 
 /**
  * The site's two business inquiries, landed for real: the wedding form and
@@ -27,6 +28,10 @@ const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim
 const emailOk = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 
 export async function POST(req: Request) {
+  // Five per ten minutes per address: generous for a person, a wall for a script.
+  if (!(await allowFormPost("inquiry", req, 5))) {
+    return NextResponse.json({ ok: false, error: `That is a lot of inquiries at once. Try again in a few minutes, or call the shop at ${site.phone}.` }, { status: 429 });
+  }
   const p = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!p) return NextResponse.json({ ok: false, error: "That did not look like an inquiry." }, { status: 400 });
 

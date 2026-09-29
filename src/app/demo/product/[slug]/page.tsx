@@ -147,15 +147,11 @@ export default async function ProductPage({ params }: Params) {
               <AddToCart slug={p.slug} name={p.name} cartHref={href("/cart")} />
             </div>
 
-            {needsCopy ? (
-              <div className="notice">
-                <strong>PLACEHOLDER.</strong> Their shop carries no description for this
-                product, only the substitution clause. This copy needs writing with the owner
-                before launch.
-              </div>
-            ) : (
-              <p style={{ fontSize: 18, lineHeight: 1.7 }}>{p.desc}</p>
-            )}
+            {/* A product still waiting on the owner's description shows no
+                copy at all rather than a note about the missing copy: the
+                notice read "PLACEHOLDER" to customers (2026-09-28 audit). The
+                README checklist and the launch to-dos carry the ask. */}
+            {!needsCopy && <p style={{ fontSize: 18, lineHeight: 1.7 }}>{p.desc}</p>}
 
             <div className="notes" style={{ gridTemplateColumns: "1fr" }}>
               <div>

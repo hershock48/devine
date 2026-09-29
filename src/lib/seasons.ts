@@ -126,6 +126,10 @@ export type HeroPhoto = {
   height: number;
   alt: string;
   traced: boolean;
+  /** An 800px-wide copy for phones, offered through srcset. The 2026-09-28
+      audit measured the homepage's largest paint at 3.4s on a throttled
+      phone, all of it the full-size hero sharing the connection. */
+  small?: { src: string; width: number };
 };
 
 /** The photograph the site shipped with, and the one the trace belongs to. */
@@ -133,6 +137,7 @@ const DEFAULT_HERO: HeroPhoto = {
   src: "/img/shop/shop-4.webp",
   width: 1000,
   height: 1100,
+  small: { src: "/img/shop/shop-4-800.webp", width: 800 },
   alt: "A hand-tied arrangement of purple lisianthus, delphinium and pink alstroemeria, made at DeVine's",
   traced: true,
 };
@@ -217,7 +222,19 @@ export const SEASONS: Record<SeasonSlug, Season> = {
     // autumn out loud, and all six are photographed. This is the set the
     // catalog used to export as `featured` before the seasons took over.
     featuredSlugs: ["helene", "maeve", "ginger", "gwendolyn", "harper-2", "della"],
-    hero: null, // PLACEHOLDER until her fall photo lands; see HeroPhoto
+    // Her fall photo, from the shop (Kevin, 2026-09-17). Processed from the
+    // 2048px original to the hero's working width, same as the shop set.
+    // traced stays false until someone re-traces against THESE pixels; the
+    // existing trace belongs to shop-4 and would outline flowers that are
+    // not here (see HeroPhoto).
+    hero: {
+      src: "/img/seasons/fall.webp",
+      width: 1000,
+      height: 967,
+      small: { src: "/img/seasons/fall-800.webp", width: 800 },
+      alt: "A hand-tied fall bouquet held outside the shop: a sunflower, peach dahlias, cream lisianthus, black-eyed Susans, burgundy scabiosa and mums, goldenrod and wild grasses, wrapped in burlap",
+      traced: false,
+    },
   },
   winter: {
     slug: "winter",

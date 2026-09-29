@@ -33,7 +33,7 @@ export default function Greening() {
           <h1>Living things, for rooms that need them.</h1>
           <p className="lede">
             House plants, dish gardens and wind chimes, {money(lo)} to {money(hi)}. Chosen and
-            potted here, with care notes written in plain language.
+            potted here.
           </p>
         </div>
       </section>
@@ -69,9 +69,8 @@ export default function Greening() {
             <h2>Corporate plant maintenance</h2>
             <p className="lede">
               We place plants in offices, lobbies and waiting rooms around {site.region}, and
-              then we keep them alive. Watering, feeding, rotating, and replacing anything that
-              gives up. Your staff do not have to remember, and nobody has to explain the dead
-              ficus to a client.
+              then we look after them with watering, feeding and rotating, so your staff do
+              not have to remember.
             </p>
             {/*
               THE FRONT DOOR THE PROPOSAL PROMISED. Section four's argument is that
@@ -87,8 +86,7 @@ export default function Greening() {
             <div>
               <h3>Also in the building</h3>
               <p>
-                The shop shares its building with a few other businesses. On the same corner,
-                by appointment:
+                The shop shares its building with a few other businesses. On the same corner:
               </p>
               <ul style={{ marginTop: "calc(var(--u) * 1.5)" }}>
                 {site.neighbors.map((n) => (

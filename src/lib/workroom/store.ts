@@ -338,6 +338,9 @@ export type SquareTokens = {
   locationId: string;
   locationName: string;
   connectedAt: number;
+  /** Which Square issued the grant. Absent on grants saved before
+      2026-09-29, every one of which was sandbox; see grantEnv in oauth.ts. */
+  env?: "sandbox" | "production";
 };
 
 /**

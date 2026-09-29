@@ -17,7 +17,7 @@ const key = 'bb3328c9-7bd1-4ef9-831e-46c57718d0c9';
 const order = { number: 'DV-0914-1234', name: 'Test', phone: '5551234567', email: '', fulfillment: 'pickup', zip: '', subtotal: 20, lines: [{ slug: 'flowers', name: 'Flowers', qty: 1, each: 20, line: 20 }] };
 const charged = { paymentId: 'p1', status: 'COMPLETED', receiptUrl: '', totalCents: 2159, feeCents: 159 };
 const json = (value, options = {}) => ({ status: options.status || 200, value });
-function online({ outcome = 'completed', storageError = false, fulfillmentError = false, enabled = true } = {}) {
+function online({ outcome = 'completed', storageError = false, fulfillmentError = false, enabled = true, square = async () => cfg, backend = 'postgres', allowed = true } = {}) {
   const calls = { take: [], fulfill: 0, unpaidMail: 0 };
   const service = {
     gatewayIdentity: c => ({ locationId: c.locationId }), paymentFingerprint: data => JSON.stringify(data), pendingMessage: 'Awaiting confirmation; do not pay again.',
@@ -27,12 +27,36 @@ function online({ outcome = 'completed', storageError = false, fulfillmentError 
   const route = load('src/app/api/order/route.ts', {
     'next/server': { NextResponse: { json } }, '@/lib/square/payment-service': service,
     '@/lib/intake': { priceOrder: () => ({ order: { ...order } }), sendOrder: async () => { calls.unpaidMail++; return 'sent'; } },
-    '@/lib/site': { site: { cardFeePct: 3, deliveryFees: {}, deliveryMinimums: {} } },
-    '@/lib/square/oauth': { resolveSquare: async () => cfg }, '@/lib/square/payments': { appFeeCents: () => 99 },
-    '@/lib/workroom/store': { newId: () => 'unused-random-id', getStore: () => ({ createOrder: async () => {} }) },
+    '@/lib/site': { site: { cardFeePct: 3, deliveryFees: {}, deliveryMinimums: {}, phone: '269-789-0830' } },
+    '@/lib/square/oauth': { resolveSquare: square }, '@/lib/square/payments': { appFeeCents: () => 99 },
+    '@/lib/workroom/store': { newId: () => 'unused-random-id', getStore: () => ({ backend, createOrder: async () => {} }) },
+    '@/lib/workroom/login-limit': { allowFormPost: async () => allowed },
   }, { CHECKOUT_CARDS: enabled ? 'on' : 'off' });
-  return { calls, post: (attemptKey = key) => route.POST({ json: async () => ({ card: { sourceId: 'token', attemptKey } }) }) };
+  return { calls,
+    post: (attemptKey = key) => route.POST({ json: async () => ({ card: { sourceId: 'token', attemptKey } }) }),
+    postWithoutCard: () => route.POST({ json: async () => ({}) }) };
 }
+
+// Kevin, 2026-09-29: an order placed on the website is paid by card, never by
+// phone or in cash, so the unpaid email-a-ticket path is gone.
+test('an order without a card is refused before anything is mailed, saved or charged', async () => {
+  const app = online(), response = await app.postWithoutCard();
+  assert.equal(response.status, 400); assert.match(response.value.error, /paid by card/);
+  assert.equal(app.calls.unpaidMail, 0); assert.equal(app.calls.take.length, 0);
+});
+test('a connection over the checkout limit is refused before pricing, saving or charging', async () => {
+  const app = online({ allowed: false }), response = await app.post();
+  assert.equal(response.status, 429); assert.equal(app.calls.take.length, 0);
+});
+// The 2026-09-28 audit: these used to answer 503 "pending", which the cart
+// keeps as an unresolved charge. Nothing was saved, so each is a plain 400.
+test('Square or storage unavailable before saving is a 400 the cart can forget, never a pending charge', async () => {
+  for (const options of [{ square: async () => null }, { square: async () => { throw Error('token refresh failed'); } }, { backend: 'memory' }]) {
+    const app = online(options), response = await app.post();
+    assert.equal(response.status, 400); assert.equal(response.value.pending, undefined); assert.equal(app.calls.take.length, 0);
+    assert.match(response.value.error, /nothing was charged/);
+  }
+});
 
 test('online payment requires a stable checkout ID and enabled cards before any side effect', async () => {
   const badKey = online(); assert.equal((await badKey.post('missing')).status, 400); assert.equal(badKey.calls.take.length, 0);

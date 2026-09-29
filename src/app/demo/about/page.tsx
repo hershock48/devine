@@ -12,9 +12,8 @@ export const metadata: Metadata = {
  * OUR SHOP & TEAM.
  *
  * Their version publishes four portraits with four names and no roles at all, so a
- * visitor cannot tell who to ask for. Roles are NOT invented here: each one is a
- * PLACEHOLDER on the README checklist, to be filled in by the owner in one edit to
- * lib/site.ts.
+ * visitor cannot tell who to ask for. Roles are NOT invented here: they come from
+ * the owner, in lib/site.ts, and a member without one shows just a name.
  *
  * The address block is deliberately emphatic. They moved from 810 to 800 Industrial
  * Road and most of the internet still has them next door, so the page states the
@@ -122,16 +121,13 @@ export default function About() {
                   </span>
                 </div>
                 <h3 style={{ fontSize: 20, margin: "14px 0 3px" }}>{m.name}</h3>
-                <p className="muted small" style={{ margin: 0 }}>
-                  {m.role ?? "Role to confirm"}
-                </p>
+                {m.role && (
+                  <p className="muted small" style={{ margin: 0 }}>
+                    {m.role}
+                  </p>
+                )}
               </div>
             ))}
-          </div>
-          <div className="notice" style={{ marginTop: "calc(var(--u) * 5)" }}>
-            <strong>PLACEHOLDER.</strong> Their current site publishes these four names with
-            no titles, so we have not guessed any. Portraits and roles both come from the
-            owner and are one edit to <code>lib/site.ts</code>.
           </div>
         </div>
       </section>
@@ -142,7 +138,7 @@ export default function About() {
             <div>
               <h3>Everyday flowers</h3>
               <p>
-                Arrangements designed daily from what came in fresh.{" "}
+                Arrangements designed in the studio, for pickup or delivery.{" "}
                 <a href={href("/shop")}>Shop</a>.
               </p>
             </div>

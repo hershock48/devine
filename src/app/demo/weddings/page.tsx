@@ -65,8 +65,8 @@ export default function Weddings() {
           </p>
           <p className="pull-note">
             It changes what we can say yes to, when we have to know by, and what happens
-            when a crop comes in early. You hear all of that in February, while it is still
-            useful.
+            when a crop comes in early. You hear all of that at the consult, while it is
+            still useful.
           </p>
         </div>
       </section>
@@ -116,7 +116,7 @@ export default function Weddings() {
               spontaneous weddings, so ask anyway.
             </p>
             <p className="muted small">
-              No commitment, and no quote at the end of it. A person reads it.
+              No commitment. A person reads it.
             </p>
           </div>
 

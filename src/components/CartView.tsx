@@ -10,37 +10,36 @@ import { occasions } from "@/lib/occasions";
 import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
 
 /**
- * THE CART, AND A CHECKOUT THAT SENDS SOMEWHERE.
+ * THE CART, AND A CHECKOUT THAT TAKES THE CARD.
  *
- * Phase 1 of the DeVine build: the order form is real. It POSTs to /api/order,
- * which prices the cart on the server and emails a ticket to the shop over
- * SMTP. Unless the visitor pays by card, the shop takes payment on the
- * confirming call, the way a florist already handles every phone order.
+ * Every online order is paid by card at checkout (Kevin, 2026-09-29: "if they
+ * place the order online they shouldn't be allowed to pay via phone... no cash
+ * in store either"). There is no pay-on-call path any more, here or in
+ * /api/order, which refuses an order without a card. The shop's phone is the
+ * way to order any other way, and the cart says so whenever card checkout is
+ * unavailable: the CHECKOUT_CARDS switch off, Square unconnected, a delivery
+ * zip off the owner's fee sheet, or a delivery under her minimum.
  *
  * glaze.md's line still governs the failure modes: "What is not acceptable is
  * a stub that waits half a second and says 'Thanks, we got it' while sending
  * nowhere." So the form has exactly these honest outcomes:
  *
- *   sent         "Order DV-0821-4183 is in. We'll call you." The cart clears.
- *   not sent     (mail unconfigured, or the send failed) The visitor is told
- *                plainly that nothing reached the shop, and handed the two
- *                routes that always work: the phone, and a mailto carrying
- *                every field they typed. Nothing to retype, nothing pretended.
- *   bad order    the server's validation message, next to the button.
- *   pending      (card only) Square's answer never arrived. The attempt key
- *                stays in localStorage, the form gives way to a "check your
- *                payment" screen, and nothing here charges again. A lost
- *                response is not a decline (September 2026 review).
+ *   sent         "Order DV-0821-4183 is in." The card is charged; the cart clears.
+ *   bad order    the server's validation message, next to the button. Nothing
+ *                was charged, and the attempt is forgotten.
+ *   pending      Square's answer never arrived. The attempt key stays in
+ *                localStorage, the form gives way to a "check your payment"
+ *                screen, and nothing here charges again. A lost response is
+ *                not a decline (September 2026 review). The status check can
+ *                also prove nothing was ever sent to Square, and then offers
+ *                "Return to checkout" (the 2026-09-28 audit found the screen
+ *                had no exit when the request never reached Square at all).
  *
- * CARD PAYMENT (2026-09-01), behind the CHECKOUT_CARDS switch. Pickup always;
- * delivery once the owner's fee sheet and minimums arrived the same day, and
- * only for zips on that sheet. When the switch is off, or Square is
- * unconnected, none of this renders and the flow above is exactly what it
- * was. The fee is shown as its own Convenience fee line before the button
- * quotes the total; the server recomputes everything and the browser's
- * numbers decide nothing. Still no tax line: inventing one would put a
- * number in front of a customer that the shop never agreed to, and it
- * remains a question for the owner.
+ * The fee is shown as its own Convenience fee line before the button quotes
+ * the total; the server recomputes everything and the browser's numbers
+ * decide nothing. Still no tax line: inventing one would put a number in
+ * front of a customer that the shop never agreed to, and it remains a
+ * question for the owner.
  */
 
 const field: React.CSSProperties = {
@@ -66,8 +65,7 @@ type Outcome =
   | { state: "idle" }
   | { state: "sending" }
   | { state: "sent"; number: string; paid?: { totalCents: number; feeCents: number; receiptUrl?: string } }
-  | { state: "invalid"; message: string }
-  | { state: "unreached"; reason: "unconfigured" | "send-failed" };
+  | { state: "invalid"; message: string };
 
 type CardConfig = { cards: boolean; applicationId?: string; locationId?: string; env?: string; feeCents?: number; cardPct?: number };
 
@@ -149,10 +147,11 @@ export default function CartView() {
   const [notes, setNotes] = useState("");
 
   /* Card payment plumbing. cfg.cards is false until the CHECKOUT_CARDS
-     switch is on AND Square is connected, and everything below renders
-     nothing while it is. */
+     switch is on AND Square is connected; while it is, the cart points at
+     the phone instead of offering a checkout. cfgLoaded keeps that notice
+     from flashing on every visit before the config answers. */
   const [cfg, setCfg] = useState<CardConfig>({ cards: false });
-  const [payMethod, setPayMethod] = useState<"call" | "card">("call");
+  const [cfgLoaded, setCfgLoaded] = useState(false);
   const [cardReady, setCardReady] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
@@ -193,7 +192,8 @@ export default function CartView() {
     fetch("/api/checkout/config", { cache: "no-store" })
       .then((r) => r.json())
       .then((j: CardConfig) => setCfg(j?.cards ? j : { cards: false }))
-      .catch(() => setCfg({ cards: false }));
+      .catch(() => setCfg({ cards: false }))
+      .finally(() => setCfgLoaded(true));
   }, []);
 
   const delivering0 = fulfillment === "delivery";
@@ -205,28 +205,15 @@ export default function CartView() {
       : site.deliveryMinimums.outside
     : 0;
   const belowMin = delivering0 && deliveryFee !== undefined && subtotal < deliveryMin;
-  /** Card payment is offered for pickups always, and for deliveries with a
-      priceable zip that clears the minimum (owner's confirmed sheet). */
+  /** An order can be placed online for pickups always, and for deliveries
+      with a priceable zip that clears the minimum (owner's confirmed sheet).
+      Anything else is a phone order, and the form says which. */
   const cardAllowed = cfg.cards && (!delivering0 || (deliveryFee !== undefined && !belowMin));
 
-  // If the choice stops being available mid-checkout (zip edited, items
-  // removed below the minimum), fall back to the call, quietly.
-  useEffect(() => {
-    if (payMethod === "card" && !cardAllowed) setPayMethod("call");
-  }, [payMethod, cardAllowed]);
-
-  /* Card is the DEFAULT whenever it is available (Kevin's call): most
-     buyers expect to pay at a checkout, and the pay-later option remains
-     one tap away. The upgrade only happens while the buyer has not touched
-     the radio; an explicit choice is never overridden. */
-  const [payChosen, setPayChosen] = useState(false);
-  useEffect(() => {
-    if (!payChosen && cardAllowed && payMethod === "call") setPayMethod("card");
-  }, [payChosen, cardAllowed, payMethod]);
-
-  // Mount Square's field only while the card option is chosen; tear it
-  // down when it is not, same lifecycle as the workroom's pane.
-  const showCard = checkingOut && items.length > 0 && cardAllowed && payMethod === "card" && outcome.state !== "pending" && outcome.state !== "sent";
+  // Mount Square's field only while an order can be placed; tear it down when
+  // it cannot (zip edited off the sheet, items removed below the minimum),
+  // same lifecycle as the workroom's pane.
+  const showCard = checkingOut && items.length > 0 && cardAllowed && outcome.state !== "pending" && outcome.state !== "sent";
   useEffect(() => {
     if (!showCard || !cfg.applicationId || !cfg.locationId) return;
     let dead = false;
@@ -249,10 +236,8 @@ export default function CartView() {
         if (!dead) setCardReady(true);
       } catch {
         if (!dead) {
-          // The honest fallback is the flow that always works.
-          setPayChosen(true);
-          setPayMethod("call");
-          setOutcome({ state: "invalid", message: "Card entry did not open; you can place the order and pay on the confirming call." });
+          // Once, never on a loop: the phone is the flow that always works.
+          setOutcome({ state: "invalid", message: `Card entry did not open. Refresh the page to try again, or call the shop at ${site.phone} to order by phone.` });
         }
       }
     })();
@@ -309,26 +294,24 @@ export default function CartView() {
     setName(dName); setPhone(dPhone); setEmail(dEmail);
     setRecipient(dRecipient); setStreet(dStreet); setTown(dTown); setZip(dZip);
 
-    // Tokenize first when paying by card: no token, no POST, and the
-    // message names what to fix. The card number itself never leaves
-    // Square's iframe.
-    let cardPayload: { sourceId: string; attemptKey: string } | undefined;
-    if (payMethod === "card") {
-      try {
-        if (!cardRef.current) throw new Error("The card field is not ready yet.");
-        const t = await cardRef.current.tokenize();
-        if (t.status !== "OK" || !t.token) throw new Error(t.errors?.[0]?.message || "The card did not go through. Check the number.");
-        const attemptKey = crypto.randomUUID();
-        // Persist only the opaque ID, never customer fields or the card token.
-        try { localStorage.setItem("devine-payment-attempt", attemptKey); }
-        catch { throw new Error("Card checkout needs browser storage to keep your payment reference. Allow site storage or choose to pay when we call."); }
-        attemptRef.current = attemptKey;
-        cardPayload = { sourceId: t.token, attemptKey };
-      } catch (err) {
-        setOutcome({ state: "invalid", message: err instanceof Error ? err.message : "The card did not go through." });
-        submitLock.current = false;
-        return;
-      }
+    // Tokenize first: no token, no POST, and the message names what to fix.
+    // The card number itself never leaves Square's iframe.
+    let cardPayload: { sourceId: string; attemptKey: string };
+    try {
+      if (!cardAllowed) throw new Error(`This order can't be placed online. Call the shop at ${site.phone} and we'll take it by phone.`);
+      if (!cardRef.current) throw new Error("The card field is not ready yet.");
+      const t = await cardRef.current.tokenize();
+      if (t.status !== "OK" || !t.token) throw new Error(t.errors?.[0]?.message || "The card did not go through. Check the number.");
+      const attemptKey = crypto.randomUUID();
+      // Persist only the opaque ID, never customer fields or the card token.
+      try { localStorage.setItem("devine-payment-attempt", attemptKey); }
+      catch { throw new Error(`Card checkout needs browser storage to keep your payment reference. Allow site storage, or call the shop at ${site.phone} to order by phone.`); }
+      attemptRef.current = attemptKey;
+      cardPayload = { sourceId: t.token, attemptKey };
+    } catch (err) {
+      setOutcome({ state: "invalid", message: err instanceof Error ? err.message : "The card did not go through." });
+      submitLock.current = false;
+      return;
     }
 
     const payload = {
@@ -352,41 +335,25 @@ export default function CartView() {
         forgetAttempt();
         setOutcome({ state: "sent", number: body.number, paid: body.paid });
         clear();
-      } else if (cardPayload && res.status !== 400) {
-        // A card request that got any answer other than "the order is wrong"
-        // may have moved money: 402 says it did not, 202/409/503 say nobody
-        // knows yet. Either way the attempt key stays until the status
-        // endpoint confirms, or the customer chooses "Return to checkout".
-        setOutcome({ state: "pending", failed:body?.failed===true,message: body?.error || paymentWarning });
-      } else if (res.status === 400 || res.status === 402) {
+      } else if (res.status === 400 || res.status === 429) {
+        // The order itself was refused before any payment step (or the
+        // connection is sending too fast): nothing was charged, so the
+        // attempt is forgotten and the form stays.
         forgetAttempt();
         setOutcome({ state: "invalid", message: body?.error || "Something in the order needs another look." });
       } else {
-        setOutcome({ state: "unreached", reason: body?.reason === "unconfigured" ? "unconfigured" : "send-failed" });
+        // Any other answer may have moved money: 402 says it did not, 202,
+        // 409 and 503 say nobody knows yet. Either way the attempt key stays
+        // until the status endpoint confirms, or offers "Return to checkout".
+        setOutcome({ state: "pending", failed: body?.failed === true, message: body?.error || paymentWarning });
       }
     } catch {
-      // The fetch itself failed: offline, or the site is down. Same honesty,
-      // with one difference: a card request may have reached the server
-      // before the connection dropped, so it keeps its attempt key.
-      setOutcome(cardPayload ? { state: "pending", message: paymentWarning } : { state: "unreached", reason: "send-failed" });
+      // The fetch itself failed: offline, or the site is down. The request
+      // may have reached the server before the connection dropped, so the
+      // attempt key stays and the status endpoint decides.
+      setOutcome({ state: "pending", message: paymentWarning });
     } finally { submitLock.current = false; }
   }
-
-  /* Everything the visitor typed, ready to travel by email instead. */
-  const orderSummary = items.map((i) => `${i.qty} x ${i.product.name} (${money(i.product.price)})`).join("\n");
-  const mailtoBody = [
-    "Hello,", "", "I would like to order:", "", orderSummary, "",
-    `Subtotal: ${money(subtotal)}`, "",
-    `My name: ${name}`,
-    `My phone: ${phone}`,
-    delivering ? `Deliver to: ${recipient || name}` : "Pickup",
-    delivering ? `Address: ${street}, ${town} ${zip}` : null,
-    `Requested date: ${date}`,
-    occasion ? `Occasion: ${occasion}` : null,
-    `Card message: ${cardMessage.trim()}`,
-    notes ? `Notes: ${notes}` : null,
-  ].filter((l): l is string => l !== null).join("\n");
-  const mailtoHref = `mailto:${site.email}?subject=${encodeURIComponent("Flower order")}&body=${encodeURIComponent(mailtoBody + "\n")}`;
 
   if (outcome.state === "pending") return (
     <section className="section"><div className="wrap" style={{ maxWidth: 760 }}>
@@ -442,9 +409,7 @@ export default function CartView() {
             </p>
           ) : (
             <p style={{ maxWidth: "58ch" }}>
-              We&rsquo;ll call you at <strong>{phone}</strong> to confirm the details and take
-              payment. Nothing has been charged online.
-              {email.trim() ? " A copy of the order is on its way to your email." : ""}
+              Your payment is confirmed. Call the shop if you need to check the details.
             </p>
           )}
           <p style={{ marginTop: 24 }}>
@@ -568,26 +533,37 @@ export default function CartView() {
               <span style={{ fontFamily: "var(--serif)" }}>Subtotal</span>
               <strong>{money(subtotal)}</strong>
             </div>
-            <p className="muted" style={{ fontSize: 14.5, marginTop: -8 }}>
-              {cfg.cards
-                ? "Pay by card at checkout, or send the order and pay when we call to confirm. Delivery is priced by zip at checkout."
-                : "No payment is taken online. We call to confirm every order, arrange delivery, and take payment then."}
-            </p>
+            {cfgLoaded && (
+              <p className="muted" style={{ fontSize: 14.5, marginTop: -8 }}>
+                {cfg.cards ? (
+                  "Paid by card at checkout. Delivery is priced by zip at checkout."
+                ) : (
+                  <>
+                    Online ordering isn&rsquo;t open right now. Call the shop at{" "}
+                    <a href={site.phoneHref}>{site.phone}</a> and we&rsquo;ll take your order by phone.
+                  </>
+                )}
+              </p>
+            )}
 
-            <label style={{ display: "block", marginTop: 20 }}>
-              <span style={labelText}>
-                Card message <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
-              </span>
-              <textarea
-                value={cardMessage}
-                onChange={(e) => setCardMessage(e.target.value)}
-                rows={3}
-                placeholder="Printed on the card exactly as you type it."
-                style={{ ...field, maxWidth: 560 }}
-              />
-            </label>
+            {/* Only while an order can be placed: a message typed into a cart
+                that can only point at the phone would go nowhere. */}
+            {cfg.cards && (
+              <label style={{ display: "block", marginTop: 20 }}>
+                <span style={labelText}>
+                  Card message <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
+                </span>
+                <textarea
+                  value={cardMessage}
+                  onChange={(e) => setCardMessage(e.target.value)}
+                  rows={3}
+                  placeholder="Printed on the card exactly as you type it."
+                  style={{ ...field, maxWidth: 560 }}
+                />
+              </label>
+            )}
 
-            {!checkingOut ? (
+            {!cfg.cards ? null : !checkingOut ? (
               <p style={{ marginTop: 24 }}>
                 <button className="btn btn--solid" type="button" onClick={() => setCheckingOut(true)}>
                   Continue to checkout
@@ -595,10 +571,7 @@ export default function CartView() {
               </p>
             ) : (
               <form onSubmit={submit} style={{ marginTop: 28, maxWidth: 560 }}>
-                <h2 style={{ fontSize: 24, margin: "0 0 4px" }}>Where it&rsquo;s going</h2>
-                <p className="muted" style={{ fontSize: 14.5, margin: "0 0 18px" }}>
-                  We&rsquo;ll call to confirm before anything is made or charged.
-                </p>
+                <h2 style={{ fontSize: 24, margin: "0 0 18px" }}>Where it&rsquo;s going</h2>
 
                 <div style={{ display: "grid", gap: 16 }}>
                   <label>
@@ -749,83 +722,25 @@ export default function CartView() {
                     <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={field} />
                   </label>
 
-                  {/* Payment choice: pickups always; deliveries once the
-                      zip prices them and the flowers clear the owner's
-                      minimum. The unavailable states say why, and the
-                      pay-on-call flow is always the out. */}
-                  {cardAllowed && (
-                    <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-                      <legend style={labelText}>Payment</legend>
-                      <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
-                        {(["card", "call"] as const).map((m) => (
-                          <label key={m} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15.5, padding: "4px 0" }}>
-                            <input
-                              type="radio"
-                              name="paymethod"
-                              checked={payMethod === m}
-                              onChange={() => {
-                                setPayMethod(m);
-                                setPayChosen(true);
-                              }}
-                              style={{ width: 20, height: 20, accentColor: "var(--green)" }}
-                            />
-                            {m === "card"
-                              ? "Pay now by card"
-                              : delivering
-                                ? "Pay when we call to confirm"
-                                : "Pay at pickup (we’ll call to confirm)"}
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
-                  )}
-                  {cfg.cards && delivering && deliveryFee === undefined && (
+                  {/* Online orders are card only. The two deliveries that
+                      cannot be priced or accepted online say why and hand
+                      over the phone, which takes every order the site can't. */}
+                  {delivering && zipTrim !== "" && deliveryFee === undefined && (
                     <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }}>
-                      A zip on our delivery list prices the delivery and opens card payment;
-                      otherwise send the order and we&rsquo;ll sort it on the confirming call.
+                      We take delivery orders online for the zips on our delivery list. For
+                      anywhere else, call the shop at <a href={site.phoneHref}>{site.phone}</a> and
+                      we&rsquo;ll sort it out.
                     </p>
                   )}
-                  {cfg.cards && belowMin && (
+                  {belowMin && (
                     <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }}>
                       Delivery orders start at {money(deliveryMin)} in flowers{" "}
                       {zipTrim === site.marshallZip ? "in Marshall" : "outside Marshall"}. Add a
-                      little more to pay by card now, or send it and we&rsquo;ll talk it through
-                      on the call.
+                      little more to place it online.
                     </p>
                   )}
 
-                  {/* Pay-on-call gets its breakdown too (Kevin's ask): the
-                      buyer deserves the same arithmetic whichever way the
-                      money moves. No Convenience fee row here, honestly:
-                      the fee exists only on card payments, and this buyer
-                      might pay cash at pickup; the note says which. */}
-                  {payMethod === "call" && (!delivering || deliveryFee !== undefined) && (
-                    <div style={{ border: "1px solid var(--line)", borderRadius: 3, padding: 14, background: "var(--paper-2)" }}>
-                      <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 15 }}>
-                        <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                          <span>Subtotal</span>
-                          <span>{money(subtotal)}</span>
-                        </li>
-                        {delivering && deliveryFee !== undefined && (
-                          <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                            <span>Delivery ({zipTrim})</span>
-                            <span>{money(deliveryFee)}</span>
-                          </li>
-                        )}
-                        <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
-                          <span>Total due</span>
-                          <span>{money(Math.round((subtotal + (delivering ? deliveryFee ?? 0 : 0)) * 100) / 100)}</span>
-                        </li>
-                      </ul>
-                      {cfg.cards && (
-                        <p className="muted" style={{ fontSize: 13.5, margin: "8px 0 0" }}>
-                          Paying by card adds the {money(convenienceCents / 100)} convenience fee; cash does not.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {payMethod === "card" && cardAllowed && (
+                  {cardAllowed && (
                     <div style={{ border: "1px solid var(--line)", borderRadius: 3, padding: 14, background: "var(--paper-2)" }}>
                       <ul style={{ listStyle: "none", padding: 0, margin: "0 0 10px", fontSize: 15 }}>
                         <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -852,46 +767,29 @@ export default function CartView() {
                   )}
                 </div>
 
-                <p style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-                  <button
-                    className="btn btn--solid"
-                    type="submit"
-                    disabled={outcome.state === "sending" || (payMethod === "card" && cardAllowed && !cardReady)}
-                  >
-                    {outcome.state === "sending"
-                      ? payMethod === "card" ? "Charging…" : "Sending…"
-                      : payMethod === "card" && cardAllowed
-                        ? cardReady ? `Pay ${money(cardTotalCents / 100)} and place the order` : "Opening card field…"
-                        : "Send the order"}
-                  </button>
-                  <span className="muted" style={{ fontSize: 14.5 }}>
-                    {payMethod === "card" && cardAllowed
-                      ? "Charged once, when you tap the button."
-                      : "Nothing is charged online."}
-                  </span>
-                </p>
+                {cardAllowed && (
+                  <p style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                    <button
+                      className="btn btn--solid"
+                      type="submit"
+                      disabled={outcome.state === "sending" || !cardReady}
+                    >
+                      {outcome.state === "sending"
+                        ? "Charging…"
+                        : cardReady
+                          ? `Pay ${money(cardTotalCents / 100)} and place the order`
+                          : "Opening card field…"}
+                    </button>
+                    <span className="muted" style={{ fontSize: 14.5 }}>
+                      Charged once, when you tap the button.
+                    </span>
+                  </p>
+                )}
 
                 {/* aria-live so the outcome is announced, not just drawn */}
                 <div aria-live="polite">
                   {outcome.state === "invalid" && (
                     <p style={{ color: "var(--rose-ink)", fontWeight: 600, marginTop: 10 }}>{outcome.message}</p>
-                  )}
-                  {outcome.state === "unreached" && (
-                    <div className="notice" role="status" style={{ marginTop: 14 }}>
-                      <p style={{ margin: "0 0 10px" }}>
-                        <strong>
-                          {outcome.reason === "unconfigured"
-                            ? "Online ordering isn't connected yet, so your order did not reach the shop."
-                            : "We couldn't send your order just now, so it did not reach the shop."}
-                        </strong>
-                      </p>
-                      <p style={{ margin: 0 }}>
-                        Two routes that do work: call{" "}
-                        <a href={site.phoneHref}><strong>{site.phone}</strong></a> or{" "}
-                        <a href={mailtoHref}>email the shop</a>. The email opens with everything
-                        you just typed already written into it. Nothing to redo.
-                      </p>
-                    </div>
                   )}
                 </div>
               </form>

@@ -47,6 +47,10 @@ export default function ProductImage({
       height={h}
       alt={`${p.name} by DeVine's Flowers & Botanicals`}
       loading={detail ? "eager" : "lazy"}
+      // Grid thumbnails yield the connection to the page's hero photo: on a
+      // slow phone Chrome starts lazy images early, and six of them were
+      // arriving before the hero did (2026-09-28 audit).
+      fetchPriority={detail ? undefined : "low"}
       decoding="async"
     />
   );

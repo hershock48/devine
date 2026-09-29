@@ -67,8 +67,11 @@ export default async function Home() {
             {/* The seasonal hero slot: today every season falls back to the same
                 photograph; each fills in when the owner's photo for it lands.
                 See HeroPhoto in lib/seasons.ts. */}
+            {/* Full width below 900px, about 54% of the row above it. */}
             <img
               src={hero.src}
+              srcSet={hero.small ? `${hero.small.src} ${hero.small.width}w, ${hero.src} ${hero.width}w` : undefined}
+              sizes={hero.small ? "(max-width: 900px) 100vw, 54vw" : undefined}
               width={hero.width}
               height={hero.height}
               alt={hero.alt}
@@ -89,12 +92,13 @@ export default async function Home() {
       {/* 2. ONE LINE, WITH AIR AROUND IT. Used once on the whole site. */}
       <section className="section--loose">
         <div className="wrap">
+          {/* Facts only (2026-09-28 audit): the earlier "arranged this morning"
+              and "no wire service" lines were never confirmed by the shop. */}
           <p className="statement">
-            Arranged this morning, forty feet from the counter you collect them at.
+            Every arrangement is made in our studio at {site.address.street}
           </p>
           <p className="statement-note">
-            No wire service. No call center. The person who made it is the person who
-            hands it to you.
+            Pick it up at the counter, or have it delivered. Same-day whenever possible.
           </p>
         </div>
       </section>
@@ -128,7 +132,7 @@ export default async function Home() {
           loading="lazy"
           decoding="async"
         />
-        <figcaption>Designed daily, from whatever came in fresh</figcaption>
+        <figcaption>From the studio on Industrial Road</figcaption>
       </figure>
 
       {/* 5. OCCASIONS, as an index rather than eight boxes. */}

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomOwner } from "@/lib/workroom/auth";
 import { authorizeUrl, revokeAndClear, squareApp } from "@/lib/square/oauth";
 import { getStore } from "@/lib/workroom/store";
 
@@ -8,9 +8,10 @@ import { getStore } from "@/lib/workroom/store";
  * workroom browser to Square's authorize page; Square sends it back to
  * /api/square/oauth/callback. DELETE disconnects: revoke, then forget.
  *
- * Workroom cookie only, no PIN header here: this is a browser redirect
- * dance, so the caller is by definition a browser that can log into the
- * workroom first. And the callback landing in the database needs postgres;
+ * OWNER ONLY (2026-09-28 audit): whoever connects decides whose Square
+ * account receives every card payment, so a staff session must not be able
+ * to connect a different account or disconnect hers. Buttons for both live
+ * on /workroom/payments, shown to the owner. And the callback landing in the database needs postgres;
  * refusing HERE, before Square is ever involved, beats collecting a grant
  * that evaporates with the lambda that held it.
  */
@@ -18,7 +19,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  if (!(await isWorkroomOwner())) return NextResponse.json({ error: "Only the owner can connect or disconnect Square." }, { status: 403 });
   const app = squareApp();
   if (!app) {
     return NextResponse.json(
@@ -36,7 +37,7 @@ export async function GET() {
 }
 
 export async function DELETE() {
-  if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  if (!(await isWorkroomOwner())) return NextResponse.json({ error: "Only the owner can connect or disconnect Square." }, { status: 403 });
   const app = squareApp();
   if (!app) return NextResponse.json({ error: "The Glazed Square app is not configured." }, { status: 503 });
   await revokeAndClear(app);

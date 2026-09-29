@@ -152,6 +152,7 @@ test('owner action rejects staff, missing confirmation and provider outages befo
    '@/lib/workroom/auth':{isWorkroomOwner:async()=>scenario!=='staff'},
    '@/lib/square/payment-attempts':{recordNoPaymentReview:async input=>calls.push(input)},
    '@/lib/square/payment-service':{reconcilePayment:async()=>{if(scenario==='provider-offline')throw Error('offline');}},
+   '@/lib/square/oauth':{},'@/lib/square/sync':{},
   });
   const data=new FormData();data.set('key','board_fixture');data.set('referenceId','reference');data.set('fingerprint','first');data.set('evidence','Owner verified the original provider records.');
   if(scenario!=='unchecked')data.set('verified','yes');
@@ -176,6 +177,7 @@ test('online status distinguishes an owner finding from a Square decline and per
  const route=load('src/app/api/order/payment-status/route.ts',{
   'next/server':{NextResponse:{json:(value,init)=>Response.json(value,init)}},
   '@/lib/square/payment-service':{reconcilePayment:async()=>({state:'failed',result:{status:'OWNER_CONFIRMED_NO_PAYMENT'}})},
+  '@/lib/square/payment-attempts':{NoPaymentStore:class extends Error{},releaseUnsubmitted:async()=>{}},
  });
  const response=await route.POST(new Request('https://fixture.invalid/api/order/payment-status',{method:'POST',body:JSON.stringify({attemptKey:crypto.randomUUID()})}));
  const body=await response.json();assert.equal(body.failed,true);assert.match(body.error,/shop verified no payment/);assert.match(body.error,/return to checkout/);
@@ -234,6 +236,7 @@ test('owner override through the real service: releases an unknown attempt Squar
     '@/lib/workroom/auth':{isWorkroomOwner:async()=>scenario!=='staff'},
     '@/lib/square/payment-attempts':f.repository,
     '@/lib/square/payment-service':service,
+    '@/lib/square/oauth':{},'@/lib/square/sync':{},
    });
    const data=new FormData();data.set('key',key);data.set('referenceId',snapshot.referenceId);data.set('fingerprint','first');data.set('verified','yes');
    data.set('evidence','Owner checked the Square dashboard for this reference and support ticket 12345 confirms nothing was charged.');

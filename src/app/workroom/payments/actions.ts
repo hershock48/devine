@@ -4,6 +4,30 @@ import { redirect } from 'next/navigation';
 import { isWorkroomAuthed, isWorkroomOwner } from '@/lib/workroom/auth';
 import { recordNoPaymentReview, clearProviderConflict } from '@/lib/square/payment-attempts';
 import { reconcilePayment, resendNotice, NoticeNotResent, type NoticeResend } from '@/lib/square/payment-service';
+import { resolveSquare, revokeAndClear, squareApp } from '@/lib/square/oauth';
+import { syncCatalogToSquare } from '@/lib/square/sync';
+
+/** The owner's Square buttons (2026-09-29). Connecting is a plain link to
+ * /api/square/connect, because it leaves for Square's own page; these two
+ * stay here. Both are owner-only for the same reason connecting is: they
+ * decide which register the shop's money and catalog reach. */
+export async function disconnectSquare() {
+ if (!(await isWorkroomOwner())) redirect('/workroom');
+ const app = squareApp();
+ if (!app) redirect('/workroom/payments?square=unconfigured');
+ try { await revokeAndClear(app); }
+ catch { redirect('/workroom/payments?notice=storage-unavailable'); }
+ redirect('/workroom/payments?square=disconnected');
+}
+
+export async function syncSquareCatalog() {
+ if (!(await isWorkroomOwner())) redirect('/workroom');
+ const cfg = await resolveSquare().catch(() => null);
+ if (!cfg) redirect('/workroom/payments?square=unconfigured');
+ try { await syncCatalogToSquare(cfg); }
+ catch (err) { console.error('square sync failed', err); redirect('/workroom/payments?square=sync-failed'); }
+ redirect('/workroom/payments?square=synced');
+}
 
 export async function recover(data: FormData) {
  if (!(await isWorkroomAuthed())) redirect('/workroom');

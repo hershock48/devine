@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     template: `%s · ${site.name}`,
   },
   description:
-    "A full-service, independently owned flower and plant shop in Marshall, Michigan. Fresh arrangements, weddings, sympathy flowers and same-day local delivery.",
+    "A full-service, independently owned flower and plant shop in Marshall, Michigan. Fresh arrangements, weddings, sympathy flowers and local delivery, same-day whenever possible.",
 
   /*
     CANONICAL, ONE LINE, EVERY ROUTE. "./" resolves against metadataBase and the

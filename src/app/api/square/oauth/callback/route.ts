@@ -9,14 +9,23 @@ import { getStore } from "@/lib/workroom/store";
  * /api/square/connect with the app secret, so a request that never went
  * through the gated front door cannot carry a valid one.
  *
- * Outcomes land on /workroom as a query flag rather than a JSON blob,
+ * Outcomes land on /workroom/payments (the owner's Square panel) as a query flag rather than a JSON blob,
  * because the person seeing them is the owner mid-click, not curl.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** A page that forwards itself, not a 302. The workroom cookie is
+    SameSite=Strict, and a redirect chain that began at squareup.com is a
+    cross-site navigation all the way down, so a 302 landed the owner on the
+    sign-in screen with the outcome lost. A navigation started by this page
+    is same-site, and the cookie goes with it. */
 function done(req: Request, flag: string): NextResponse {
-  return NextResponse.redirect(new URL(`/workroom?square=${flag}`, req.url), 302);
+  const to = `/workroom/payments?square=${encodeURIComponent(flag)}`;
+  return new NextResponse(
+    `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${to}"><title>Square</title><p><a href="${to}">Back to the workroom</a></p>`,
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
+  );
 }
 
 export async function GET(req: Request) {
