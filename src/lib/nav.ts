@@ -1,14 +1,15 @@
 /**
  * ROUTING PREFIX.
  *
- * The concept build lives under /demo because the root of this host serves the
- * proposal. Every internal link goes through href() so that the day DeVine's signs,
- * moving the site to the root is one edit here plus moving the folder, rather than a
- * hunt through every component for a hardcoded "/demo".
+ * The concept build lived under /demo while the root of the host served the
+ * proposal; at cutover the storefront moved to the root (src/app/(shop)) and
+ * BASE became empty. Every internal link still goes through href(), so the
+ * prefix remains one edit. An empty result is the home page, "/", never "":
+ * an empty href points at the current page, not home.
  */
-export const BASE = "/demo";
+export const BASE = "";
 
-export const href = (path = "") => `${BASE}${path}`;
+export const href = (path = "") => `${BASE}${path}` || "/";
 
 /**
  * Their own nav, kept in their own order and mostly in their own words. Two changes,

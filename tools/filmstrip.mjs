@@ -28,7 +28,7 @@ const shots = [];
 // animation from script drifts; restarting and waiting a fixed time does not.
 for (let i = 0; i < frames; i++) {
   const t = Math.round((span / (frames - 1)) * i);
-  await p.goto(base + "/demo", { waitUntil: "load" });
+  await p.goto(base + "/", { waitUntil: "load" });
   await p.evaluate(() => {
     document.querySelectorAll(".breeze").forEach((n) => n.classList.remove("is-blowing"));
     void document.body.offsetWidth;

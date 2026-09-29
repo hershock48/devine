@@ -248,14 +248,22 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 
 ## Before this becomes their site
 
-- [ ] Delete `public/pitch/` and the `rewrites()` block in `next.config.ts`.
-- [ ] Delete `src/app/robots.ts` and the `X-Robots-Tag` header, together.
-- [ ] Move `src/app/demo/*` to `src/app/` and drop `BASE` in `src/lib/nav.ts`.
-- [ ] **Point `CANONICAL_HOST` in `src/lib/seo.ts` at their real domain BEFORE
-      lifting the noindex.** It is `devine.glazedweb.com` today. Right now that is
-      harmless because every path on this host sends `noindex, nofollow`; the moment
-      that comes off, every canonical and every sitemap entry would be advertising a
-      copy of their site as the original. Do these two in this order, or not at all.
+The code half of the cutover is done on the branch `claude/devine-cutover`
+(2026-09-29). It merges on the day DNS moves, never before, because merging it
+turns devine.glazedweb.com into the real, indexable site:
+
+- [x] `public/pitch/`, the `/` rewrite and the pitch pages (`/test-drive`,
+      `/launch`, `/agreement`, `/photos` and their APIs) are deleted; each old
+      address 308s to `/`.
+- [x] The storefront moved to the `src/app/(shop)` route group, NOT to `src/app/`
+      itself: its layout carries the storefront chrome, and a root layout would
+      wrap the workroom in it. `BASE` in `src/lib/nav.ts` is empty; `/demo/*`
+      308s to `/*`, and the old WordPress addresses 308 to their new pages.
+- [x] `CANONICAL_HOST` is the shop's domain (`SITE_URL` overrides it if www is
+      the main address), and the noindex came off in the same change: the
+      `X-Robots-Tag` header and both layouts' robots blocks. `robots.ts` stays,
+      rewritten to allow the storefront, keep crawlers off `/workroom` and `/api/`,
+      and name the sitemap. The workroom keeps its own noindex.
 - [x] ~~Change the credit line to "Double Dipped by"~~ Done early, on Kevin's
       2026-08-31 ruling retiring "Concept build by" account-wide (brand.md's
       Retired list carries it). The default wording is the wording, spec build

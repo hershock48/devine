@@ -100,7 +100,7 @@ export default function WorkroomChrome() {
         <div className="wr-right">
           {/* The way back to what the customer sees. Opens in a new tab so the
               board is never lost behind a shop page. */}
-          <a href="/demo" target="_blank" rel="noreferrer">
+          <a href="/" target="_blank" rel="noreferrer">
             The shop <span aria-hidden="true">↗</span>
           </a>
           {/* A shared screen on a counter needs a way to close itself. */}

@@ -21,7 +21,7 @@ const width = Number(arg("width", 1440));
 const out = arg("out", "/tmp/shots");
 const routes = arg(
   "routes",
-  "/demo,/demo/shop,/demo/shop/plants,/demo/weddings,/demo/celebration-of-life,/demo/greening,/demo/delivery,/demo/workshops,/demo/about,/demo/product/eden",
+  "/,/shop,/shop/plants,/weddings,/celebration-of-life,/greening,/delivery,/workshops,/about,/product/eden",
 ).split(",");
 
 mkdirSync(out, { recursive: true });

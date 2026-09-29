@@ -9,11 +9,11 @@ import Link from "next/link";
  * a link to something that moved — and both deserve the site's own voice and a
  * way back in, not a stack trace aesthetic.
  *
- * This is the ROOT not-found, so it renders inside the root layout, which has no
- * header or footer (the root of this host is the proposal, a static file the
- * layout never touches). Hence the self-contained centering and the explicit link
- * to the demo's front door. The demo segment has its own not-found next to its
- * layout, which does get the full chrome.
+ * This is the ROOT not-found: any address that matches no route lands here,
+ * inside the root layout, which has no header or footer (those belong to the
+ * storefront's own layout in src/app/(shop), which also has its own not-found
+ * for a missing product or category). Hence the self-contained centering and
+ * the explicit way back to the shop and the home page.
  */
 export const metadata = { title: "Page not found" };
 
@@ -39,11 +39,11 @@ export default function NotFound() {
         The page may have moved, or the link had a typo in it.
       </p>
       <p className="btnrow" style={{ justifyContent: "center" }}>
-        <Link className="btn btn--solid" href="/demo">
+        <Link className="btn btn--solid" href="/shop">
           The shop
         </Link>
         <Link className="btn" href="/">
-          The proposal
+          Home
         </Link>
       </p>
     </main>

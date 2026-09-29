@@ -9,18 +9,20 @@ import { BASE } from "@/lib/nav";
  * this project had no site-level metadata block at all. Every fact any of them
  * needs was already modelled in lib/site.ts. It was simply never emitted.
  *
- * THE HOST IS A PITCH HOST AND THAT IS A DELIBERATE, TEMPORARY ANSWER.
- * link-cards.md is explicit that metadataBase must be the client's real domain,
- * because pointing it anywhere else "makes every canonical, every sitemap entry
- * and every OG url advertise a duplicate of the site as the original, which is
- * the one SEO fault that actively works against a client." That danger is real
- * and it is neutralised here by the whole host being noindex, header and meta
- * both. But it comes back the moment the noindex is lifted, so:
+ * THE HOST IS THE SHOP'S OWN DOMAIN. link-cards.md is explicit that
+ * metadataBase must be the client's real domain, because pointing it anywhere
+ * else "makes every canonical, every sitemap entry and every OG url advertise
+ * a duplicate of the site as the original, which is the one SEO fault that
+ * actively works against a client." While this was a pitch the host was
+ * devine.glazedweb.com and the whole site was noindex; the cutover moved the
+ * host here and lifted the noindex in the same change, never one without the
+ * other.
  *
- *   THE DAY DEVINE'S SIGNS, CANONICAL_HOST becomes their own domain. It is on
- *   the README checklist. Do not lift the noindex without doing this first.
+ * SITE_URL overrides it (no trailing slash) if the www address is chosen as
+ * the main one. Whichever it is must be the address that does NOT redirect,
+ * or every canonical points at a hop.
  */
-export const CANONICAL_HOST = "https://devine.glazedweb.com";
+export const CANONICAL_HOST = process.env.SITE_URL?.trim().replace(/\/+$/, "") || "https://devinesflowersandbotanicals.com";
 
 /** The demo's own link card. Theirs, not ours — see link-cards.md's two-card table. */
 export const OG_IMAGE = "/og.jpg";
@@ -62,7 +64,8 @@ export function localBusinessJsonLd() {
       postalCode: site.address.zip,
       addressCountry: "US",
     },
-    areaServed: site.deliveryTowns.map((t) => ({ "@type": "City", name: t })),
+    // With the state: a bare "Marshall" names towns in several states.
+    areaServed: site.deliveryTowns.map((t) => ({ "@type": "City", name: `${t}, Michigan` })),
     sameAs: [site.social.facebook, site.social.instagram, site.social.pinterest],
     openingHoursSpecification: site.hours
       .filter((h) => h.open && h.close)

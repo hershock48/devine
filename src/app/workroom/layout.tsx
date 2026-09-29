@@ -3,11 +3,11 @@ import WorkroomChrome from "@/components/workroom/Chrome";
 
 /**
  * The workroom's shell: none of the shop's marketing chrome, all of its
- * tokens. It sits OUTSIDE /demo on purpose — it is not part of the customer
- * demo, it is the shop's tool, and it does not move when /demo/* graduates to
- * /* on launch day. The host-wide noindex covers it while this is a pitch;
- * robots below keeps covering it after (an order board has no business in a
- * search index either way).
+ * tokens. It sits OUTSIDE the storefront's (shop) route group on purpose: it
+ * is the shop's tool, not part of what customers see, and the storefront's
+ * layout (header, footer, cart) must never wrap it. robots below keeps it out
+ * of search results, and robots.txt keeps crawlers off it (an order board
+ * has no business in a search index).
  */
 export const metadata: Metadata = {
   title: { default: "Workroom · DeVine's", template: "%s · Workroom · DeVine's" },

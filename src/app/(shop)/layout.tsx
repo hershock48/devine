@@ -81,7 +81,6 @@ export const metadata: Metadata = {
     images: [OG_IMAGE],
   },
 
-  robots: { index: false, follow: false },
 };
 
 export default async function DemoLayout({ children }: { children: React.ReactNode }) {

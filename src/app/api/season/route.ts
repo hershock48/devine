@@ -15,16 +15,16 @@ export function GET(req: Request) {
   const url = new URL(req.url);
   const set = url.searchParams.get("set") ?? "";
 
-  // Back to the page the link was clicked on, same origin only, else the demo
-  // home. The footer link cannot know its own page server side; the referer does.
-  let to = "/demo";
+  // Back to the page the link was clicked on, same origin only, else the
+  // storefront home. The footer link cannot know its own page server side; the referer does.
+  let to = "/";
   const ref = req.headers.get("referer");
   if (ref) {
     try {
       const r = new URL(ref);
       if (r.origin === url.origin) to = r.pathname + r.search;
     } catch {
-      /* an unparseable referer just falls back to /demo */
+      /* an unparseable referer just falls back to the home page */
     }
   }
 

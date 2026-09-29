@@ -31,7 +31,7 @@ const step = Number(arg("step", 60));
 
 const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
 const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
-await p.goto(base + "/demo", { waitUntil: "load" });
+await p.goto(base + "/", { waitUntil: "load" });
 
 // Restart every animation from zero so t=0 is a real origin rather than "whenever
 // the page happened to finish loading".

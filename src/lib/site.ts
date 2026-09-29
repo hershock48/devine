@@ -56,7 +56,9 @@ export const site = {
     /** Their footer publishes this as http. Corrected to https here on purpose. */
     facebook: "https://www.facebook.com/devinesflowersandbotanicals",
     instagram: "https://www.instagram.com/devinesflowers/",
-    pinterest: "https://pin.it/1b6CqL4QG",
+    // The profile the pin.it short link resolves to (2026-09-29), without its
+    // share-tracking query: search engines match sameAs against the profile URL.
+    pinterest: "https://www.pinterest.com/devinesflowersandbotanicals/",
   },
 
   /** From "Where we deliver:", in their own order. */
