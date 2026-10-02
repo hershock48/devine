@@ -3,13 +3,24 @@
 Glazed Web pitch and concept build for **DeVine's Flowers & Botanicals**, Marshall,
 Michigan. Read `glaze.md` in the `glazedweb` repo before touching any of this.
 
-Two things live here:
+Five things live here, on one host:
 
-- **the proposal**, at the root of `devine.glazedweb.com`
+- **the proposal**, at the root of `devine.glazedweb.com`, with its four owner-facing
+  pages beside it: `/agreement` (Exhibit A and the clickwrap acceptance), `/launch`
+  (the delivery tracker, lights read live), `/photos` (her product-photo drop) and
+  `/test-drive` (eight guided missions on the real system).
 - **the concept site**, at `/demo` — a full rebuild of their site, 57 real products,
   a working cart, and a real order intake: checkout posts to `/api/order`, which
-  emails a ticket to the shop over SMTP. No card online; the shop calls to confirm
-  and takes payment then. Unconfigured, it degrades honestly (see `.env.example`).
+  emails a ticket to the shop over SMTP and lands the order on the workroom board.
+  Payment is on the confirming call by default; card payment at checkout exists
+  (Square, pickup orders only) and renders only while `CHECKOUT_CARDS=on` and the
+  shop's Square is connected. Unconfigured, it degrades honestly (see `.env.example`).
+- **the workroom**, at `/workroom`, PIN-gated and unlinked from the site: order board,
+  dashboard, inventory, weekly order, plants, quotes. Phase 2.
+- **the Square link**: catalog out to her register, sales in by webhook, OAuth so her
+  account authorizes the Glazed app, and card charges from the board. Phase 3.
+- **the research**, in `research/`: her paper price lists, par sheet and delivery fee
+  sheet, transcribed from photos with every unreadable cell left blank.
 
 ## What is here
 
@@ -17,7 +28,7 @@ Two things live here:
 |---|---|
 | `public/pitch/devine/index.html` | The proposal. One self-contained file, no build step, hand-editable on a phone if a call goes sideways. |
 | `public/pitch/devine/og.jpg` | The proposal's link card, 1200x630, 44KB. Rendered from a real page, not assembled by hand. |
-| `src/lib/site.ts` | **Every business fact.** Hours, phone, address, delivery towns, staff, policies. One edit fixes any of them everywhere. |
+| `src/lib/site.ts` | **Every business fact.** Hours, phone, address, delivery towns and zips, the per-zip delivery fees and the two order minimums (from her IRIS sheet, 2026-09-01), the 3% card fee, staff names and roles, policies. One edit fixes any of them everywhere. |
 | `src/lib/catalog.ts` | All 57 products with their real names, prices and their own copy. Keyed on slug, never on name. |
 | `src/lib/image-manifest.json` | Which products have a real photograph, and its true pixel size. Generated, not hand-written. |
 | `src/components/ProductImage.tsx` | Decides photograph or generated art, per product. Nothing above it knows which. |
@@ -25,27 +36,37 @@ Two things live here:
 | `src/app/sitemap.ts` | Derived from the nav and the catalog, so adding a product adds a URL. No `lastModified`, deliberately. |
 | `src/app/og-card/page.tsx` | The demo's link card as a real route, screenshotted by `tools/og.mjs` into `public/og.jpg`. The photograph fills the frame; the type sits on a paper panel pinned to the iOS-safe centre 630. Not linked, not in the sitemap. |
 | `tools/og-products.mjs` | 1200x630 JPEG link cards for every photographed product, plus `src/lib/og-manifest.json`. Re-run when photographs land. Photographed products declare a COMPLETE OpenGraph block (never partial — Next replaces, not merges); Bloom products inherit the site card. |
-| `src/components/GreeningInquiry.tsx` | The business brief the proposal promises for Greening, field for field. Same `mailto:` honesty as the wedding form. |
+| `src/components/InquiryForms.tsx` | The wedding inquiry and the greening brief, submitting for real since 2026-09-01: POST to `/api/inquiry`, which emails the shop over the same SMTP as the order tickets, with the same three honest outcomes as checkout. The prefilled `mailto:` survives as the fallback when mail cannot send. `GreeningInquiry.tsx` is now a re-export so the greening page's import keeps working. |
+| `src/app/api/inquiry/route.ts` | Where both inquiries land. Goes to `INQUIRY_TO`, defaulting to the shop's own published Gmail because inquiries are her leads, not tickets. A sent wedding inquiry also seeds a draft quote on `/workroom/quotes`, best effort; the email is the record. |
 | `src/components/GlazedPlate.tsx`, `GlazedCredit.tsx` | Copied verbatim from `glaze/assets/glazed-credit/`. **Never rebuild these**, and never redraw the mark. |
 | `src/lib/order.ts` | `photoFirst()`. Any list that shows only SOME of a category leads with the photographed items; a full category page stays in price order. Becomes a no-op when the last photograph lands. |
 | `tools/shots.mjs` | Full-page screenshots at a given width, with the scroll sweep that makes lazy images actually load. |
-| `src/components/Bloom.tsx` | The generated botanical print, for products with no photograph yet. **Delete this file when the last photo lands.** |
+| `src/components/Bloom.tsx` | The generated botanical print, for products with no photograph yet. Down to six products (see "Where the photographs come from") plus one decorative use on the workshops page. **Delete this file when the last photo lands.** |
 | `src/app/demo/**` | The site. Home, shop, 8 category pages, 57 product pages, weddings, sympathy, greening, delivery, workshops, about, cart. |
 | `src/lib/intake.ts` | Order intake. Server-side pricing from the catalog (a client-supplied total is a number a customer chose), the shop's plain-text ticket, the customer's copy, and the SMTP send with its three honest states. The long comment at the top says why a failed send is told to the customer rather than swallowed, deliberately diverging from glaze.md's contact-form rule. |
-| `src/app/api/order/route.ts` | The one route with a side effect. 200 sent, 400 bad order, 503 mail unconfigured, 502 send failed. The cart is honest about each. |
+| `src/app/api/order/route.ts` | The one route with a side effect, and two shapes of order since 2026-09-01. UNPAID (the default): the ticket email is the order. 200 sent, 400 bad order, 503 mail unconfigured, 502 send failed, and a sent order also lands on the workroom board. PAID BY CARD (payload carries a Square token, pickup only, behind `CHECKOUT_CARDS`): the charge is the order. Price, charge through the shop's Square with the board id as reference, store the board row already paid, then email; a failed charge returns 402 and nothing persists. The cart is honest about each. |
+| `src/app/api/checkout/config/route.ts` | What the public checkout needs to draw a card field: Square application id, location, environment. Unauthenticated on purpose (both ids are public by design) and empty unless `CHECKOUT_CARDS` is literally `on` and Square is connected. |
 | `src/lib/occasions.ts` | One list, two importers: the form renders it, the intake validates against it. Alone because `intake.ts` is server-only and `CartView` is a client component. |
 | `src/lib/seasons.ts` | **The seasonal engine.** The demo turns with the calendar on its own: four premade seasons (accent color, hero copy, the homepage's featured six) and the flower holidays highlighted as each approaches (Valentine's, Easter, Mother's Day, Sweetest Day, Thanksgiving, Christmas). Every date is computed, never stored, on the shop's own timezone; the demo tree renders per request so the calendar can never freeze at build time. Seasonal copy and picks are ours, on the checklist for the owner to veto. |
 | `src/components/Season.tsx` | The engine's two surfaces: the holiday band under the header, and the footer's preview row (flip the demo through the whole year across a table). Both server components, zero client JavaScript. |
 | `src/app/api/season/route.ts` | Sets the preview cookie and bounces back to the page you were on. `?set=winter`, `?set=valentines`, `?set=today` to hand the calendar back the wheel. |
-| `.env.example` | The authority on what checkout needs to actually send. Five variables, set by Kevin in Vercel. While this is a pitch, `ORDER_TO` is Glazed's inbox, not the shop's; the flip is an env edit. |
-| `src/app/workroom/**` | **The shop's own tool, Phase 2.** The front door is the order board at `/workroom` (web orders land on it by themselves; phone orders get written up on it); the dashboard at `/workroom/dashboard` is the second tab (Day / Week / Month / Year, stat tiles with like-for-like comparisons, one chart of register money pulled live from Square's Payments API when the link is up); the inventory page at `/workroom/inventory`: the stem library, buys, tosses, the cooler, recipes (the old `/workroom/stems` and `/workroom/week` addresses redirect). Sits outside `/demo` because it is not part of the customer demo and does not move on launch day. |
-| `src/lib/workroom/store.ts` | Two storage backends behind one interface, ported from the pjs kitchen system: Postgres when `DATABASE_URL` is set (Neon free tier via Vercel, tables create themselves), in-memory otherwise — and the pages show a plain warning on memory, because a board that silently misses orders is worse than one that says why. |
-| `src/lib/workroom/auth.ts` | A PIN and a cookie. A gate, not a vault: nothing behind it moves money. `WORKROOM_PIN`, falling back to the shop phone's last four. |
+| `.env.example` | The authority on every variable, in five blocks: order intake (five SMTP and address variables, plus `INQUIRY_TO`, `AGREEMENT_TO`, `PHOTO_TO` for the other three inboxes), workroom (`DATABASE_URL`, `WORKROOM_PIN`, `WORKROOM_OWNER_PIN`), Square sandbox credentials, the Glazed platform app (`SQUARE_APP_ID`, `SQUARE_APP_SECRET`, `SQUARE_APP_FEE_CENTS`), and the switches (`CHECKOUT_CARDS`, `SQUARE_ENV`, `SQUARE_VERSION`). Set by Kevin in Vercel; the click paths for Square are written in the file. While this is a pitch, `ORDER_TO` is Glazed's inbox, not the shop's; the flip is an env edit. |
+| `src/app/workroom/**` | **The shop's own tool, Phase 2.** Five tabs in `components/workroom/Chrome.tsx`: the order board at `/workroom` (the front door; web orders land on it by themselves, phone orders get written up on it, and each card settles its money by card or cash), the dashboard at `/workroom/dashboard` (owner PIN only; Day / Week / Month / Year, stat tiles with like-for-like comparisons, one chart of register money pulled live from Square's Payments API when the link is up, stem cost of what sold, per-product margins), inventory, weekly order and quotes. The old `/workroom/stems`, `/workroom/week` and `/workroom/orders` addresses redirect. Sits outside `/demo` because it is not part of the customer demo and does not move on launch day. |
+| `src/components/workroom/Board.tsx` | The order board, adapted from the pjs kitchen screen at florist pace: buckets on the REQUESTED date, not order age. One button moves an order along a life that differs by fulfillment (delivery: new, confirmed, made, out, done; pickup skips the van). "Confirmed" is the phone call and only the phone call; payment has its own controls. "Returning customer" is derived from order history, never typed. |
+| `src/components/workroom/PayControls.tsx`, `src/app/api/workroom/pay/route.ts` | The money corner of an order card: a PAID badge, or "Take card" and "Record cash". Card entry is Square's Web Payments SDK drawing its own iframe, so no card number ever reaches our page or server; the route can only move money INTO the shop's account. Carries the shop's 3% card fee; the 99 cent platform fee rides website orders only. The SDK loads only when someone opens card entry. |
+| `src/components/workroom/Dashboard.tsx`, `src/app/api/workroom/summary/route.ts` | The money numbers. Square's own ledger first (her whole register history, including sales that predate the webhook), stored webhook rows as the fallback, and the response says which ledger answered. Windows are computed on the client's clock because serverless runs in UTC and "today" means today in Marshall. Gross, not net: refunds are not subtracted. The summary API 403s a staff cookie. |
+| `src/lib/workroom/derive.ts` | The workroom's shared arithmetic, one copy of every rule more than one screen computes, after the 2026-09-01 review caught three screens disagreeing about the same week's tossed dollars. Costing is LOTS, oldest first (a blended average was retracted the same day). Client-safe on purpose. |
+| `src/lib/workroom/store.ts` | Two storage backends behind one interface, ported from the pjs kitchen system: Postgres when `DATABASE_URL` is set (Neon free tier via Vercel, tables create themselves), in-memory otherwise — and the pages show a plain warning on memory, because a board that silently misses orders is worse than one that says why. Holds orders, stem events, recipes, varieties, weekly orders, plants, quotes, Square sales and tokens, agreement acceptances and photo submissions, all as jsonb blobs keyed by id. |
+| `src/lib/workroom/auth.ts`, `src/app/api/workroom/login/route.ts` | Two PINs and a cookie. A gate, not a vault. `WORKROOM_PIN` opens the working screens; `WORKROOM_OWNER_PIN` (2026-09-02) additionally opens the money: the dashboard and the funeral pad's build-math drawer. **In production an unset PIN closes that tier to everyone**; the shop-phone fallback that used to be committed here survives for `next dev` only. Login is throttled to 10 wrong tries per 10 minutes per IP, because a four-digit space was measured falling in fifteen seconds unthrottled. |
+| `src/app/api/workroom/{orders,stems,recipes,quotes,badges}/route.ts` | The board's orders (last 60 days; POST is the counter's phone order), stem events (90 days plus every recipe, computed in the browser), recipes (PUT replaces whole; an empty parts list means "costed at zero, deliberately", no recipe means "not costed yet"), quotes (GET one with the known stem prices so the builder prefills), and the tab badges (answers unauthed with zeros, not 401, so the PIN gate does not spray the console). |
 | `src/app/workroom/quotes/**` | **The quote builder** — the owner's sharpest ask ("a model to input flowers and stem count to accurately produce a quote"). Weddings and funerals as separate templates, flowers priced per stem once per quote (prefilled from purchase history), live totals, a wholesale buy list, autosave, and a print view that is the client's copy: same numbers, none of the workings. |
 | `src/components/workroom/FuneralPad.tsx` | **A different tool at the same URL**, because funerals are quoted on the spot with no spreadsheet. Price-first menu (one tap per piece per price point), the family's budget as the frame with a live gap, the service treated as a deadline rather than a date, ribbon wording and who each piece is from, and a last button that puts it straight on the board while the family is still standing there. |
-| `src/lib/workroom/quote-math.ts` | The quote arithmetic, alone in one file with no imports, so the list, both builders and the print can never disagree. **The model is provisional** and runs BOTH WAYS: forward (stems × markup + labor% + hardgoods) for weddings, and reverse (a set price solved back into a flower budget) for the funeral counter. Wedding deposit 50% per their published process. To be rewritten against her real wedding spreadsheet, and corrected against watching a real funeral quote. |
-| `src/lib/workroom/quote-templates.ts` | The starting piece lists, one per model, every piece editable and none carrying an invented stem count. Also provisional until her documents arrive. |
+| `src/lib/workroom/quote-math.ts` | The quote arithmetic, alone in one file with no imports, so the list, both builders and the print can never disagree. **The model is Katy's own**, rewritten 2026-09-02 from screenshots of her 2026WeddingQuotes sheet and verified against her numbers to the cent: labor is exactly 2/3 of materials (hardgoods included), flat-priced boutonnieres carry no labor, Michigan's 6% tax is on the piece money and not on delivery, and tax is computed on the unrounded sum. Per-stem prices are her RETAIL list, so wedding markup defaults to ×1. Runs BOTH WAYS: forward (stems decide the price) for weddings, reverse (a set price solved back into a flower budget) for the funeral counter and her flat-priced pieces. Still to be checked against the full sheet once she grants access. |
+| `src/lib/workroom/quote-templates.ts` | The starting piece lists, one per model. The wedding list is her sheet's own column vocabulary (2026-09-02), with gentle starter quantities and no stems, so nothing here is mistaken for hers. The funeral menu's ranges for vases, easels, casket sprays and urn surrounds are hers, from her texts the same day; the rows she did not name (insert, basket, table piece, boutonniere, corsage) keep the published 2026 industry stand-ins. Every price is editable at the counter. |
 | `src/lib/square/client.ts` | **The Square register link, Phase 3's first pipe.** Config and the fetch wrapper. No SDK, four small calls. Sandbox by default: `SQUARE_ENV` must literally say `production` before anything touches the shop's real register. |
+| `src/lib/square/oauth.ts`, `src/app/api/square/connect/route.ts`, `src/app/api/square/oauth/callback/route.ts` | **The owner's Square account, connected through the Glazed app.** Two Square accounts are in play and the distinction is the whole design: the SHOP's account owns the register and the money; GLAZED's developer account owns the app she authorizes, and only a token issued through that authorization can carry the platform fee. `GET /api/square/connect` (workroom cookie) sends her browser to Square; the callback checks a state minted with the app secret, stores the grant in Neon (memory storage refuses, and says why) and lands on `/workroom?square=...`. `DELETE` revokes and forgets. With a grant stored, `SQUARE_ACCESS_TOKEN` is no longer consulted. |
+| `src/lib/square/payments.ts` | Card charges with the Glazed platform fee riding INSIDE the payment (`app_fee_money`: the customer pays the total, the shop receives it minus processing minus the fee). 99 cents by default, `SQUARE_APP_FEE_CENTS` overrides, 0 disables. Square's two hard rules are enforced here rather than discovered in a 400: fee only on an OAuth token, and never over 60% of a payment, so tiny totals drop the fee rather than fail the sale. Called by checkout and the board's pay route. |
+| `src/lib/square/web-sdk.ts`, `src/app/api/workroom/square-web/route.ts` | The Web Payments SDK loader, shared by the checkout and the board's card pane so the script hostname lives in one place: the first version pointed at a host that does not resolve and the card field died on its first live test. The gated route hands the board the ids it needs. |
 | `src/lib/square/sync.ts` | Catalog out: all 57 products pushed onto the register, keyed by writing each slug into the variation SKU, so no id mapping is ever stored. Items in her Square catalog that are not ours are counted as strays and never touched. |
 | `src/app/api/square/webhook/route.ts` | Sales in. Square posts every payment; completed ones become `square_sales` rows with line items mapped back to catalog slugs by SKU. Signature-verified before parsing, no dev bypass. A sale rung as a custom amount lands with `slug: null`, visibly, because that habit is what starves the inventory numbers. |
 | `src/app/api/square/sync/route.ts` | POST runs the catalog push, GET reports integration status. Workroom-gated; the PIN also works as an `x-workroom-pin` header (throttled like login) so setup can be driven by curl. |
@@ -57,6 +78,17 @@ Two things live here:
 | `src/app/api/workroom/{varieties,weekly-orders,plants}/route.ts` | The workroom's list APIs. The master list is the one namespace, and it grows two ways: LEDGER FACTS auto-register (a hand-logged or truck-received purchase happened, so its variety joins the list), while RECIPES only reference it — an unknown variety in a recipe is refused by name, with a one-tap add in the form (retraction of the earlier register-don't-refuse rule, 2026-09-01: a typo was silently becoming a list entry and an uncostable recipe). |
 | `next.config.ts` | The root rewrite and the noindex headers. |
 | `src/app/robots.ts` | Search engines out, social card scrapers in. |
+| `src/lib/agreement.ts`, `src/app/agreement/**`, `src/components/AgreementAccept.tsx`, `src/app/api/agreement/route.ts` | **The DeVine's deal, in one place**, and where it gets signed. The general terms are NOT restated: they are the published Glazed Web Client Agreement, incorporated by reference the way the glazedweb menu-order clickwrap works; the page adds Exhibit A (scope and numbers from `agreement.ts`) and the acceptance. THE EMAIL IS THE RECORD: both parties get a copy with the version string, typed name and server timestamp; the database row is the queryable duplicate. Goes to `AGREEMENT_TO`, never `ORDER_TO`, because that one flips to the shop at launch. The letter in `public/pitch/` repeats the fees in prose and cannot read the constant, so a number change there is by hand, same commit. |
+| `src/app/launch/**` | **The launch plan**, the document that starts where the proposal's job ends. Six status lights read live (signed from the acceptance store, build fee and monthly from the studio pay rail's booleans-only endpoint, Square from the real resolution, domain from `LAUNCH_FLAGS=domain`), the fourteen-item list of what only the shop can supply (ticked in code as things arrive; this is the one copy, and the letter points at it), and the build phases each item unblocks. Retires when every light is lit; never becomes a permanent page. |
+| `src/lib/photos.ts`, `src/app/photos/**`, `src/components/PhotoDrop.tsx`, `src/app/api/photos/route.ts` | **The owner's photo drop.** The list is DERIVED (catalog minus the image manifest, Designer's Choice excluded by design) so every photo that goes live shrinks the page on the next deploy. Each photo is downscaled in her browser, sent the moment she picks it, emailed to `PHOTO_TO`, and the slug recorded so the checkmark follows her across devices. No PIN: it is for the owner, who has no login, and the throttle keeps abuse boring. |
+| `src/app/test-drive/**` | **The test drive**, linked from the proposal header: eight numbered missions she cannot lose, on the real system (real database, real emails, real board). The PINs are deliberately not printed; they travel by text. |
+| `tools/ingest-photo.mjs` | One command per photo from the drop to the site: the drop emails each shot as `<slug>.jpg`, so the filename is the match. Writes the two WebP widths, updates the manifest, re-runs `og-products.mjs`. Files whose basename is not a slug are skipped by name, loudly. |
+| `tools/process-supplied.py`, `tools/products.json` | The original harvest: Kevin's first batch of photographs matched to products by their WordPress filenames, which the catalog harvest recorded in `products.json`. |
+| `src/components/Logo.tsx`, `tools/extract-petal.py` | The mark with a breeze through it. The petal that blows across the header is lifted out of their own logo, not drawn to resemble it. The un-animated state is the finished state. |
+| `src/components/HeroTrace.tsx`, `src/lib/hero-trace.json`, `tools/trace-hero.py` | Four blooms traced off the pixels of the summer hero photograph and drawn on, then released. Only arms over the photograph it was traced from (`traced: true` in `seasons.ts`). |
+| `tools/motion.mjs`, `tools/filmstrip.mjs` | Sample the logo motion frame by frame and print what it actually does, and a contact sheet of the flight, because every motion bug so far was invisible in the source and obvious in the numbers. |
+| `research/*.md` | Her paper, transcribed: the delivery fee sheet (per-zip fees and handwritten minimums, 2026-09-01) and the weekly order and price lists (2026-08-31). Read from angled photos; occluded cells are marked, never guessed; the owner verifies before any number goes live. |
+| `.github/workflows/claude-code-review.yml` | Claude reviews every non-draft pull request, inline HIGH and MEDIUM findings plus one summary comment. The other half of the two-agent rule: Codex reviews through its integration, Kevin merges. |
 
 ## Where the photographs come from
 
@@ -65,15 +97,22 @@ fetched from their site. **Kevin supplied them directly.** They were matched to
 products by their original WordPress filenames (`IMG_0688`, `Large-Dish-Garden`), which
 the catalog harvest already recorded, so no photo was matched by eye.
 
-`devine-src/process-supplied.py` does the conversion: two widths per product, WebP, and
-a manifest of real pixel dimensions so nothing reflows as it loads.
+`tools/process-supplied.py` did that first conversion: two widths per product, WebP, and
+a manifest of real pixel dimensions so nothing reflows as it loads. That batch covered
+20 products, the whole Plants category among them.
 
-**20 of 57 products have a photograph.** The whole Plants category does. The remaining
-37 render a generated botanical print built from the flower names in their own product
-copy. It is deliberately an illustration and never passes as a photograph.
+The rest came from the owner herself, through the photo drop at `/photos`: she taps a
+design, picks the shot on her phone, and it is emailed as `<slug>.jpg`. Then
+`node tools/ingest-photo.mjs <file-or-folder>` matches by filename, writes both WebP
+widths, updates the manifest and regenerates the product link cards. No eyeballing at
+either stage, and no code changes.
 
-To add the rest: drop the files into the uploads folder, re-run the script, copy
-`image-manifest.json` into `src/lib/`. No code changes.
+**51 of 57 products have a photograph.** The six without: the three Designer's Choice
+pieces, which are whatever she designs that day and are excluded from the drop list on
+purpose, and the three classic wedding pieces (boutonniere, wrist corsage, bridesmaid
+bouquet). Those six render a generated botanical print built from the flower names in
+their own product copy. It is deliberately an illustration and never passes as a
+photograph.
 
 ## Zero to live
 
@@ -94,7 +133,10 @@ To add the rest: drop the files into the uploads folder, re-run the script, copy
 
 ## Verified, not assumed
 
-Measured against the production build on 2026-08-20, not the dev server:
+Measured against the production build on 2026-08-20, not the dev server. The workroom,
+the owner pages, the inquiry POSTs, the card checkout and the 31 later photographs all
+landed after these measurements; the numbers below describe the demo as it was then and
+have not been re-run since 2026-08-21.
 
 - **0** axe violations across 15 routes at 390 and 1440. WCAG 2.1 AA.
 - **0** horizontal overflow at 320, 390, 768 and 1440. 320 caught two real faults: a
@@ -117,12 +159,22 @@ Measured against the production build on 2026-08-20, not the dev server:
 
 Each one is visible in the code as `PLACEHOLDER` and must be closed before launch.
 
-- [ ] **37 product photographs.** Listed by `process-supplied.py` on every run.
-- [ ] **Team roles.** Their site publishes four names and no titles, so none were
-      invented. `site.team` in `src/lib/site.ts`.
-- [ ] **Team portraits.** Currently generated art in the team grid.
-- [ ] **Delivery fee, order minimum, same-day cutoff.** Their site publishes none of
-      the three and this build invents none. `site.delivery`.
+- [ ] **6 product photographs.** The three classic wedding pieces, if she has shots of
+      them, and the three Designer's Choice, which are optional by definition. `/photos`
+      lists what is still open; the Designer's Choice note there is prose, not rows.
+- [x] ~~Team roles.~~ Headline roles landed 2026-09-02 from Katy's own printed Team &
+      Responsibilities chart, in `site.team`. The about page's PLACEHOLDER notice still
+      says no titles were guessed and should come down with the portraits.
+- [ ] **Team portraits and bios.** Currently generated art in the team grid. Katy wants
+      the portraits retaken, bios added, and herself added as a card; that redesign
+      waits for her materials.
+- [ ] **Order minimum basis, and the same-day cutoff is settled.** Per-zip delivery
+      fees and the two minimums ($45 Marshall, $55 outside) are in `site.ts` from her
+      IRIS sheet (confirmed 2026-09-01, transcription caveats in
+      `research/delivery-fees.md`). The minimum is enforced against the FLOWERS
+      subtotal, fee on top, which is the stricter reading because the sheet does not
+      say; her correction can only loosen checkout. The cutoff is `null` on purpose:
+      Katy, 2026-09-02, "it's rare we don't accept an order for same day."
 - [ ] **"Honey Bee" has no product description.** Their shop shows only the
       substitution clause. The product page says so plainly rather than padding it.
 - [ ] **Palette.** Sampled from nothing: their mark is black line art, so the cream,
@@ -142,18 +194,19 @@ Each one is visible in the code as `PLACEHOLDER` and must be closed before launc
       chooses six featured pieces per season from her own descriptions and writes
       four seasonal hero lines. She knows what actually sells in each season;
       swapping a list is one edit. The fall list is her own homepage six, untouched.
-      Spring, summer and winter each lean on three photographed plants because
-      only 20 of 57 products have photographs; recompose those lists toward the
-      arrangements when the photos land.
+      Spring, summer and winter were each composed to lean on three photographed
+      plants back when only 20 of 57 products had photographs; 51 do now, so those
+      three lists can be recomposed toward the arrangements.
 - [ ] **The four seasonal accents AND ground tints are ours**, chosen to sit
       inside the placeholder palette above. If she supplies brand colors,
       re-derive all of them and re-run the contrast numbers in `globals.css`.
-- [ ] **Four seasonal hero photographs, from the owner.** The homepage hero is
-      a per-season slot (`HeroPhoto` in `lib/seasons.ts`) and every season
-      currently falls back to the same summer photograph. One photo per season
-      from her, processed like any product photo, and the site visibly turns
-      four times a year. Note HeroTrace only arms over the original photo; a
-      seasonal photo needs its own trace or none.
+- [ ] **Two seasonal hero photographs, from the owner: spring and winter.** The
+      homepage hero is a per-season slot (`HeroPhoto` in `lib/seasons.ts`). Fall
+      has its own photograph now (`/img/seasons/fall.webp`, untraced); summer IS the
+      default photograph; spring and winter still fall back to it. One photo each
+      from her, processed like any product photo, and the site visibly turns four
+      times a year. Note HeroTrace only arms over the original photo; a seasonal
+      photo needs its own trace or none.
 
 ## The design system, in one paragraph
 
@@ -195,15 +248,42 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 - **The root rewrite is deliberately not host-scoped.** It used to be, the hostname was
   spelled wrong, and `/` quietly served a placeholder to the client with a green build
   and no error anywhere. A rule that fails by serving the wrong page is a bad rule.
-- **The wedding form posts to `mailto:`.** It is not a stub pretending to send. A real
-  destination and a confirmed inbox are two separate things and neither exists yet.
+- **The wedding form and the greening brief POST to `/api/inquiry`** and email the shop
+  over SMTP. They were honest `mailto:` handoffs until 2026-09-01, when Kevin hit the
+  seam mid-test ("it should just send"). The prefilled mailto is now the fallback for
+  the unconfigured and send-failed states, and the confirmation says where to send
+  photos, because no upload endpoint means no size limits and no broken previews.
 - **Checkout sends a real order by SMTP, and never pretends when it cannot.** With the
   env unset (or the send failing) the visitor is told plainly that nothing reached the
   shop and handed the phone number and a mailto that opens with everything they typed,
   delivery fields included. The full ticket also goes to the server log on every order,
   sent or not, so nothing is ever only in a failed email.
-- **An off-list delivery zip warns and still submits.** ZipCheck's rule: a near miss is
-  a phone call, not a wall. The ticket carries a flag line instead.
+- **A card-paid order anchors on the charge, not the email.** After a successful Square
+  charge the response must be ok even if SMTP hiccups: the money moved, and the board
+  row plus the Square sale are the record. Before the charge, nothing persists. Card
+  payment is pickup only until the delivery fee question is fully closed, because
+  charging a total a fee might later change would be the checkout lying.
+- **An off-list delivery zip warns and still submits** on the pay-on-call path.
+  ZipCheck's rule: a near miss is a phone call, not a wall. The ticket carries a flag
+  line instead. The card path is stricter: a zip must be on the fee sheet and the
+  flowers must clear the minimum, or the order falls back to pay-on-call.
+- **Env changes need a redeploy to reach the runtime.** Flipping `CHECKOUT_CARDS` or
+  any Square variable in Vercel and then testing the live site has bitten three
+  times. Redeploy, then test.
+- **Two PINs, and an unset one closes its tier to everyone in production.** The staff
+  PIN opens the working screens; the owner PIN opens the dashboard and the funeral
+  pad's build-math drawer as well. The committed shop-phone fallback is `next dev`
+  only. A privacy control that silently stops applying is worse than a dark screen.
+- **`SQUARE_APP_SECRET` comes from the app's OAuth page, not its Credentials page.** The
+  Credentials page shows an Access Token in the secret's place, and pasting that is
+  the trap that cost the first connect attempt a 401 on the token exchange: the
+  permission screen works, Allow works, and the exchange dies. Landing on
+  `/workroom?square=failed` after a clean-looking flow means check this first.
+- **The Web Payments SDK lives at `web.squarecdn.com`**, not squareup.com, which does
+  not resolve. `lib/square/web-sdk.ts` is the one place that hostname is written.
+- **A sale rung as a custom amount arrives with `slug: null`.** No recipe can decrement
+  it. If that is the register habit today, the habit is the first thing the
+  integration has to change.
 - **The cart route is 149KB gzip of JavaScript against the 150KB bar** since the
   checkout form landed (was 142.6KB before it; 148KB before the workroom nudged a
   shared chunk). Measured 2026-08-21 with `perf-check.mjs`, LCP 748ms, CLS 0.0006.
@@ -229,7 +309,12 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 
 ## Before this becomes their site
 
-- [ ] Delete `public/pitch/` and the `rewrites()` block in `next.config.ts`.
+- [ ] Delete `public/pitch/` and the `rewrites()` block in `next.config.ts`, and retire
+      `/test-drive` with it. `/photos` retires when the list is empty. `/launch` and
+      `/agreement` stay until every light on the launch plan is lit, then go the same
+      way; neither becomes a permanent page.
+- [ ] Set `LAUNCH_FLAGS=domain` in Vercel at cutover so the launch plan's last light
+      turns on.
 - [ ] Delete `src/app/robots.ts` and the `X-Robots-Tag` header, together.
 - [ ] Move `src/app/demo/*` to `src/app/` and drop `BASE` in `src/lib/nav.ts`.
 - [ ] **Point `CANONICAL_HOST` in `src/lib/seo.ts` at their real domain BEFORE
@@ -245,27 +330,39 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
       changes. `--gw-above` must match `.site-foot` exactly or a seam shows.
 - [ ] **Tell the owner the studio credit is in their footer.** `brand.md`: it belongs
       in the contract, not in a surprise deploy.
-- [ ] **Set `WORKROOM_PIN` in Vercel. Nothing at `/workroom` opens without it**,
-      by design: the old fallback was the shop phone's last four, committed to
-      this repo, guarding customer names, phones and addresses. Do this before
-      demoing the workroom to anyone, or the PIN screen will refuse the demo too.
+- [ ] **Set `WORKROOM_PIN` and `WORKROOM_OWNER_PIN` in Vercel. Nothing at `/workroom`
+      opens without the first; the dashboard opens for nobody without the second**,
+      by design: the old fallback was the shop phone's last four, committed to this
+      repo, guarding customer names, phones and addresses. The two must differ. Her
+      chosen PINs travel by phone, never by email or webpage (the launch plan's item
+      11). Do this before demoing the workroom to anyone, or the PIN screen will
+      refuse the demo too.
 - [ ] **Create the workroom database** (Vercel > Storage > Create Database > Neon,
       free tier, sets `DATABASE_URL` itself). Until then the workroom runs on
-      in-memory storage and says so in a warning banner.
-- [ ] **Set the five order-intake variables in Vercel** (`.env.example` is the list)
-      and point `ORDER_TO` at the shop's inbox. Then place a real order and confirm
-      it **arriving in that inbox**, not just returning 200: glaze.md's bar is a real
-      destination and a confirmed inbox, two separate things.
-- [ ] Ask the owner: delivery fee, order minimum, same-day cutoff. The checkout and
-      the ticket currently say the subtotal is settled on the confirm call, which is
-      honest but shouldn't be permanent.
-- [ ] **Create the Square sandbox app and set the four `SQUARE_*` variables**
-      (`.env.example` has the click path). Then prove the loop end to end IN THE
-      SANDBOX: POST `/api/square/sync` and see 57 items appear in the sandbox
-      Dashboard, ring a test payment on the sandbox, and see it arrive at
-      `/api/square/sales`. Production needs the OWNER's Square account (OAuth,
-      not her password), `SQUARE_ENV=production`, and a fresh webhook
-      subscription on the production toggle.
+      in-memory storage and says so in a warning banner, and the Square OAuth
+      callback refuses to store a grant.
+- [ ] **Set the mail variables in Vercel** (`.env.example` is the list): the five for
+      order intake, plus `INQUIRY_TO`, `AGREEMENT_TO` and `PHOTO_TO`. At launch
+      `ORDER_TO` becomes the shop's inbox and `INQUIRY_TO` comes off (it defaults to
+      her published Gmail), while `AGREEMENT_TO` and `PHOTO_TO` keep reaching Glazed.
+      Then place a real order and confirm it **arriving in that inbox**, not just
+      returning 200: glaze.md's bar is a real destination and a confirmed inbox, two
+      separate things.
+- [ ] Ask the owner to confirm the delivery minimum's basis (flowers subtotal, fee on
+      top, is the stricter reading we chose) and to read the transcribed per-zip fees
+      back once. Fee and minimum are otherwise answered; the cutoff is settled as
+      none. Then card payment can open to delivery orders too.
+- [ ] **Prove the Square loop end to end IN THE SANDBOX** (`.env.example` has the click
+      paths for both the sandbox credentials and the Glazed platform app): POST
+      `/api/square/sync` and see 57 items appear in the sandbox Dashboard, ring a
+      test payment on the sandbox, and see it arrive at `/api/square/sales`, then
+      take a sandbox card at the board and at checkout. Production is the OWNER's
+      Square account connected through `/api/square/connect` (OAuth, not her
+      password; the launch plan's item 3), `SQUARE_ENV=production`, and a fresh
+      webhook subscription on the production toggle.
+- [ ] **Flip `CHECKOUT_CARDS=on` only after both parties agree in writing**, which is
+      what Exhibit A says starts online checkout. Until then the code is there and
+      the checkout behaves exactly as Phase 1. Redeploy after flipping.
 - [ ] **Ask the owner how the counter is actually rung: catalog items or custom
       amounts.** Custom amounts arrive as `slug: null` sales that no recipe can
       decrement. If that is the register habit today, the habit is the first
@@ -279,21 +376,25 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 - [ ] **Ask her the stems-per-bunch counts** for the varieties she buys by the
       bunch. The weekly-order screen asks per variety the first time and
       remembers, so this can also just happen naturally across two truck days.
-- [ ] **Rewrite the wedding model from her real spreadsheet.** She has agreed to
-      send it; the provisional markup/labor model and the wedding template are
-      stand-ins until it lands. Also ask whether she has a quote-validity policy
-      to print.
-- [ ] **Put DeVine's own funeral price points into `FUNERAL_MENU`.** The pad ships
-      with published 2026 industry ranges (Kremp, funeral.com, Ever Loved) because
-      there is no worksheet of hers to copy — she quotes funerals on the spot, in
-      person. The screen says so out loud; swapping in her numbers is the first
-      edit after the meeting.
+- [x] ~~Rewrite the wedding model from her real spreadsheet.~~ Done 2026-09-02 from
+      screenshots of the Grace tab, verified to the cent. Still open: check it
+      against the whole sheet once she grants access rather than screenshots, and
+      ask whether she has a quote-validity policy to print.
+- [x] ~~Put DeVine's own funeral price points into `FUNERAL_MENU`.~~ Her ranges for
+      vases, easels, casket sprays and urn surrounds landed 2026-09-02 from her
+      texts. The rows she did not name (insert, basket, table piece, boutonniere,
+      corsage) still carry the published 2026 industry stand-ins; ask for those.
 - [ ] **Watch her quote one funeral live and correct the pad against it.** What she
       asks first, in what order, what she writes down, what the family walks out
-      with. The pad is a researched guess at that motion, not a transcription.
-- [ ] Wire Stripe hosted Checkout (Phase 1 takes payment on the confirm call, which
-      is how the shop already handles phone orders). The cart shape already matches
-      what Stripe wants.
+      with. The pad is a researched guess at that motion, not a transcription. Also
+      her word on whether the pad's notes get their own block on the order or go
+      away (the launch plan's item 9).
+- [ ] **Fix the proposal letter's payment paragraph.** `public/pitch/devine/index.html`
+      still says online card payment "runs on Stripe's own page at Stripe's published
+      rate" and "we take nothing on top". The code is Square, through the shop's own
+      account, with the 3% card fee and the 99 cent platform fee shown as one
+      Convenience fee line. The letter is static HTML and cannot read the constant,
+      so this is a hand edit.
 
 ## Done, per glaze/launch.md
 
@@ -307,9 +408,17 @@ unnoticed. Ticked means measured on the production build, not intended.
 - [x] `grep -rn PLACEHOLDER` — every hit is on the list above. Two are deliberately
       rendered to the visitor as `.notice` callouts, which is disclosure to a
       prospect rather than leaked scaffolding. No PLACEHOLDER reaches a meta tag.
-- [ ] **Every form actually submitted and confirmed arriving in a real inbox.** The
-      wedding form is a `mailto:` handoff. There is no inbox to confirm yet.
-- [x] Any remote data source verified on the deployment. There is none.
+- [ ] **Every form actually submitted and confirmed arriving in a real inbox.** Four
+      forms send now (order, inquiry, agreement, photo), all to Glazed-side inboxes
+      while this is a pitch; the agreement flow has a test acceptance in the store
+      from proving it. The shop's own inbox has not been confirmed because `ORDER_TO`
+      still points at Glazed and `INQUIRY_TO` is set to a Glazed inbox during build
+      sessions.
+- [ ] **Any remote data source verified on the deployment.** There are two now: Square
+      (sandbox by default; the end-to-end sandbox proof is on the pre-launch list,
+      and production waits on the owner's OAuth connect) and the studio pay rail at
+      glazedweb.com, which the launch plan reads for its money lights and treats as
+      unlit on any failure.
 - [x] Every heading, button and body run measured for contrast. Eleven pairings, in
       the `globals.css` header. 0 failures.
 
@@ -368,8 +477,15 @@ Confirmed from their own pages on 2026-08-20:
   Linden. Third-party listings still say 810; that is a finding, not a correction.
 - Phone 269-789-0830. Email is a gmail.com address.
 - Hours: Mon to Wed 9 to 4, Thu and Fri 9 to 5:30, Sat 9 to 2, closed Sunday.
-- Team: Gayle Scantlen, Becky Moore, Lacey Andrews, Shawna Wilcox. No roles published.
+- Team: Gayle Scantlen, Becky Moore, Lacey Andrews, Shawna Wilcox. No roles published
+  on their site; headline roles came from Katy's own printed chart, 2026-09-02.
 - 57 products, 8 categories, 18 delivery towns, 24 zip codes.
+- Delivery fees per zip and the two minimums ($45 Marshall, $55 outside), from her
+  IRIS zip sheet via Kevin, 2026-09-01. No same-day cutoff exists (Katy, 2026-09-02).
+- Wedding quote model: labor is 2/3 of materials, 6% Michigan tax on pieces only,
+  50% non-refundable deposit. From her 2026WeddingQuotes sheet, 2026-09-02.
+- Funeral ranges: vases $75 to $250ish, easels and casket sprays $150 to $550, urn
+  surrounds $125 to $350. From her texts, 2026-09-02.
 - No wire service. No Teleflora, FTD or BloomNet anywhere on their site, so there is
   nothing to license or strip. Checkout is native WooCommerce.
 - Incumbent vendor: Creative Web Designing, Inc. of Coldwater, credited in their footer.
