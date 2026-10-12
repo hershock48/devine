@@ -28,8 +28,11 @@ import { field, labelText, longDate, money, textButton, MemoryWarning, PinGate }
    mid-edit ("2." on the way to "2.5") never fights the keyboard. */
 type DraftPart = { variety: string; stems: string };
 type DraftPiece = { id: string; name: string; qty: string; hardgoods: string; parts: DraftPart[] };
-type Draft = Omit<Quote, "pieces" | "flowers" | "markup" | "laborPct" | "taxPct" | "delivery" | "setup"> & {
+type Draft = Omit<Quote, "pieces" | "flowers" | "markup" | "laborPct" | "taxPct" | "delivery" | "setup" | "budgetTarget"> & {
   pieces: DraftPiece[];
+  /** Their number, as typed (Katy, 2026-10-06: the funeral pad's budget
+      frame, wanted on weddings too). The route reads it as a number. */
+  budgetTarget: string;
   flowers: { variety: string; costPerStem: string }[];
   markup: string;
   laborPct: string;
@@ -53,6 +56,7 @@ const toDraft = (q: Quote): Draft => ({
   taxPct: q.taxPct != null ? String(q.taxPct) : "0",
   delivery: q.delivery ? String(q.delivery) : "",
   setup: q.setup ? String(q.setup) : "",
+  budgetTarget: q.budgetTarget ? String(q.budgetTarget) : "",
 });
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -515,6 +519,30 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
               <span style={{ fontFamily: "var(--serif)", fontSize: 20 }}>Total</span>
               <strong style={{ fontSize: 26, fontVariantNumeric: "tabular-nums" }}>{money(pricing.total)}</strong>
             </div>
+            {/* THEIR NUMBER, as a frame (Katy, 2026-10-06: the funeral
+                pad's budget line, wanted here too). A couple names a
+                budget at the consult and the quote is built toward it;
+                the gap reads out loud the whole time, same words as the
+                pad. Optional: blank means no frame, and nothing prints. */}
+            <label>
+              <span style={labelText}>What they can spend <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></span>
+              <input
+                inputMode="decimal"
+                value={draft.budgetTarget}
+                onChange={(e) => set({ budgetTarget: e.target.value })}
+                style={field}
+              />
+            </label>
+            {(() => {
+              const target = Number(draft.budgetTarget);
+              if (!draft.budgetTarget.trim() || !Number.isFinite(target) || target <= 0) return null;
+              const over = Math.round((pricing.total - target) * 100) / 100;
+              return (
+                <p role="status" style={{ margin: 0, fontSize: 15, fontWeight: 600, color: over > 0 ? "var(--rose-ink)" : "var(--green)" }}>
+                  {over > 0 ? `${money(over)} over what they said.` : over === 0 ? "Right on their number." : `${money(-over)} still to spend.`}
+                </p>
+              );
+            })()}
             {draft.kind === "wedding" && pricing.total > 0 && (
               <p className="muted" style={{ margin: 0, fontSize: 14 }}>
                 Deposit to save the date: <strong>{money(pricing.deposit)}</strong> (50%).
