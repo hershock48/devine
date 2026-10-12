@@ -385,6 +385,31 @@ export type AgreementAcceptance = {
   createdAt: number;
 };
 
+/**
+ * A CONTACT ON FILE, brought in from her old system (IRIS, 2026-10-12): the
+ * customer list and the recipient list she exported before it goes. The
+ * board's autofill searches these beside the order history, so day one
+ * already knows twenty years of names and every funeral home she delivers
+ * to. Rows are additive and keyed by a hash of what identifies them, so
+ * the same export can be loaded twice without doubling anything.
+ */
+export type Contact = {
+  id: string;
+  kind: "customer" | "recipient";
+  source: "iris";
+  /** "First Last", or the company when there is no person. */
+  name: string;
+  business: string;
+  street: string;
+  street2: string;
+  town: string;
+  state: string;
+  zip: string;
+  phone: string;
+  email: string;
+  createdAt: number;
+};
+
 export type OrderContact = {
   name: string;
   phone: string;
@@ -500,7 +525,19 @@ type Store = {
   listAgreementAcceptances(): Promise<AgreementAcceptance[]>;
   upsertPhotoSubmission(p: PhotoSubmission): Promise<void>;
   listPhotoSubmissions(): Promise<PhotoSubmission[]>;
+  /** Additive, idempotent by id. Returns how many rows were written. */
+  upsertContacts(list: Contact[]): Promise<number>;
+  /** Name, business, street, town, email or phone digits containing `q`,
+      newest first, at most `limit`. Server-side so 17,000 rows never ride
+      along with a board refresh. */
+  searchContacts(kind: Contact["kind"], q: string, limit: number): Promise<Contact[]>;
+  countContacts(): Promise<{ customer: number; recipient: number }>;
 };
+
+/** What the contact search matches on, lowercased, built once per row. */
+export function contactSearchText(c: Contact): string {
+  return [c.name, c.business, c.street, c.town, c.email].join(" ").toLowerCase();
+}
 
 export const SHRINK_REASONS = ["wilted", "damaged", "overbought", "event fell through", "other"] as const;
 
@@ -526,6 +563,7 @@ type Bag = {
   squareTokens: SquareTokens | null;
   acceptances: Map<string, AgreementAcceptance>;
   photoSubs: Map<string, PhotoSubmission>;
+  contacts: Map<string, Contact>;
 };
 
 function bag(): Bag {
@@ -543,11 +581,13 @@ function bag(): Bag {
       squareTokens: null,
       acceptances: new Map(),
       photoSubs: new Map(),
+      contacts: new Map(),
     };
   }
   // A bag created by an older module instance predates the newer maps.
   const b = g.__devineWorkroom;
   if (!b.quotes) b.quotes = new Map();
+  if (!b.contacts) b.contacts = new Map();
   if (!b.squareSales) b.squareSales = new Map();
   if (!b.varieties) b.varieties = new Map();
   if (!b.weeklyOrders) b.weeklyOrders = new Map();
@@ -709,6 +749,23 @@ const memoryStore: Store = {
   async listPhotoSubmissions() {
     return [...bag().photoSubs.values()].sort((a, b) => b.createdAt - a.createdAt);
   },
+  async upsertContacts(list) {
+    for (const c of list) bag().contacts.set(c.id, c);
+    return list.length;
+  },
+  async searchContacts(kind, q, limit) {
+    const needle = q.trim().toLowerCase();
+    const digits = needle.replace(/\D/g, "");
+    if (!needle) return [];
+    return [...bag().contacts.values()]
+      .filter((c) => c.kind === kind && (contactSearchText(c).includes(needle) || (digits.length >= 3 && c.phone.replace(/\D/g, "").includes(digits))))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
+  },
+  async countContacts() {
+    const all = [...bag().contacts.values()];
+    return { customer: all.filter((c) => c.kind === "customer").length, recipient: all.filter((c) => c.kind === "recipient").length };
+  },
 };
 
 /* ----------------------------- postgres ----------------------------- */
@@ -795,6 +852,15 @@ async function pgPool(): Promise<PgPool> {
         created_at bigint NOT NULL,
         data jsonb NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS workroom_contacts (
+        id text PRIMARY KEY,
+        kind text NOT NULL,
+        search text NOT NULL,
+        phone_digits text NOT NULL,
+        created_at bigint NOT NULL,
+        data jsonb NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS workroom_contacts_kind ON workroom_contacts (kind);
     `).catch((err: unknown) => {
       g.__devinePgPool = undefined;
       g.__devinePgReady = undefined;
@@ -1088,6 +1154,52 @@ const postgresStore: Store = {
     const pool = await pgPool();
     const r = await pool.query(`SELECT data FROM photo_submissions ORDER BY created_at DESC LIMIT 200`);
     return r.rows.map((row) => row.data as PhotoSubmission);
+  },
+  async upsertContacts(list) {
+    const pool = await pgPool();
+    // Multi-row inserts in chunks: 17,000 single statements over a pooled
+    // serverless connection is the slow way to say the same thing.
+    const CHUNK = 400;
+    let written = 0;
+    for (let i = 0; i < list.length; i += CHUNK) {
+      const slice = list.slice(i, i + CHUNK);
+      const values: unknown[] = [];
+      const tuples = slice.map((c, j) => {
+        const b = j * 6;
+        values.push(c.id, c.kind, contactSearchText(c), c.phone.replace(/\D/g, ""), c.createdAt, JSON.stringify(c));
+        return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`;
+      });
+      await pool.query(
+        `INSERT INTO workroom_contacts (id, kind, search, phone_digits, created_at, data) VALUES ${tuples.join(", ")}
+         ON CONFLICT (id) DO UPDATE SET kind = EXCLUDED.kind, search = EXCLUDED.search, phone_digits = EXCLUDED.phone_digits, data = EXCLUDED.data`,
+        values,
+      );
+      written += slice.length;
+    }
+    return written;
+  },
+  async searchContacts(kind, q, limit) {
+    const needle = q.trim().toLowerCase();
+    const digits = needle.replace(/\D/g, "");
+    if (!needle) return [];
+    const pool = await pgPool();
+    // A scan of a few thousand short rows is milliseconds; no trigram
+    // extension to depend on. Escape the LIKE wildcards in what was typed.
+    const esc = needle.replace(/[\\%_]/g, (m) => `\\${m}`);
+    const r = await pool.query(
+      `SELECT data FROM workroom_contacts
+       WHERE kind = $1 AND (search LIKE '%' || $2 || '%' ESCAPE '\\' OR ($3 <> '' AND phone_digits LIKE '%' || $3 || '%'))
+       ORDER BY created_at DESC LIMIT $4`,
+      [kind, esc, digits.length >= 3 ? digits : "", limit],
+    );
+    return r.rows.map((row) => row.data as Contact);
+  },
+  async countContacts() {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT kind, count(*)::int AS n FROM workroom_contacts GROUP BY kind`);
+    const out = { customer: 0, recipient: 0 };
+    for (const row of r.rows) if (row.kind === "customer" || row.kind === "recipient") out[row.kind as "customer" | "recipient"] = Number(row.n);
+    return out;
   },
 };
 

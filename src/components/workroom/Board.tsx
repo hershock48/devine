@@ -103,6 +103,11 @@ type Contact = {
   zip?: string;
 };
 
+/** A contact on file from her old system (IRIS), as the search route
+    returns it. Searched server-side as the counter types; never shipped
+    whole with the board. */
+type FileContact = { id: string; name: string; business: string; street: string; street2: string; town: string; zip: string; phone: string; email: string };
+
 function priorOrders(contacts: Contact[], phone: string, email: string, before: number): Contact[] {
   const pk = phoneKey(phone);
   const ek = email.trim().toLowerCase();
@@ -1144,6 +1149,52 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   const [street, setStreet] = useState(editing?.street ?? "");
   const [town, setTown] = useState(editing?.town ?? "");
   const [zip, setZip] = useState(editing?.zip ?? "");
+  /** Hits from the contacts on file (IRIS), fetched as the human types,
+      a short pause after the last keystroke; merged under the order-history
+      chips, which always come first because they are more recent truth. */
+  const [fileHits, setFileHits] = useState<FileContact[]>([]);
+  const [fileRecipHits, setFileRecipHits] = useState<FileContact[]>([]);
+  const [pickedFromFile, setPickedFromFile] = useState(false);
+  const custQ = typed.name ? name.trim() : typed.phone ? phone.trim() : "";
+  useEffect(() => {
+    let dead = false;
+    if (picked || custQ.length < 2) {
+      setFileHits([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      fetch(`/api/workroom/contacts?kind=customer&q=${encodeURIComponent(custQ)}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!dead) setFileHits((d?.hits as FileContact[]) ?? []);
+        })
+        .catch(() => {});
+    }, 180);
+    return () => {
+      dead = true;
+      clearTimeout(t);
+    };
+  }, [custQ, picked]);
+  const recipQ = typedRecipient ? recipient.trim() : "";
+  useEffect(() => {
+    let dead = false;
+    if (recipQ.length < 2) {
+      setFileRecipHits([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      fetch(`/api/workroom/contacts?kind=recipient&q=${encodeURIComponent(recipQ)}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!dead) setFileRecipHits((d?.hits as FileContact[]) ?? []);
+        })
+        .catch(() => {});
+    }, 180);
+    return () => {
+      dead = true;
+      clearTimeout(t);
+    };
+  }, [recipQ]);
   /** What was typed into the fee field, or null while it still follows the
       zip sheet. Derived, not an effect: a typed fee survives retyping a zip
       to fix a digit, and a never-touched field tracks the zip as it changes. */
@@ -1356,15 +1407,51 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
           )
           .sort((a, b) => b.c.createdAt - a.c.createdAt)
           .slice(0, 4);
-        if (hits.length === 0) return null;
+        // Then her old system's file, minus anyone the orders already
+        // offered (same phone, or same name when there is no phone).
+        const onFile = fileHits.filter(
+          (f) => !hits.some(({ c }) => (phoneKey(c.phone) && phoneKey(c.phone) === phoneKey(f.phone)) || c.name.trim().toLowerCase() === f.name.trim().toLowerCase()),
+        );
+        if (hits.length === 0 && onFile.length === 0) return null;
         return (
           <div role="status" style={{ margin: "-6px 0 0", display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {onFile.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => {
+                  setPicked({ name: f.name, phone: f.phone, email: f.email, createdAt: 0, street: f.street, town: f.town, zip: f.zip });
+                  setPickedFromFile(true);
+                  setTyped({ name: false, phone: false });
+                  setName(f.name);
+                  setPhone(f.phone);
+                  setEmail(f.email);
+                  setStreet(f.street);
+                  setTown(f.town);
+                  setZip(f.zip);
+                }}
+                style={{
+                  font: "inherit",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: "var(--ink)",
+                  background: "var(--paper-2)",
+                  border: "1px dashed var(--line)",
+                  borderRadius: 2,
+                  padding: "6px 10px",
+                  cursor: "pointer",
+                }}
+              >
+                {f.name}{f.business ? ` (${f.business})` : ""} · {f.phone || f.email || f.town || "no phone on file"} · on file
+              </button>
+            ))}
             {hits.map(({ c, count }) => (
               <button
                 key={`${c.phone}|${c.name}`}
                 type="button"
                 onClick={() => {
                   setPicked(c);
+                  setPickedFromFile(false);
                   setTyped({ name: false, phone: false });
                   setName(c.name);
                   setPhone(c.phone);
@@ -1402,7 +1489,9 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
           order is its own. */}
       {picked && (
         <p role="status" style={{ margin: "-6px 0 0", fontSize: 14, fontWeight: 600, color: "var(--green)" }}>
-          Filled from {picked.name || "their file"}&rsquo;s last order. What they want today is below.
+          {pickedFromFile
+            ? <>Filled from {picked.name || "their"} file in the old system; check the address is current. What they want today is below.</>
+            : <>Filled from {picked.name || "their file"}&rsquo;s last order. What they want today is below.</>}
         </p>
       )}
 
@@ -1461,9 +1550,40 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
             .filter(({ c }) => (c.recipient ?? "").toLowerCase().includes(q))
             .sort((a, b) => b.c.createdAt - a.c.createdAt)
             .slice(0, 4);
-          if (hits.length === 0) return null;
+          const onFile = fileRecipHits.filter(
+            (f) => !hits.some(({ c }) => (c.recipient ?? "").trim().toLowerCase() === f.name.trim().toLowerCase() && (c.street ?? "").trim().toLowerCase() === f.street.trim().toLowerCase()),
+          );
+          if (hits.length === 0 && onFile.length === 0) return null;
           return (
             <div role="status" style={{ margin: "-6px 0 0", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {onFile.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => {
+                    setTypedRecipient(false);
+                    // A person at a place keeps both: the driver needs the
+                    // funeral home's name and the family's.
+                    setRecipient(f.business && f.business !== f.name ? `${f.name}, ${f.business}` : f.name);
+                    setStreet([f.street, f.street2].filter(Boolean).join(", "));
+                    setTown(f.town);
+                    setZip(f.zip);
+                  }}
+                  style={{
+                    font: "inherit",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "var(--ink)",
+                    background: "var(--paper-2)",
+                    border: "1px dashed var(--line)",
+                    borderRadius: 2,
+                    padding: "6px 10px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {f.name}{f.business && f.business !== f.name ? ` at ${f.business}` : ""} · {[f.street, f.town].filter(Boolean).join(", ") || "no address on file"} · on file
+                </button>
+              ))}
               {hits.map(({ c, count }) => (
                 <button
                   key={`${c.recipient}|${c.street}`}
