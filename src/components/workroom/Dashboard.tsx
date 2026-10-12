@@ -322,6 +322,11 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
   const [backend, setBackend] = useState<string | null>(null);
   const [range, setRange] = useState<Range>("week");
   const [back, setBack] = useState(0);
+  /** WEBSITE OR PHONE (Katy, 2026-10-06: "sort out via website vs other
+      orders"). Filters every order-derived figure on this screen: the
+      Orders tiles, best sellers, occasions, lead time and margins. Register
+      money is untouched; Square does not know where an order came from. */
+  const [sourceFilter, setSourceFilter] = useState<"all" | "web" | "phone">("all");
   /** The chart scroll region's real inner width, so the SVG can draw at
       native scale instead of letterboxing (see the CW note below). */
   const chartBox = useRef<HTMLDivElement>(null);
@@ -484,7 +489,9 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       const handMarkedCents = handMarked.reduce((sum, o) => sum + (o.payment?.totalCents ?? 0), 0);
 
       /* orders */
-      const ordersIn = orders.filter((o) => inMs(o.createdAt) && o.status !== "canceled");
+      const ordersIn = orders.filter(
+        (o) => inMs(o.createdAt) && o.status !== "canceled" && (sourceFilter === "all" || o.source === sourceFilter),
+      );
       const orderedCents = ordersIn.reduce((sum, o) => sum + Math.round(o.subtotal * 100), 0);
       const web = ordersIn.filter((o) => o.source === "web").length;
       const delivery = ordersIn.filter((o) => o.fulfillment === "delivery").length;
@@ -626,7 +633,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
     const owedCents = owed.reduce((sum, o) => sum + Math.round(o.subtotal * 100), 0);
 
     return { now, prev, owedCount: owed.length, owedCents };
-  }, [events, recipes, orders, sales, contacts, win]);
+  }, [events, recipes, orders, sales, contacts, win, sourceFilter]);
 
   if (!authed) {
     return (
@@ -891,8 +898,31 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       )}
 
       <SectionHead label="Orders" href="/workroom" linkText="Open the board" />
+      <div role="group" aria-label="Orders from" style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: 3, overflow: "hidden", margin: "0 0 12px" }}>
+        {(["all", "web", "phone"] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            aria-pressed={sourceFilter === f}
+            onClick={() => setSourceFilter(f)}
+            style={{
+              font: "inherit", fontSize: 13.5, fontWeight: sourceFilter === f ? 700 : 400, cursor: "pointer",
+              border: 0, padding: "7px 13px",
+              background: sourceFilter === f ? "var(--ink)" : "var(--paper)",
+              color: sourceFilter === f ? "var(--paper)" : "var(--ink)",
+            }}
+          >
+            {f === "all" ? "All orders" : f === "web" ? "Website" : "Phone & counter"}
+          </button>
+        ))}
+      </div>
       <div style={grid}>
-        <Tile label="New orders" value={String(now.ordersCount)} sub={`${now.web} web · ${now.phone} phone`} delta={<Delta basis={basis} cur={now.ordersCount} prev={prev.ordersCount} />} />
+        <Tile
+          label={sourceFilter === "all" ? "New orders" : sourceFilter === "web" ? "Website orders" : "Phone & counter orders"}
+          value={String(now.ordersCount)}
+          sub={sourceFilter === "all" ? `${now.web} web · ${now.phone} phone` : "the tiles below follow this filter"}
+          delta={<Delta basis={basis} cur={now.ordersCount} prev={prev.ordersCount} />}
+        />
         <Tile label="Ordered" value={wholeDollars(now.orderedCents)} sub="tickets written, paid or not" delta={<Delta basis={basis} cur={now.orderedCents} prev={prev.orderedCents} fmt={wholeDollars} />} />
         <Tile label="Deliveries" value={String(now.delivery)} sub={`${now.pickup} pickup${now.pickup === 1 ? "" : "s"}`} delta={<Delta basis={basis} cur={now.delivery} prev={prev.delivery} />} />
         <Tile
