@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { site } from "@/lib/site";
 import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, isDeliveryLine, normalizeVariety } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, isDeliveryLine, normalizeVariety, printPaperFor } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -146,31 +146,32 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   /** WHAT CAME IN SINCE ANYONE PRINTED (Kevin, 2026-10-12): the website
       orders nobody has printed yet, on every sign-in and every refresh,
       until each is printed or marked. One PDF per paper, so the morning is
-      two clicks: the delivery forms, then the pickup tickets. Refreshed
-      with the board's own poll. */
-  const [toPrint, setToPrint] = useState<ToPrint[]>([]);
-  const pullQueue = useCallback(async () => {
-    try {
-      const r = await fetch("/api/workroom/print/queue", { cache: "no-store" });
-      if (!r.ok) return;
-      const d = (await r.json()) as { orders?: ToPrint[] };
-      setToPrint(d.orders ?? []);
-    } catch {}
-  }, []);
-  /** Open the PDF for one paper (all its orders, a page each), then mark
-      them printed. Marked on OPEN, not on the dialog's Print, which a page
-      cannot see; the card's own Print link is the reprint if the dialog
-      was cancelled. */
+      two clicks: the delivery forms, then the pickup tickets. Read off
+      the orders the board already polls (same window, same rule as the
+      queue route), so there is one clock and no second request. */
+  const [printError, setPrintError] = useState("");
+  /** Open one PDF with exactly the listed orders for that paper. The
+      route marks them printed as the document goes out: on OPEN, not on
+      the dialog's Print, which a page cannot see; the card's own Print
+      link is the reprint if the dialog was cancelled. */
   async function printPaper(paper: "forms" | "plain") {
     const ids = toPrint.filter((t) => t.paper === paper).map((t) => t.id);
     if (ids.length === 0) return;
-    window.open(`/api/workroom/print/queue?paper=${paper}`, "_blank", "noopener");
-    await fetch("/api/workroom/print/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }).catch(() => {});
-    await Promise.all([pullQueue(), pull()]);
+    setPrintError("");
+    const w = window.open(`/api/workroom/print/queue?paper=${paper}&ids=${ids.join(",")}`, "_blank", "noopener");
+    if (!w) {
+      setPrintError("The browser blocked the pop-up. Allow pop-ups for this site, then try again; nothing was marked printed.");
+      return;
+    }
+    // The PDF marks on the server; give it a moment, then re-read the board.
+    await new Promise((r) => setTimeout(r, 2500));
+    await pull();
   }
   async function markPrinted(ids: string[]) {
-    await fetch("/api/workroom/print/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }).catch(() => {});
-    await Promise.all([pullQueue(), pull()]);
+    setPrintError("");
+    const r = await fetch("/api/workroom/print/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }).catch(() => null);
+    if (!r || !r.ok) setPrintError("Could not mark them; check the connection and try again.");
+    await pull();
   }
 
   /** The Square connect's landing flag (?square=connected and friends),
@@ -205,12 +206,6 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
   // Poll only once in (the pjs lesson: polling while locked fires 401s into
   // the console of a page whose normal state is locked). 30s, florist pace.
-  useEffect(() => {
-    if (!authed) return;
-    pullQueue().catch(() => {});
-    const q = setInterval(() => pullQueue().catch(() => {}), 30_000);
-    return () => clearInterval(q);
-  }, [authed, pullQueue]);
   useEffect(() => {
     if (!authed) return;
     pull().catch(() => {});
@@ -290,6 +285,22 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
   const searching = find.trim().length > 0;
   const today = todayISO();
+  const toPrint = useMemo<ToPrint[]>(() => {
+    const since = Date.now() - PRINT_WINDOW_MS;
+    return orders
+      .filter((o) => o.source === "web" && !o.printedAt && o.createdAt >= since && o.status !== "canceled")
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((o) => ({
+        id: o.id,
+        number: o.number,
+        name: o.name,
+        recipient: o.recipient,
+        date: o.date,
+        fulfillment: o.fulfillment,
+        paper: printPaperFor(o),
+        createdAt: o.createdAt,
+      }));
+  }, [orders]);
   const buckets = useMemo(() => {
     const q = find.trim().toLowerCase();
     // Search runs over the whole fetched history; the live board stays on
@@ -368,7 +379,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <MemoryWarning backend={backend} />
 
       {toPrint.length > 0 && (
-        <PrintBanner items={toPrint} onPrint={printPaper} onMark={markPrinted} />
+        <PrintBanner items={toPrint} onPrint={printPaper} onMark={markPrinted} error={printError} />
       )}
 
       {squareFlag && (
@@ -729,6 +740,9 @@ function Moves({
   );
 }
 
+/** The queue route's window: website orders from the last three days. */
+const PRINT_WINDOW_MS = 3 * 86_400_000;
+
 type ToPrint = {
   id: string;
   number: string;
@@ -748,7 +762,17 @@ type ToPrint = {
  * afternoon cannot lose one. The helper on the counter PC, if it is ever
  * installed, empties this list by itself.
  */
-function PrintBanner({ items, onPrint, onMark }: { items: ToPrint[]; onPrint: (paper: "forms" | "plain") => Promise<void>; onMark: (ids: string[]) => Promise<void> }) {
+function PrintBanner({
+  items,
+  onPrint,
+  onMark,
+  error,
+}: {
+  items: ToPrint[];
+  onPrint: (paper: "forms" | "plain") => Promise<void>;
+  onMark: (ids: string[]) => Promise<void>;
+  error?: string;
+}) {
   const [busy, setBusy] = useState<"" | "forms" | "plain" | "mark">("");
   const forms = items.filter((t) => t.paper === "forms");
   const plain = items.filter((t) => t.paper === "plain");
@@ -798,6 +822,11 @@ function PrintBanner({ items, onPrint, onMark }: { items: ToPrint[]; onPrint: (p
           Already printed these
         </button>
       </div>
+      {error && (
+        <p role="alert" style={{ margin: "8px 0 0", fontSize: 13.5, color: "var(--rose-ink)" }}>
+          {error}
+        </p>
+      )}
       <p className="muted" style={{ margin: "8px 0 0", fontSize: 13 }}>
         Each button opens one document with a page per order; in the print dialog pick the tray by name. The list clears once opened; a card&rsquo;s own Print link reprints any one.
       </p>

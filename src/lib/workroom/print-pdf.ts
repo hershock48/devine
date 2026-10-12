@@ -1,9 +1,9 @@
 import "server-only";
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { isDeliveryLine, isTaxLine } from "./derive";
+import { isDeliveryLine, isTaxLine, printLayoutFor, type PrintLayout } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -34,15 +34,11 @@ const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
  * Any order can be printed either way; the order picks its own by
  * fulfillment and the caller may override.
  */
-export type PrintLayout = "sheet" | "plain";
+export type { PrintLayout };
 
-/**
- * Which paper an order wants (Kevin's notes from the shop, 2026-10-12):
- * deliveries get the six-panel form; pickups get plain paper, unless the
- * pickup carries a card message, because then it needs the enclosure card
- * panel only the form has.
- */
-export const layoutFor = (o: WorkroomOrder): PrintLayout => (o.fulfillment === "pickup" && !o.cardMessage.trim() ? "plain" : "sheet");
+/** Which paper an order wants: one rule, in derive.ts, shared with the
+    board's banner so the list and the PDF can never disagree. */
+export const layoutFor = (o: WorkroomOrder): PrintLayout => printLayoutFor(o);
 
 const IN = 72;
 const PANEL_W = (11 * IN) / 3;
@@ -71,10 +67,29 @@ function clean(s: string): string {
     .replace(/[^\x20-\x7e\xa0-\xff\n]/g, "");
 }
 
+/** A single token wider than the column (a long email, a pasted URL, a
+    run of dashes) is cut at the edge rather than drawn past it. */
+function breakToken(font: PDFFont, size: number, w: string, maxW: number): string[] {
+  if (font.widthOfTextAtSize(w, size) <= maxW) return [w];
+  const parts: string[] = [];
+  let cur = "";
+  for (const ch of w) {
+    if (cur && font.widthOfTextAtSize(cur + ch, size) > maxW) {
+      parts.push(cur);
+      cur = ch;
+    } else cur += ch;
+  }
+  if (cur) parts.push(cur);
+  return parts;
+}
+
 function wrap(font: PDFFont, size: number, text: string, maxW: number): string[] {
   const out: string[] = [];
   for (const para of clean(text).split("\n")) {
-    const words = para.split(/\s+/).filter(Boolean);
+    const words = para
+      .split(/\s+/)
+      .filter(Boolean)
+      .flatMap((w) => breakToken(font, size, w, maxW));
     if (words.length === 0) {
       out.push("");
       continue;
@@ -370,12 +385,11 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
 
 /* ------------------------------ plain paper ------------------------------ */
 
-async function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder, printedAt: number) {
+function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o: WorkroomOrder, printedAt: number) {
   const page = doc.addPage([8.5 * IN, 11 * IN]);
   const pen: Pen = { page, ...fonts };
   const M = 0.5 * IN;
   const W = 8.5 * IN - M * 2;
-  const logo = await doc.embedPng(LOGO_PNG);
   const logoW = 2.2 * IN;
   const logoH = (logo.height / logo.width) * logoW;
   page.drawImage(logo, { x: M, y: 11 * IN - M - logoH, width: logoW, height: logoH });
@@ -418,19 +432,26 @@ async function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, o: Workroom
     let lines = wrap(pen.serif, size, o.cardMessage || "(none)", W - 24);
     // The box takes what fits above the floor, leaving room for the stamp.
     const room = c.y - c.floor - 20 - 30;
-    const maxLines = Math.max(1, Math.floor(room / (size * 1.4)));
-    if (lines.length > maxLines) {
-      lines = [...lines.slice(0, maxLines - 1), "(... the rest is on the board)"];
+    const maxLines = Math.floor(room / (size * 1.4));
+    if (maxLines < 1) {
+      // A long item list ate the page; the box would sit below the floor.
+      // The "more" line says the rest is on the board; a reprint on the
+      // form has the room.
       c.overflowed = true;
+    } else {
+      if (lines.length > maxLines) {
+        lines = [...lines.slice(0, Math.max(0, maxLines - 1)), "(... the rest is on the board)"];
+        c.overflowed = true;
+      }
+      const h = lines.length * size * 1.4 + 20;
+      page.drawRectangle({ x: M, y: c.y - h, width: W, height: h, borderColor: ink, borderWidth: 0.8 });
+      let y = c.y - 10;
+      for (const l of lines) {
+        y -= size * 1.4;
+        page.drawText(l, { x: M + 12, y, size, font: pen.serif, color: ink });
+      }
+      c.y -= h;
     }
-    const h = lines.length * size * 1.4 + 20;
-    page.drawRectangle({ x: M, y: c.y - h, width: W, height: h, borderColor: ink, borderWidth: 0.8 });
-    let y = c.y - 10;
-    for (const l of lines) {
-      y -= size * 1.4;
-      page.drawText(l, { x: M + 12, y, size, font: pen.serif, color: ink });
-    }
-    c.y -= h;
   }
   if (o.notes) {
     c.heading("Notes");
@@ -461,9 +482,11 @@ export async function renderBatchPdf(batch: { order: WorkroomOrder; layout: Prin
   );
   doc.setProducer("DeVine's workroom");
   const fonts = await pens(doc);
+  // One copy of the logo per document, however many plain pages share it.
+  const logo = batch.some((b) => b.layout === "plain") ? await doc.embedPng(LOGO_PNG) : null;
   for (const { order, layout } of batch) {
-    if (layout === "sheet") drawSheet(doc, fonts, order, printedAt);
-    else await drawPlain(doc, fonts, order, printedAt);
+    if (layout === "sheet" || !logo) drawSheet(doc, fonts, order, printedAt);
+    else drawPlain(doc, fonts, logo, order, printedAt);
   }
   return doc.save();
 }

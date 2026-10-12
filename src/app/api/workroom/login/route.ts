@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const throttle = pinThrottle(req);
+  const throttle = pinThrottle(req, "form");
   if (throttle.tooMany()) {
     return NextResponse.json(
       { error: "Too many tries. Wait a few minutes." },

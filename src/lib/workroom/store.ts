@@ -485,6 +485,9 @@ type Store = {
       key, not a migration. Keeps the status column in step when status is
       among the fields. */
   patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom" | "printedAt">>): Promise<void>;
+  /** Stamp printedAt on many at once (the morning banner's batch). Returns
+      how many rows existed. */
+  markOrdersPrinted(ids: string[], at: number): Promise<number>;
   /** The whole row, rewritten: editing an order that is on hold or not yet
       made (2026-10-12). The route decides what may be edited; the store
       just writes what it is handed, id and all. */
@@ -635,6 +638,17 @@ const memoryStore: Store = {
   async replaceOrder(o) {
     bag().orders.set(o.id, o);
   },
+  async markOrdersPrinted(ids, at) {
+    let n = 0;
+    for (const id of ids) {
+      const o = bag().orders.get(id);
+      if (o) {
+        o.printedAt = at;
+        n += 1;
+      }
+    }
+    return n;
+  },
   async setOrderPayment(id, p) {
     const o = bag().orders.get(id);
     if (o) o.payment = p;
@@ -778,7 +792,7 @@ function connectionString(): string | undefined {
 }
 
 type PgPool = {
-  query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[]; rowCount?: number | null }>;
 };
 
 async function pgPool(): Promise<PgPool> {
@@ -934,6 +948,15 @@ const postgresStore: Store = {
   async replaceOrder(o) {
     const pool = await pgPool();
     await pool.query(`UPDATE workroom_orders SET status = $2, data = $3 WHERE id = $1`, [o.id, o.status, JSON.stringify(o)]);
+  },
+  async markOrdersPrinted(ids, at) {
+    if (ids.length === 0) return 0;
+    const pool = await pgPool();
+    const r = await pool.query(
+      `UPDATE workroom_orders SET data = data || jsonb_build_object('printedAt', $2::bigint) WHERE id = ANY($1::text[])`,
+      [ids, at],
+    );
+    return r.rowCount ?? 0;
   },
   async setOrderPayment(id, p) {
     const pool = await pgPool();

@@ -59,6 +59,19 @@ export const deliveryLineName = (zip: string) => `Delivery (${zip || "no zip"})`
 export const isDeliveryLine = (l: { name: string }) => l.name.startsWith("Delivery (");
 export const isTaxLine = (l: { name: string }) => l.name.startsWith("Sales tax");
 
+/**
+ * WHICH PAPER AN ORDER PRINTS ON (Kevin's notes from the shop, 2026-10-12):
+ * deliveries get the six-panel form; pickups get plain paper, unless the
+ * pickup carries a card message, because then it needs the enclosure card
+ * panel only the form has. Here, client-safe, so the board's banner and
+ * the PDF route agree by construction.
+ */
+export type PrintLayout = "sheet" | "plain";
+export const printLayoutFor = (o: { fulfillment: string; cardMessage: string }): PrintLayout =>
+  o.fulfillment === "pickup" && !o.cardMessage.trim() ? "plain" : "sheet";
+export const printPaperFor = (o: { fulfillment: string; cardMessage: string }): "forms" | "plain" =>
+  printLayoutFor(o) === "sheet" ? "forms" : "plain";
+
 export function normalizeVariety(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }

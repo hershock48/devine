@@ -51,9 +51,23 @@ function Ack($id) {
 }
 
 Log "Print helper up. Forms -> '$FormsPrinter', plain -> '$PlainPrinter'. Ctrl+C stops it."
+$Locked = 0
 while ($true) {
   try {
-    $q = Invoke-RestMethod -Uri "$Base/api/workroom/print/queue" -Headers $Headers -TimeoutSec 20 -UseBasicParsing
+    try {
+      $q = Invoke-RestMethod -Uri "$Base/api/workroom/print/queue" -Headers $Headers -TimeoutSec 20 -UseBasicParsing
+      $Locked = 0
+    } catch {
+      # A wrong PIN answers 401; asking again every half minute would only
+      # trip the site's lockout. Five in a row and the helper stops.
+      $code = $null
+      try { $code = [int]$_.Exception.Response.StatusCode } catch {}
+      if ($code -eq 401) {
+        $Locked += 1
+        if ($Locked -ge 5) { Log "The PIN was refused 5 times. Fix `$Pin at the top of this file and start the helper again."; exit 1 }
+      }
+      throw
+    }
     foreach ($o in $q.orders) {
       if ($Ledger.ContainsKey($o.id)) {
         # Already printed here; only the ack is outstanding.
@@ -67,8 +81,10 @@ while ($true) {
       Invoke-WebRequest -Uri "$Base/api/workroom/print/$($o.id)" -Headers $Headers -OutFile $pdf -TimeoutSec 30 -UseBasicParsing
       $printer = if ($o.paper -eq "forms") { $FormsPrinter } else { $PlainPrinter }
       # noscale: the form is drawn on the creases; fit-to-page would move them.
-      & $Sumatra -print-to $printer -print-settings "noscale" -silent $pdf
-      if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "SumatraPDF exited $LASTEXITCODE for $($o.number)" }
+      # -Wait: a GUI program returns to PowerShell at once otherwise, before
+      # it has printed or failed, and the exit code would be unknowable.
+      $proc = Start-Process -FilePath $Sumatra -ArgumentList @("-print-to", "`"$printer`"", "-print-settings", "noscale", "-silent", "`"$pdf`"") -Wait -PassThru -WindowStyle Hidden
+      if ($proc.ExitCode -ne 0) { throw "SumatraPDF exited $($proc.ExitCode) for $($o.number)" }
       # Printed. Write that down FIRST, so a failed ack never reprints.
       $Ledger[$o.id] = "pending"
       Save-Ledger

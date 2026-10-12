@@ -102,8 +102,16 @@ export function clientKey(req: Request): string {
   const fwd = req.headers.get("x-forwarded-for");
   return (fwd ? fwd.split(",")[0] : req.headers.get("x-real-ip"))?.trim() || "unknown";
 }
-export function pinThrottle(req: Request) {
-  const key = clientKey(req);
+/**
+ * Two scopes, one rule each: the FORM (people at the counter) and the
+ * HEADER (scripts: the catalog sync, the print helper). Separate buckets,
+ * because a helper left with a wrong PIN would otherwise lock every phone
+ * behind the shop's one public address out of the login form, and a
+ * helper polling correctly every 30 seconds would otherwise wipe the
+ * form's failure count twice a minute.
+ */
+export function pinThrottle(req: Request, scope: "form" | "header") {
+  const key = `${scope}:${clientKey(req)}`;
   const now = Date.now();
   const bucket = buckets().get(key) ?? { failures: [] };
   bucket.failures = bucket.failures.filter((t) => now - t < PIN_WINDOW_MS);
@@ -125,7 +133,7 @@ export function headerPinOk(req: Request): boolean {
   const pin = workroomPin();
   const given = req.headers.get("x-workroom-pin");
   if (!pin || !given) return false;
-  const t = pinThrottle(req);
+  const t = pinThrottle(req, "header");
   if (t.tooMany()) return false;
   if (given === pin) {
     t.clear();
