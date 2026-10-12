@@ -175,6 +175,10 @@ export type Quote = {
   /** When somebody in the shop first laid eyes on a web-seeded quote (the
       Quotes list marks its visible ones on load). Absent = unseen. */
   seenAt?: number;
+  /** Put away, never deleted (Katy, 2026-10-06: "do we ever archive funeral
+      quotes? want to keep the quotes"). An archived quote leaves the list
+      until "Show archived", and comes back with one tap. */
+  archivedAt?: number;
   clientName: string;
   phone: string;
   email: string;
