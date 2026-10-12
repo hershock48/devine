@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { site } from "@/lib/site";
 import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, isDeliveryLine, normalizeVariety, printPaperFor } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, isDeliveryLine, normalizeVariety, printPaperFor, waitingToPrint } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -150,19 +150,24 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       the orders the board already polls (same window, same rule as the
       queue route), so there is one clock and no second request. */
   const [printError, setPrintError] = useState("");
-  /** Open one PDF with exactly the listed orders for that paper. The
-      route marks them printed as the document goes out: on OPEN, not on
-      the dialog's Print, which a page cannot see; the card's own Print
-      link is the reprint if the dialog was cancelled. */
-  async function printPaper(paper: "forms" | "plain") {
-    const ids = toPrint.filter((t) => t.paper === paper).map((t) => t.id);
+  /** Open one PDF with exactly the listed orders for that paper (or the
+      one order asked for). The route marks them printed as the document
+      goes out: on OPEN, not on the dialog's Print, which a page cannot
+      see; the card's own Print link is the reprint if the dialog was
+      cancelled. */
+  async function printPaper(paper: "forms" | "plain", only?: string) {
+    const ids = toPrint.filter((t) => t.paper === paper && (!only || t.id === only)).map((t) => t.id);
     if (ids.length === 0) return;
     setPrintError("");
-    const w = window.open(`/api/workroom/print/queue?paper=${paper}&ids=${ids.join(",")}`, "_blank", "noopener");
+    // No "noopener" in the features string: that makes window.open answer
+    // null even when the tab opened, which would read as blocked here.
+    // Same-origin PDF; the opener is cut by hand instead.
+    const w = window.open(`/api/workroom/print/queue?paper=${paper}&ids=${ids.join(",")}`, "_blank");
     if (!w) {
       setPrintError("The browser blocked the pop-up. Allow pop-ups for this site, then try again; nothing was marked printed.");
       return;
     }
+    w.opener = null;
     // The PDF marks on the server; give it a moment, then re-read the board.
     await new Promise((r) => setTimeout(r, 2500));
     await pull();
@@ -286,9 +291,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const searching = find.trim().length > 0;
   const today = todayISO();
   const toPrint = useMemo<ToPrint[]>(() => {
-    const since = Date.now() - PRINT_WINDOW_MS;
+    const now = Date.now();
     return orders
-      .filter((o) => o.source === "web" && !o.printedAt && o.createdAt >= since && o.status !== "canceled")
+      .filter((o) => waitingToPrint(o, now))
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((o) => ({
         id: o.id,
@@ -379,7 +384,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <MemoryWarning backend={backend} />
 
       {toPrint.length > 0 && (
-        <PrintBanner items={toPrint} onPrint={printPaper} onMark={markPrinted} error={printError} />
+        <PrintBanner items={toPrint} onPrint={printPaper} onPrintOne={(t) => printPaper(t.paper, t.id)} onMark={markPrinted} error={printError} />
       )}
 
       {squareFlag && (
@@ -740,9 +745,6 @@ function Moves({
   );
 }
 
-/** The queue route's window: website orders from the last three days. */
-const PRINT_WINDOW_MS = 3 * 86_400_000;
-
 type ToPrint = {
   id: string;
   number: string;
@@ -765,18 +767,20 @@ type ToPrint = {
 function PrintBanner({
   items,
   onPrint,
+  onPrintOne,
   onMark,
   error,
 }: {
   items: ToPrint[];
   onPrint: (paper: "forms" | "plain") => Promise<void>;
+  onPrintOne: (t: ToPrint) => Promise<void>;
   onMark: (ids: string[]) => Promise<void>;
   error?: string;
 }) {
-  const [busy, setBusy] = useState<"" | "forms" | "plain" | "mark">("");
+  const [busy, setBusy] = useState<"" | "forms" | "plain" | "mark" | "one">("");
   const forms = items.filter((t) => t.paper === "forms");
   const plain = items.filter((t) => t.paper === "plain");
-  const run = async (what: "forms" | "plain" | "mark", fn: () => Promise<void>) => {
+  const run = async (what: "forms" | "plain" | "mark" | "one", fn: () => Promise<void>) => {
     setBusy(what);
     try {
       await fn();
@@ -801,9 +805,9 @@ function PrintBanner({
             <span className="muted">
               {t.fulfillment} · {t.date} · {t.paper === "forms" ? "order form, bottom tray" : "plain paper, top tray"}
             </span>
-            <a href={`/api/workroom/print/${t.id}`} target="_blank" rel="noopener" style={{ fontSize: 13.5 }}>
+            <button type="button" disabled={busy !== ""} onClick={() => run("one", () => onPrintOne(t))} style={{ ...textButton, fontSize: 13.5 }}>
               just this one
-            </a>
+            </button>
           </li>
         ))}
       </ul>

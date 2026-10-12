@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { headerPinOk, isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore } from "@/lib/workroom/store";
-import { layoutFor, renderOrderPdf, type PrintLayout } from "@/lib/workroom/print-pdf";
+import { printLayoutFor, type PrintLayout } from "@/lib/workroom/derive";
+import { renderOrderPdf } from "@/lib/workroom/print-pdf";
 
 /**
  * One order as a PDF, on its paper (2026-10-12). The board's Print link
@@ -19,7 +20,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const order = await getStore().getOrder(id);
   if (!order) return NextResponse.json({ error: "No such order." }, { status: 404 });
   const asked = new URL(req.url).searchParams.get("layout");
-  const layout: PrintLayout = asked === "sheet" || asked === "plain" ? asked : layoutFor(order);
+  const layout: PrintLayout = asked === "sheet" || asked === "plain" ? asked : printLayoutFor(order);
   const pdf = await renderOrderPdf(order, layout);
   return new NextResponse(Buffer.from(pdf), {
     headers: {

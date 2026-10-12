@@ -72,6 +72,18 @@ export const printLayoutFor = (o: { fulfillment: string; cardMessage: string }):
 export const printPaperFor = (o: { fulfillment: string; cardMessage: string }): "forms" | "plain" =>
   printLayoutFor(o) === "sheet" ? "forms" : "plain";
 
+/**
+ * WHAT IS WAITING TO PRINT: a website order from the last three days that
+ * nothing has printed and nobody canceled. One predicate for the queue
+ * route, the board's banner and the helper's list, so the three can never
+ * disagree about which orders are owed a sheet of paper.
+ */
+export const PRINT_WINDOW_MS = 3 * 86_400_000;
+export const waitingToPrint = (
+  o: { source: string; status: string; createdAt: number; printedAt?: number },
+  now = Date.now(),
+): boolean => o.source === "web" && !o.printedAt && o.status !== "canceled" && o.createdAt >= now - PRINT_WINDOW_MS;
+
 export function normalizeVariety(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }

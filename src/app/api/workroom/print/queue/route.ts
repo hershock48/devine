@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { headerPinOk, isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, type WorkroomOrder } from "@/lib/workroom/store";
-import { printLayoutFor, printPaperFor } from "@/lib/workroom/derive";
+import { printLayoutFor, printPaperFor, waitingToPrint } from "@/lib/workroom/derive";
 import { renderBatchPdf } from "@/lib/workroom/print-pdf";
 
 /**
@@ -23,12 +23,10 @@ import { renderBatchPdf } from "@/lib/workroom/print-pdf";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const WINDOW_MS = 3 * 86_400_000;
-
 async function unprinted() {
-  const since = Date.now() - WINDOW_MS;
+  const now = Date.now();
   return (await getStore().listOrders(3))
-    .filter((o) => o.source === "web" && !o.printedAt && o.createdAt >= since && o.status !== "canceled")
+    .filter((o) => waitingToPrint(o, now))
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
@@ -38,15 +36,20 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const paper = url.searchParams.get("paper");
   if (paper === "forms" || paper === "plain") {
-    // The banner names the ids it listed; an order that arrived between
-    // the list and the click waits for the next banner rather than
-    // printing unlisted and unmarked. Without ids (the address typed by
+    // The banner names the ids it listed, and they only NARROW the waiting
+    // set: an order that arrived between the list and the click waits for
+    // the next banner rather than printing unlisted and unmarked, and one
+    // another phone printed a moment ago is not printed again (the card's
+    // own Print link is the reprint). Without ids (the address typed by
     // hand): whatever is waiting for that paper right now.
-    const wanted = (url.searchParams.get("ids") ?? "").split(",").filter(Boolean).slice(0, 200);
-    const pool = wanted.length ? await Promise.all(wanted.map((id) => store.getOrder(id))) : await unprinted();
-    const batch: WorkroomOrder[] = [];
-    for (const o of pool) if (o && o.status !== "canceled" && printPaperFor(o) === paper) batch.push(o);
-    if (batch.length === 0) return NextResponse.json({ error: "Nothing waiting for that paper." }, { status: 404 });
+    const wanted = new Set((url.searchParams.get("ids") ?? "").split(",").filter(Boolean));
+    const batch: WorkroomOrder[] = (await unprinted()).filter((o) => printPaperFor(o) === paper && (wanted.size === 0 || wanted.has(o.id)));
+    if (batch.length === 0) {
+      return NextResponse.json(
+        { error: wanted.size ? "Those were already printed. A card's own Print link reprints one." : "Nothing waiting for that paper." },
+        { status: 404 },
+      );
+    }
     const printedAt = Date.now();
     const pdf = await renderBatchPdf(batch.map((order) => ({ order, layout: printLayoutFor(order) })), printedAt);
     // Marked as the document leaves, in one write: the tab opening IS the

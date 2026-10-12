@@ -3,7 +3,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFP
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { isDeliveryLine, isTaxLine, printLayoutFor, type PrintLayout } from "./derive";
+import { isDeliveryLine, isTaxLine, type PrintLayout } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -34,11 +34,9 @@ const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
  * Any order can be printed either way; the order picks its own by
  * fulfillment and the caller may override.
  */
+/** Which paper an order wants is one rule, printLayoutFor in derive.ts,
+    shared by the routes and the board's banner; nothing here chooses. */
 export type { PrintLayout };
-
-/** Which paper an order wants: one rule, in derive.ts, shared with the
-    board's banner so the list and the PDF can never disagree. */
-export const layoutFor = (o: WorkroomOrder): PrintLayout => printLayoutFor(o);
 
 const IN = 72;
 const PANEL_W = (11 * IN) / 3;
@@ -204,7 +202,11 @@ const deliveryLine = (o: WorkroomOrder) => o.lines.find(isDeliveryLine);
 const taxLine = (o: WorkroomOrder) => o.lines.find(isTaxLine);
 const paidWord = (o: WorkroomOrder, atPickup: boolean) =>
   o.payment
-    ? `PAID - ${o.payment.method === "other" ? "by hand" : o.payment.method} - ${money(o.payment.totalCents / 100)}`
+    ? `PAID - ${o.payment.method === "other" ? "by hand" : o.payment.method} - ${money(o.payment.totalCents / 100)}${
+        // A website card payment carries the 99 cent ordering fee, which
+        // is not a line of the order; said here so PAID and TOTAL agree.
+        o.payment.feeCents > 0 ? ` (incl. ${money(o.payment.feeCents / 100)} online fee)` : ""
+      }`
     : o.status === "canceled"
       ? "CANCELED"
       : atPickup
