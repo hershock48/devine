@@ -318,6 +318,7 @@ function SectionHead({ label, href, linkText }: { label: string; href?: string; 
  */
 type SquareStatus = {
   configured: boolean;
+  appConfigured?: boolean;
   env: string | null;
   backend: string;
   webhookKey: boolean;
@@ -397,6 +398,7 @@ function SquareLink() {
               <>
                 <strong style={{ color: "var(--rose-ink)" }}>Not connected.</strong> Sign into Square on this device first, then press Connect; Square asks you to allow the site, and you land back on the board.
                 {st.backend !== "postgres" && " The database is not set up here, so a connection could not be kept; set it up first."}
+                {st.appConfigured === false && " The Square app id and secret are not set on this deployment (SQUARE_APP_ID, SQUARE_APP_SECRET), so there is nothing to connect through yet."}
               </>
             )}
           </p>
@@ -404,7 +406,12 @@ function SquareLink() {
         {err && <p role="alert" style={{ margin: 0, fontSize: 14, color: "var(--rose-ink)" }}>{err}</p>}
         {report && <p role="status" style={{ margin: 0, fontSize: 14, color: "var(--green)", fontWeight: 600 }}>{report}</p>}
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-          {!connected && (
+          {!connected && st && (st.appConfigured === false || st.backend !== "postgres") && (
+            <span className="btn" aria-disabled="true" style={{ opacity: 0.6, cursor: "not-allowed" }}>
+              Connect Square
+            </span>
+          )}
+          {!connected && (!st || (st.appConfigured !== false && st.backend === "postgres")) && (
             <a className="btn btn--solid" href="/api/square/connect">
               Connect Square
             </a>

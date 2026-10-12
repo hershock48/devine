@@ -43,6 +43,7 @@ export async function POST(req: Request) {
   const order = await store.getOrder(id);
   if (!order) return NextResponse.json({ error: "No such order." }, { status: 404 });
   if (order.status === "canceled") return NextResponse.json({ error: "That order is canceled." }, { status: 409 });
+  if (order.status === "hold") return NextResponse.json({ error: "That order is on hold; finish it first, then take payment." }, { status: 409 });
   if (order.payment) {
     return NextResponse.json({ error: `Already paid (${order.payment.method}).` }, { status: 409 });
   }

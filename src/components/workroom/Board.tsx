@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { site } from "@/lib/site";
 import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, normalizeVariety } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -683,6 +683,45 @@ function Moves({
   );
 }
 
+/** "made by KD", with a fix: initials mistyped at the Made tap are
+    corrected here, through the same route, status unchanged. */
+function MadeBy({ o, onMove }: { o: Order; onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(o.madeBy ?? "");
+  if (!editing) {
+    return (
+      <p style={{ margin: "0 0 6px", fontSize: 13.5 }} className="muted">
+        made by {o.madeBy}
+        {" · "}
+        <button type="button" onClick={() => { setV(o.madeBy ?? ""); setEditing(true); }} style={{ ...textButton, fontSize: 13 }}>
+          fix
+        </button>
+      </p>
+    );
+  }
+  const ok = /^[A-Za-z]{1,4}$/.test(v.trim());
+  return (
+    <p style={{ margin: "0 0 6px", display: "flex", gap: 8, alignItems: "center", fontSize: 13.5 }}>
+      <span className="muted">made by</span>
+      <input value={v} onChange={(e) => setV(e.target.value.toUpperCase())} maxLength={4} aria-label="Initials" autoFocus style={{ ...field, width: 72, textTransform: "uppercase" }} />
+      <button
+        type="button"
+        className="btn"
+        disabled={!ok}
+        onClick={() => {
+          onMove(o.id, o.status, { madeBy: v.trim().toUpperCase() });
+          setEditing(false);
+        }}
+      >
+        Save
+      </button>
+      <button type="button" onClick={() => setEditing(false)} style={{ ...textButton, fontSize: 13, color: "var(--muted)" }}>
+        Never mind
+      </button>
+    </p>
+  );
+}
+
 /** The way back from a cancel (Katy, 2026-10-06). The route decides what
     it goes back to and refuses a refunded one; this just asks and shows. */
 function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Promise<void> }) {
@@ -884,8 +923,8 @@ function OrderCard({
             the ticket email, where its Occasion: label explains it. */}
         {o.occasion && o.occasion !== "Everyday" ? ` · ${o.occasion}` : ""}
         {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
-        {o.madeBy ? ` · made by ${o.madeBy}` : ""}
       </p>
+      {o.madeBy && <MadeBy o={o} onMove={onMove} />}
 
       {/* Built from the parts that exist: a phone order can be taken before
           the address is known, and "Smoke Test · ," is not an address. A named
@@ -1043,7 +1082,9 @@ function OrderCard({
         />
       )}
 
-      {next && <Moves o={o} next={next} onMove={onMove} onEdit={onEdit && canEdit(o) ? () => onEdit(o) : undefined} />}
+      {/* Keyed by status so a half-finished cancel confirm or initials
+          prompt resets when the 30s poll brings a new status underneath. */}
+      {next && <Moves key={o.status} o={o} next={next} onMove={onMove} onEdit={onEdit && canEdit(o) ? () => onEdit(o) : undefined} />}
       {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
     </article>
   );
@@ -1131,7 +1172,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       .catch(() => {});
   }, []);
   const stemPrice = (variety: string): number | undefined => {
-    const v = library.find((x) => x.name === variety.trim().toLowerCase().replace(/\s+/g, " "));
+    const v = library.find((x) => x.name === normalizeVariety(variety));
     return v && v.sellStem != null && v.sellStem > 0 ? v.sellStem : undefined;
   };
   /** The built price of a line, in dollars, plus the varieties the library
@@ -1166,6 +1207,15 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       confirmed, or an existing one keeps its place. */
   async function save(hold: boolean) {
     setError("");
+    // A piece marked "by stems" with no flower and count typed would save
+    // at $0 with its price field hidden; refuse here, in words.
+    const halfBuilt = lines.find(
+      (l) => l.byStems && canBuild(l) && (l.slug || l.custom.trim()) && !l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0),
+    );
+    if (halfBuilt) {
+      setError(`"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`);
+      return;
+    }
     setSaving(hold ? "hold" : "board");
     const payload = {
       id: editing?.id,

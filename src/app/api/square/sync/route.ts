@@ -46,6 +46,9 @@ export async function GET(req: Request) {
   const grant = await store.getSquareTokens().catch(() => null);
   return NextResponse.json({
     configured: !!cfg,
+    // The OAuth app itself (id + secret), which the Connect button needs
+    // before the connect route can do anything but answer 503.
+    appConfigured: !!process.env.SQUARE_APP_ID?.trim() && !!process.env.SQUARE_APP_SECRET?.trim(),
     env: cfg?.env ?? null,
     backend: store.backend,
     webhookKey: !!process.env.SQUARE_WEBHOOK_SIGNATURE_KEY,

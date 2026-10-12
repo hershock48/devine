@@ -21,9 +21,21 @@ export type BillingContact = {
   countryCode?: string;
 };
 
+/** Square's verification details, whole: when any are passed the SDK wants
+    the charge intent, the amount as a decimal string in major units, the
+    currency, and the two initiated flags, not billingContact on its own. */
+export type VerificationDetails = {
+  intent: "CHARGE" | "STORE";
+  amount: string;
+  currencyCode: "USD";
+  billingContact: BillingContact;
+  customerInitiated: boolean;
+  sellerKeyedIn: boolean;
+};
+
 export type SquareCard = {
   attach: (sel: string | HTMLElement) => Promise<void>;
-  tokenize: (details?: { billingContact?: BillingContact }) => Promise<{ status: string; token?: string; errors?: { message?: string }[] }>;
+  tokenize: (details?: VerificationDetails) => Promise<{ status: string; token?: string; errors?: { message?: string }[] }>;
   destroy: () => Promise<void>;
 };
 

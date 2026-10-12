@@ -124,8 +124,19 @@ export function recipeUnitCost(recipe: RecipeLike | undefined, costPerStem: Map<
   }
   return cost;
 }
-type OrderLike = { status: string; date: string; lines: { slug: string | null; qty: number }[] };
-type SaleLike = { workroomOrderId?: string; lines: { slug: string | null; qty: number }[] };
+/** A ticket line. `parts` is present when the piece was PRICED BY STEMS at
+    the counter (2026-10-12): then those stems are what it used, and they
+    win over the slug's standard recipe in every rule below. */
+type LineLike = { slug: string | null; qty: number; parts?: { variety: string; stems: number }[] };
+type OrderLike = { status: string; date: string; lines: LineLike[] };
+type SaleLike = { workroomOrderId?: string; lines: LineLike[] };
+
+/** What a line is made of: its own stems when it was built by stems, else
+    the slug's recipe, else nothing countable. */
+function recipeFor(l: LineLike, recipeBySlug: Map<string, RecipeLike>): RecipeLike | undefined {
+  if (l.parts && l.parts.length > 0) return { parts: l.parts };
+  return l.slug ? recipeBySlug.get(l.slug) : undefined;
+}
 
 /**
  * Stems consumed, per variety, under the consumption policy above. The
@@ -147,15 +158,15 @@ export function consumption(opts: {
   let unrecipedLines = 0;
   let customSales = 0;
 
-  const consume = (slug: string | null, qty: number) => {
-    const recipe = slug ? opts.recipeBySlug.get(slug) : undefined;
+  const consume = (l: LineLike) => {
+    const recipe = recipeFor(l, opts.recipeBySlug);
     if (!recipe) {
       unrecipedLines += 1;
       return;
     }
     for (const part of recipe.parts) {
-      made.set(part.variety, (made.get(part.variety) ?? 0) + part.stems * qty);
-      madeTotal += part.stems * qty;
+      made.set(part.variety, (made.get(part.variety) ?? 0) + part.stems * l.qty);
+      madeTotal += part.stems * l.qty;
     }
   };
 
@@ -164,13 +175,13 @@ export function consumption(opts: {
     // was made. A new or confirmed order has not touched it yet.
     if (o.status !== "made" && o.status !== "out" && o.status !== "done") continue;
     if (!opts.orderInWindow(o.date)) continue;
-    for (const l of o.lines) consume(l.slug, l.qty);
+    for (const l of o.lines) consume(l);
   }
   for (const s of opts.sales) {
     if (s.workroomOrderId) continue;
     if (!opts.saleInWindow(s)) continue;
     if (s.lines.length === 0) customSales += 1;
-    for (const l of s.lines) consume(l.slug, l.qty);
+    for (const l of s.lines) consume(l);
   }
 
   return { made, madeTotal, unrecipedLines, customSales };
@@ -211,15 +222,16 @@ export function consumption(opts: {
  */
 
 type LotEventLike = { id: string; kind: string; date: string; variety: string; stems: number; cost: number; createdAt: number };
-type LotOrderLike = { id: string; status: string; date: string; lines: { slug: string | null; qty: number }[] };
-type LotSaleLike = { id: string; paidAt: string; createdAt: number; workroomOrderId?: string; lines: { slug: string | null; qty: number }[] };
+type LotOrderLike = { id: string; status: string; date: string; lines: LineLike[] };
+type LotSaleLike = { id: string; paidAt: string; createdAt: number; workroomOrderId?: string; lines: LineLike[] };
 
 /** The stem cost of one sold line, realized when it was made. */
 export type SoldCost = {
   source: "order" | "sale";
   /** The order or sale id. */
   id: string;
-  slug: string;
+  /** Null for a custom piece built by stems: costed, but keyed to no product. */
+  slug: string | null;
   qty: number;
   /** Dollars drawn from lots. */
   cost: number;
@@ -297,10 +309,10 @@ export function lotCosting(opts: {
     }
   }
 
-  const consumeLines = (source: "order" | "sale", id: string, day: string, lines: { slug: string | null; qty: number }[]) => {
+  const consumeLines = (source: "order" | "sale", id: string, day: string, lines: LineLike[]) => {
     for (const l of lines) {
-      const recipe = l.slug ? opts.recipeBySlug.get(l.slug) : undefined;
-      if (!l.slug || !recipe) continue;
+      const recipe = recipeFor(l, opts.recipeBySlug);
+      if (!recipe) continue;
       let cost = 0;
       let unpriced = 0;
       for (const part of recipe.parts) {

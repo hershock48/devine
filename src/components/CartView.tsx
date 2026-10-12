@@ -300,7 +300,16 @@ export default function CartView() {
           postalCode: billing?.zip || undefined,
           countryCode: "US",
         };
-        const t = await cardRef.current.tokenize({ billingContact });
+        // The whole verification block, as the SDK requires once any of
+        // it is sent: the amount is the card total in dollars as a string.
+        const t = await cardRef.current.tokenize({
+          intent: "CHARGE",
+          amount: (cardTotalCents / 100).toFixed(2),
+          currencyCode: "USD",
+          billingContact,
+          customerInitiated: true,
+          sellerKeyedIn: false,
+        });
         if (t.status !== "OK" || !t.token) throw new Error(t.errors?.[0]?.message || "The card did not go through. Check the number.");
         cardPayload = { sourceId: t.token };
       } catch (err) {

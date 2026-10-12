@@ -61,12 +61,14 @@ export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
         .some((v) => v.toLowerCase().includes(q)) ||
       (digits.length >= 3 && x.phone.replace(/\D/g, "").includes(digits));
     const list = quotes.filter((x) => (showArchived ? !!x.archivedAt : !x.archivedAt) && hit(x));
+    // Totals once per quote, not once per comparison.
+    const total = new Map(list.map((x) => [x.id, priceQuote(x).total]));
     const by: Record<Sort, (a: Quote, b: Quote) => number> = {
       touched: (a, b) => b.updatedAt - a.updatedAt,
       // Soonest first; undated quotes sink to the bottom rather than
       // sorting as the empty string, which would float them to the top.
       event: (a, b) => (a.eventDate || "9999").localeCompare(b.eventDate || "9999") || b.updatedAt - a.updatedAt,
-      amount: (a, b) => priceQuote(b).total - priceQuote(a).total,
+      amount: (a, b) => (total.get(b.id) ?? 0) - (total.get(a.id) ?? 0),
     };
     return [...list].sort(by[sort]);
   }, [quotes, find, sort, showArchived]);

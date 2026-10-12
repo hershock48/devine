@@ -91,6 +91,11 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
     const product = bySlug.get(slug);
     const built = await priceParts(raw.parts);
     if (built && "error" in built) return { error: built.error };
+    // Parts were sent but none had a flower and a count: the form refuses
+    // this first; the route refuses it too rather than writing a $0 piece.
+    if (!built && Array.isArray(raw.parts) && !product && !(Number(raw.each) > 0)) {
+      return { error: `"${str(raw.name, 120) || "An item"}" is marked by stems but has no flowers with a count. Add one, or give it a price.` };
+    }
     if (product) {
       lines.push(built ? { slug, name: product.name, qty, each: built.each, parts: built.parts } : { slug, name: product.name, qty, each: product.price });
     } else {
@@ -262,34 +267,37 @@ export async function PATCH(req: Request) {
 
   const status = STATUSES.includes(p.status as OrderStatus) ? (p.status as OrderStatus) : null;
   if (!id || !status) return NextResponse.json({ error: "Malformed." }, { status: 400 });
-  // The delivered note (Kevin, 2026-09-04): a DELIVERY order marked done
-  // tells its customer so by email. Looked up before the write so we know
-  // this is a real transition into done, not a repeat tap; best-effort
-  // after the status is safely stored.
-  let deliveredNote: { number: string; name: string; email: string; recipient: string } | null = null;
-  if (status === "done") {
-    const before = await getStore().getOrder(id);
-    if (before && before.fulfillment === "delivery" && before.status !== "done" && before.email) {
-      deliveredNote = { number: before.number, name: before.name, email: before.email, recipient: before.recipient };
-    }
-  }
-  if (status === "out") {
+  // Looked up by id, not scanned from a windowed list: the old 60-day scan
+  // quietly skipped the checks for any order older than its window.
+  const before = await getStore().getOrder(id);
+  if (!before) return NextResponse.json({ error: "No such order." }, { status: 404 });
+  if (status === "out" && before.fulfillment !== "delivery") {
     // "out" means on the van. A pickup order cannot be en route; refusing
     // here keeps a stray client from inventing a state the flow cannot leave.
-    // Looked up by id, not scanned from a windowed list: the old 60-day scan
-    // quietly skipped the check for any order older than its window.
-    const order = await getStore().getOrder(id);
-    if (order && order.fulfillment !== "delivery") {
-      return NextResponse.json({ error: "A pickup order has no van to be out on." }, { status: 400 });
-    }
+    return NextResponse.json({ error: "A pickup order has no van to be out on." }, { status: 400 });
   }
+  if (status === "hold" && (before.payment || (before.status !== "new" && before.status !== "confirmed" && before.status !== "hold"))) {
+    // Hold is for an order nothing has happened to yet (2026-10-12). A made
+    // or paid one cannot go back into limbo from a stale tab.
+    return NextResponse.json({ error: `Already ${before.payment ? "paid" : before.status}; it cannot go on hold.` }, { status: 409 });
+  }
+  // The delivered note (Kevin, 2026-09-04): a DELIVERY order marked done
+  // tells its customer so by email. A real transition into done, not a
+  // repeat tap; best-effort after the status is safely stored.
+  const deliveredNote =
+    status === "done" && before.fulfillment === "delivery" && before.status !== "done" && before.email
+      ? { number: before.number, name: before.name, email: before.email, recipient: before.recipient }
+      : null;
+  // Released from hold by the Ready-to-make button: the receipt a new phone
+  // order would have had goes now, same as a release through the form.
+  const released = before.status === "hold" && status === "confirmed" && !!before.email;
+
   if (status === "canceled") {
     // Remember where it came from, for Uncancel. A repeat tap on an
     // already-canceled order must not overwrite that with "canceled".
-    const before = await getStore().getOrder(id);
     await getStore().patchOrder(id, {
       status,
-      ...(before && before.status !== "canceled" ? { canceledFrom: before.status } : {}),
+      ...(before.status !== "canceled" ? { canceledFrom: before.status } : {}),
     });
   } else if (madeBy !== undefined) {
     await getStore().patchOrder(id, { status, madeBy });
@@ -297,5 +305,6 @@ export async function PATCH(req: Request) {
     await getStore().setOrderStatus(id, status);
   }
   if (deliveredNote) await sendDeliveredEmail(deliveredNote);
+  if (released) await sendWorkroomReceipt(before);
   return NextResponse.json({ ok: true });
 }
