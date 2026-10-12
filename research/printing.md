@@ -43,7 +43,19 @@ boxed, the notes.
 Any order prints either way: `/api/workroom/print/<id>?layout=sheet` or
 `?layout=plain`. Without `?layout=` the order picks its own by the rule above.
 
-## What prints by itself
+## The morning banner (no helper needed)
+
+When anyone signs into the board, a banner at the top lists every website
+order nobody has printed: name, delivery or pickup, and which paper it wants.
+Two buttons: **Print the N delivery forms** and **Print the N pickup tickets**.
+Each opens one PDF with a page per order; the print dialog comes up; pick the
+printer entry by name (Order forms or Plain paper); Print. The list clears once
+a document is opened, and the card's own Print link reprints any one. The
+banner stays through every sign-in and refresh until each order is printed or
+marked, so a busy afternoon cannot lose one. Two clicks in the morning; the
+only setup is the two printer entries below.
+
+## What prints by itself (optional: the helper)
 
 `tools/print-helper.ps1` runs on the counter PC. Every 30 seconds it asks
 `/api/workroom/print/queue` for website orders from the last three days that

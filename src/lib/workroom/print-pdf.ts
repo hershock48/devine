@@ -444,11 +444,26 @@ async function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, o: Workroom
 }
 
 export async function renderOrderPdf(o: WorkroomOrder, layout: PrintLayout, printedAt = Date.now()): Promise<Uint8Array> {
+  return renderBatchPdf([{ order: o, layout }], printedAt);
+}
+
+/**
+ * Several orders as one document, a page each, all on the same paper: the
+ * morning's "print the 3 delivery forms" is one PDF and one trip through
+ * the print dialog, not three.
+ */
+export async function renderBatchPdf(batch: { order: WorkroomOrder; layout: PrintLayout }[], printedAt = Date.now()): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  doc.setTitle(`${o.number} ${layout === "sheet" ? "order form" : "ticket"}`);
+  doc.setTitle(
+    batch.length === 1
+      ? `${batch[0].order.number} ${batch[0].layout === "sheet" ? "order form" : "ticket"}`
+      : `${batch.length} ${batch[0]?.layout === "sheet" ? "order forms" : "tickets"}`,
+  );
   doc.setProducer("DeVine's workroom");
   const fonts = await pens(doc);
-  if (layout === "sheet") drawSheet(doc, fonts, o, printedAt);
-  else await drawPlain(doc, fonts, o, printedAt);
+  for (const { order, layout } of batch) {
+    if (layout === "sheet") drawSheet(doc, fonts, order, printedAt);
+    else await drawPlain(doc, fonts, order, printedAt);
+  }
   return doc.save();
 }

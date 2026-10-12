@@ -143,6 +143,36 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       query shows one flat match list, finished orders open, with the count
       said out loud; clearing the box brings the board back. */
   const [find, setFind] = useState("");
+  /** WHAT CAME IN SINCE ANYONE PRINTED (Kevin, 2026-10-12): the website
+      orders nobody has printed yet, on every sign-in and every refresh,
+      until each is printed or marked. One PDF per paper, so the morning is
+      two clicks: the delivery forms, then the pickup tickets. Refreshed
+      with the board's own poll. */
+  const [toPrint, setToPrint] = useState<ToPrint[]>([]);
+  const pullQueue = useCallback(async () => {
+    try {
+      const r = await fetch("/api/workroom/print/queue", { cache: "no-store" });
+      if (!r.ok) return;
+      const d = (await r.json()) as { orders?: ToPrint[] };
+      setToPrint(d.orders ?? []);
+    } catch {}
+  }, []);
+  /** Open the PDF for one paper (all its orders, a page each), then mark
+      them printed. Marked on OPEN, not on the dialog's Print, which a page
+      cannot see; the card's own Print link is the reprint if the dialog
+      was cancelled. */
+  async function printPaper(paper: "forms" | "plain") {
+    const ids = toPrint.filter((t) => t.paper === paper).map((t) => t.id);
+    if (ids.length === 0) return;
+    window.open(`/api/workroom/print/queue?paper=${paper}`, "_blank", "noopener");
+    await fetch("/api/workroom/print/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }).catch(() => {});
+    await Promise.all([pullQueue(), pull()]);
+  }
+  async function markPrinted(ids: string[]) {
+    await fetch("/api/workroom/print/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }).catch(() => {});
+    await Promise.all([pullQueue(), pull()]);
+  }
+
   /** The Square connect's landing flag (?square=connected and friends),
       read once and then cleared from the address bar so a reload or a
       bookmark never repeats it. The callback route has always sent it;
@@ -175,6 +205,12 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
   // Poll only once in (the pjs lesson: polling while locked fires 401s into
   // the console of a page whose normal state is locked). 30s, florist pace.
+  useEffect(() => {
+    if (!authed) return;
+    pullQueue().catch(() => {});
+    const q = setInterval(() => pullQueue().catch(() => {}), 30_000);
+    return () => clearInterval(q);
+  }, [authed, pullQueue]);
   useEffect(() => {
     if (!authed) return;
     pull().catch(() => {});
@@ -330,6 +366,10 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <h1>Orders</h1>
 
       <MemoryWarning backend={backend} />
+
+      {toPrint.length > 0 && (
+        <PrintBanner items={toPrint} onPrint={printPaper} onMark={markPrinted} />
+      )}
 
       {squareFlag && (
         <p
@@ -686,6 +726,82 @@ function Moves({
         Cancel order
       </button>
     </p>
+  );
+}
+
+type ToPrint = {
+  id: string;
+  number: string;
+  name: string;
+  recipient: string;
+  date: string;
+  fulfillment: "delivery" | "pickup";
+  paper: "forms" | "plain";
+  createdAt: number;
+};
+
+/**
+ * THE MORNING BANNER. What IRIS did by printing overnight, this does by
+ * refusing to be ignored: every website order nobody has printed, listed
+ * by name and paper, with one button per paper. It stays through every
+ * sign-in and refresh until each order is printed or marked, so a busy
+ * afternoon cannot lose one. The helper on the counter PC, if it is ever
+ * installed, empties this list by itself.
+ */
+function PrintBanner({ items, onPrint, onMark }: { items: ToPrint[]; onPrint: (paper: "forms" | "plain") => Promise<void>; onMark: (ids: string[]) => Promise<void> }) {
+  const [busy, setBusy] = useState<"" | "forms" | "plain" | "mark">("");
+  const forms = items.filter((t) => t.paper === "forms");
+  const plain = items.filter((t) => t.paper === "plain");
+  const run = async (what: "forms" | "plain" | "mark", fn: () => Promise<void>) => {
+    setBusy(what);
+    try {
+      await fn();
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <section
+      className="panel"
+      aria-label="Website orders to print"
+      style={{ padding: "14px 16px", margin: "0 0 20px", borderLeft: "3px solid var(--rose-ink)", maxWidth: 760 }}
+    >
+      <p style={{ margin: "0 0 8px", fontSize: 15.5, fontWeight: 700 }}>
+        {items.length === 1 ? "1 website order came in" : `${items.length} website orders came in`} and {items.length === 1 ? "has" : "have"} not been printed.
+      </p>
+      <ul style={{ listStyle: "none", padding: 0, margin: "0 0 12px", fontSize: 14.5, display: "grid", gap: 3 }}>
+        {items.map((t) => (
+          <li key={t.id} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+            <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>{t.number}</span>
+            <span style={{ fontWeight: 600 }}>{t.fulfillment === "delivery" && t.recipient ? `${t.recipient} (from ${t.name})` : t.name}</span>
+            <span className="muted">
+              {t.fulfillment} · {t.date} · {t.paper === "forms" ? "order form, bottom tray" : "plain paper, top tray"}
+            </span>
+            <a href={`/api/workroom/print/${t.id}`} target="_blank" rel="noopener" style={{ fontSize: 13.5 }}>
+              just this one
+            </a>
+          </li>
+        ))}
+      </ul>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        {forms.length > 0 && (
+          <button type="button" className="btn btn--solid" disabled={busy !== ""} onClick={() => run("forms", () => onPrint("forms"))}>
+            {busy === "forms" ? "Opening…" : `Print ${forms.length === 1 ? "the delivery form" : `the ${forms.length} delivery forms`}`}
+          </button>
+        )}
+        {plain.length > 0 && (
+          <button type="button" className={forms.length > 0 ? "btn" : "btn btn--solid"} disabled={busy !== ""} onClick={() => run("plain", () => onPrint("plain"))}>
+            {busy === "plain" ? "Opening…" : `Print ${plain.length === 1 ? "the pickup ticket" : `the ${plain.length} pickup tickets`}`}
+          </button>
+        )}
+        <button type="button" disabled={busy !== ""} onClick={() => run("mark", () => onMark(items.map((t) => t.id)))} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+          Already printed these
+        </button>
+      </div>
+      <p className="muted" style={{ margin: "8px 0 0", fontSize: 13 }}>
+        Each button opens one document with a page per order; in the print dialog pick the tray by name. The list clears once opened; a card&rsquo;s own Print link reprints any one.
+      </p>
+    </section>
   );
 }
 
