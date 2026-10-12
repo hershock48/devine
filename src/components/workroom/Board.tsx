@@ -147,6 +147,28 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       bookmark never repeats it. The callback route has always sent it;
       nothing displayed it until 2026-10-12. */
   const [squareFlag, setSquareFlag] = useState("");
+  /** AUTO-PRINT (2026-10-12): IRIS printed every web order as it landed;
+      so does this screen, when the toggle is on. Per device, remembered in
+      this browser, because only the counter PC has the Star printer. A new
+      web order (created after the toggle was turned on, never printed here
+      before) opens its ticket in a hidden frame and prints it; Chrome in
+      kiosk-printing mode sends that to the default printer without a
+      dialog (research/printing.md). Printed ids are remembered so a reload
+      never reprints the morning. */
+  const [autoPrint, setAutoPrint] = useState<{ on: boolean; since: number }>({ on: false, since: 0 });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("wr-autoprint");
+      if (raw) setAutoPrint(JSON.parse(raw) as { on: boolean; since: number });
+    } catch {}
+  }, []);
+  function setAutoPrintOn(on: boolean) {
+    const next = { on, since: on ? Date.now() : 0 };
+    setAutoPrint(next);
+    try {
+      localStorage.setItem("wr-autoprint", JSON.stringify(next));
+    } catch {}
+  }
   useEffect(() => {
     const u = new URL(window.location.href);
     const f = u.searchParams.get("square");
@@ -239,6 +261,32 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     }
     await pull();
   }
+
+  useEffect(() => {
+    if (!autoPrint.on || orders.length === 0) return;
+    let printed: string[] = [];
+    try {
+      printed = JSON.parse(localStorage.getItem("wr-printed") ?? "[]") as string[];
+    } catch {}
+    const due = orders.filter((o) => o.source === "web" && o.createdAt >= autoPrint.since && !printed.includes(o.id));
+    if (due.length === 0) return;
+    for (const o of due) {
+      const frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.style.position = "fixed";
+      frame.style.width = "0";
+      frame.style.height = "0";
+      frame.style.border = "0";
+      frame.src = `/workroom/ticket/${o.id}?print=1&embed=1`;
+      // The ticket prints itself on load; the frame goes a while later,
+      // long enough for a slow spooler, short enough not to pile up.
+      frame.addEventListener("load", () => setTimeout(() => frame.remove(), 20_000));
+      document.body.appendChild(frame);
+    }
+    try {
+      localStorage.setItem("wr-printed", JSON.stringify([...printed, ...due.map((o) => o.id)].slice(-500)));
+    } catch {}
+  }, [orders, autoPrint]);
 
   // Widen to the full history the moment a search starts, once per visit.
   useEffect(() => {
@@ -378,6 +426,10 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
             Clear
           </button>
         )}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, marginLeft: "auto" }}>
+          <input type="checkbox" checked={autoPrint.on} onChange={(e) => setAutoPrintOn(e.target.checked)} style={{ width: 18, height: 18, accentColor: "var(--green)" }} />
+          Print new web orders on this screen
+        </label>
       </p>
 
       {(adding || editing) && (
@@ -893,6 +945,18 @@ function OrderCard({
         <strong style={{ fontSize: 17 }}>{o.name}</strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
           {o.number} · {o.source}
+          {" · "}
+          {/* The slip for the Star printer (2026-10-12), in its own tab so
+              the board stays put; it prints itself and closes. */}
+          <a href={`/workroom/ticket/${o.id}?print=1`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
+            Slip
+          </a>
+          {" · "}
+          {/* The enclosure card for the window envelope, on the laser
+              printer: opens with the dialog so the right printer is picked. */}
+          <a href={`/workroom/ticket/${o.id}?card=1`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
+            Card
+          </a>
         </span>
       </header>
 
