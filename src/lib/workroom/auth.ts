@@ -82,23 +82,56 @@ export async function isWorkroomOwner(): Promise<boolean> {
 }
 
 /**
- * The staff PIN as a request header, for scripts: the catalog sync by curl
- * and the print helper on the counter PC. Throttled per address like the
- * login route, because a header is as guessable as a form.
+ * THE ONE PIN THROTTLE, for the login form and the PIN-as-header paths
+ * alike: a four digit PIN is 10,000 guesses, and a review measured 30
+ * unthrottled attempts landing in 43ms. Ten wrong tries per address per ten
+ * minutes, counted in one place, on globalThis so a dev reload does not
+ * forget. Per instance and in memory, which on serverless means a spread
+ * attacker gets more than ten; still worth having, because it turns a
+ * fifteen second sweep into something slow and noisy.
  */
-const headerTries = new Map<string, { n: number; until: number }>();
+export const PIN_WINDOW_MS = 10 * 60 * 1000;
+export const PIN_MAX_FAILURES = 10;
+type Bucket = { failures: number[] };
+function buckets(): Map<string, Bucket> {
+  const g = globalThis as typeof globalThis & { __devineLoginBuckets?: Map<string, Bucket> };
+  if (!g.__devineLoginBuckets) g.__devineLoginBuckets = new Map();
+  return g.__devineLoginBuckets;
+}
+export function clientKey(req: Request): string {
+  const fwd = req.headers.get("x-forwarded-for");
+  return (fwd ? fwd.split(",")[0] : req.headers.get("x-real-ip"))?.trim() || "unknown";
+}
+export function pinThrottle(req: Request) {
+  const key = clientKey(req);
+  const now = Date.now();
+  const bucket = buckets().get(key) ?? { failures: [] };
+  bucket.failures = bucket.failures.filter((t) => now - t < PIN_WINDOW_MS);
+  return {
+    tooMany: () => bucket.failures.length >= PIN_MAX_FAILURES,
+    fail: () => {
+      bucket.failures.push(now);
+      buckets().set(key, bucket);
+    },
+    clear: () => buckets().delete(key),
+  };
+}
+
+/**
+ * The staff PIN as a request header, for scripts: the catalog sync by curl
+ * and the print helper on the counter PC. Same throttle as the form.
+ */
 export function headerPinOk(req: Request): boolean {
   const pin = workroomPin();
   const given = req.headers.get("x-workroom-pin");
   if (!pin || !given) return false;
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const t = headerTries.get(ip);
-  if (t && t.n >= 10 && Date.now() < t.until) return false;
+  const t = pinThrottle(req);
+  if (t.tooMany()) return false;
   if (given === pin) {
-    headerTries.delete(ip);
+    t.clear();
     return true;
   }
-  headerTries.set(ip, { n: (t && Date.now() < t.until ? t.n : 0) + 1, until: Date.now() + 10 * 60_000 });
+  t.fail();
   return false;
 }
 

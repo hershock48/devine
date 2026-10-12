@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { site } from "@/lib/site";
 import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, normalizeVariety } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, isDeliveryLine, normalizeVariety } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -773,7 +773,7 @@ function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Pro
  * this renders nothing: the ticket and the payment must stay in step.
  */
 function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) => Promise<void> }) {
-  const line = o.lines.find((l) => l.name.startsWith("Delivery ("));
+  const line = o.lines.find(isDeliveryLine);
   const sheet = site.deliveryFees[o.zip];
   const current = line ? line.each : sheet;
   const [editing, setEditing] = useState(false);
@@ -903,7 +903,7 @@ function OrderCard({
           <a href={`/api/workroom/print/${o.id}`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
             Print
           </a>
-          {o.printedAt ? <span> · printed {new Date(o.printedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span> : ""}
+          {o.printedAt ? <span> · printed {new Date(o.printedAt).toLocaleString("en-US", { timeZone: "America/Detroit", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</span> : ""}
         </span>
       </header>
 
@@ -1088,7 +1088,7 @@ function OrderCard({
              and the buttons must quote what will actually be charged. */
           deliveryCents={
             o.fulfillment === "delivery" &&
-            !o.lines.some((l) => l.name.startsWith("Delivery (")) &&
+            !o.lines.some(isDeliveryLine) &&
             site.deliveryFees[o.zip] !== undefined
               ? Math.round(site.deliveryFees[o.zip] * 100)
               : 0
@@ -1125,7 +1125,7 @@ type StemPrice = { name: string; sellStem: number | null };
 /** A stored line back into the form's shape, for editing. The Delivery
     line is not an item; it becomes the fee field. */
 const fromLines = (o: Order): DraftLine[] => {
-  const items = o.lines.filter((l) => !l.name.startsWith("Delivery ("));
+  const items = o.lines.filter((l) => !isDeliveryLine(l));
   if (items.length === 0) return [blankLine()];
   return items.map((l) => ({
     slug: l.slug ?? "",
@@ -1210,7 +1210,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       zip sheet. Derived, not an effect: a typed fee survives retyping a zip
       to fix a digit, and a never-touched field tracks the zip as it changes. */
   const [feeOverride, setFeeOverride] = useState<string | null>(() => {
-    const dl = editing?.lines.find((l) => l.name.startsWith("Delivery ("));
+    const dl = editing?.lines.find(isDeliveryLine);
     return dl ? String(dl.each) : null;
   });
   const [date, setDate] = useState(editing?.date ?? todayISO());

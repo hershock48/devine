@@ -49,6 +49,16 @@ export const HISTORY_DAYS = 400;
  * recipe form needs the same rule to say "not on the stem list" BEFORE the
  * server does.
  */
+/**
+ * THE DELIVERY LINE, spelled once. The orders route writes it, the pay
+ * route appends it when missing, the board adjusts it, the printed order
+ * sets it apart from the flowers: all by this prefix, and a renamed line
+ * would silently double-charge or print the fee as a flower.
+ */
+export const deliveryLineName = (zip: string) => `Delivery (${zip || "no zip"})`;
+export const isDeliveryLine = (l: { name: string }) => l.name.startsWith("Delivery (");
+export const isTaxLine = (l: { name: string }) => l.name.startsWith("Sales tax");
+
 export function normalizeVariety(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }

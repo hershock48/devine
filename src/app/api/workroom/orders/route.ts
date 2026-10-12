@@ -3,7 +3,7 @@ import { site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
-import { normalizeVariety } from "@/lib/workroom/derive";
+import { deliveryLineName, isDeliveryLine, normalizeVariety } from "@/lib/workroom/derive";
 import { sendDeliveredEmail, sendWorkroomReceipt } from "@/lib/intake";
 
 /**
@@ -29,10 +29,6 @@ export async function GET(req: Request) {
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
-/** The one spelling of the delivery line. The pay route and the board both
-    find it by this prefix, so a renamed line would silently double-charge. */
-const deliveryLineName = (zip: string) => `Delivery (${zip || "no zip"})`;
-const isDeliveryLine = (l: WorkroomLine) => l.name.startsWith("Delivery (");
 
 type ParsedBody = { fields: Omit<WorkroomOrder, "id" | "number" | "source" | "status" | "createdAt" | "payment" | "canceledFrom" | "madeBy">; } | { error: string };
 

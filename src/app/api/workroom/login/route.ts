@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { setWorkroomCookie, workroomOwnerPin, workroomPin } from "@/lib/workroom/auth";
+import { PIN_WINDOW_MS, pinThrottle, setWorkroomCookie, workroomOwnerPin, workroomPin } from "@/lib/workroom/auth";
 
 /**
  * The workroom door, with a bouncer.
@@ -19,21 +19,6 @@ import { setWorkroomCookie, workroomOwnerPin, workroomPin } from "@/lib/workroom
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const WINDOW_MS = 10 * 60 * 1000;
-const MAX_FAILURES = 10;
-
-type Bucket = { failures: number[] };
-function buckets(): Map<string, Bucket> {
-  const g = globalThis as typeof globalThis & { __devineLoginBuckets?: Map<string, Bucket> };
-  if (!g.__devineLoginBuckets) g.__devineLoginBuckets = new Map();
-  return g.__devineLoginBuckets;
-}
-
-function clientKey(req: Request): string {
-  const fwd = req.headers.get("x-forwarded-for");
-  return (fwd ? fwd.split(",")[0] : req.headers.get("x-real-ip")) ?.trim() || "unknown";
-}
-
 export async function POST(req: Request) {
   const pin = workroomPin();
   if (pin === null) {
@@ -45,15 +30,11 @@ export async function POST(req: Request) {
     );
   }
 
-  const key = clientKey(req);
-  const now = Date.now();
-  const bucket = buckets().get(key) ?? { failures: [] };
-  bucket.failures = bucket.failures.filter((t) => now - t < WINDOW_MS);
-  if (bucket.failures.length >= MAX_FAILURES) {
-    buckets().set(key, bucket);
+  const throttle = pinThrottle(req);
+  if (throttle.tooMany()) {
     return NextResponse.json(
       { error: "Too many tries. Wait a few minutes." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(WINDOW_MS / 1000)) } },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(PIN_WINDOW_MS / 1000)) } },
     );
   }
 
@@ -63,12 +44,11 @@ export async function POST(req: Request) {
   const owner = workroomOwnerPin();
   const isOwner = owner !== null && body.pin === owner;
   if (typeof body.pin !== "string" || (body.pin !== pin && !isOwner)) {
-    bucket.failures.push(now);
-    buckets().set(key, bucket);
+    throttle.fail();
     return NextResponse.json({ error: "Wrong PIN." }, { status: 401 });
   }
 
-  buckets().delete(key);
+  throttle.clear();
   await setWorkroomCookie(body.pin);
   return NextResponse.json({ ok: true, owner: isOwner });
 }

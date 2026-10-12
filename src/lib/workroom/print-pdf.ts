@@ -3,6 +3,10 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
+import { isDeliveryLine, isTaxLine } from "./derive";
+
+/** Decoded once; pdf-lib still embeds it per document. */
+const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
 
 /**
  * THE PRINTED ORDER, AS A PDF (2026-10-12). One layout per paper, drawn in
@@ -63,6 +67,7 @@ function clean(s: string): string {
     .replace(/×/g, "x")
     .replace(/·/g, "-")
     .replace(/…/g, "...")
+    .replace(/\t/g, " ")
     .replace(/[^\x20-\x7e\xa0-\xff\n]/g, "");
 }
 
@@ -103,16 +108,28 @@ type Pen = {
   serif: PDFFont;
 };
 
-/** A writing cursor inside a box: top-down text with wrapping. */
+/**
+ * A writing cursor inside a box: top-down text with wrapping, and a FLOOR.
+ * Paper has edges and the form has creases; nothing here ever draws below
+ * the floor it was given. When something would, the cursor stops, remembers
+ * it overflowed, and the layout writes one short line saying the rest is
+ * on the board, rather than printing on the next panel or off the page.
+ */
 class Cursor {
   y: number;
+  overflowed = false;
   constructor(
     private pen: Pen,
     public x: number,
     yTop: number,
     public w: number,
+    public floor = 0,
   ) {
     this.y = yTop;
+  }
+  /** Room for one more line of this size? */
+  fits(size: number) {
+    return this.y - size * 1.25 >= this.floor;
   }
   gap(pt: number) {
     this.y -= pt;
@@ -121,6 +138,10 @@ class Cursor {
     const x = opts.x ?? this.x;
     const w = opts.w ?? this.w;
     for (const l of wrap(font, size, text, w)) {
+      if (!this.fits(size)) {
+        this.overflowed = true;
+        return;
+      }
       this.y -= size * 1.25;
       const tw = font.widthOfTextAtSize(l, size);
       const dx = opts.align === "right" ? w - tw : opts.align === "center" ? (w - tw) / 2 : 0;
@@ -129,15 +150,30 @@ class Cursor {
   }
   /** Two texts on one line, left and right. */
   row(left: string, right: string, size = 10, font: PDFFont = this.pen.reg) {
+    if (!this.fits(size)) {
+      this.overflowed = true;
+      return;
+    }
     this.y -= size * 1.25;
     this.pen.page.drawText(clean(left), { x: this.x, y: this.y, size, font, color: ink });
     const r = clean(right);
     this.pen.page.drawText(r, { x: this.x + this.w - font.widthOfTextAtSize(r, size), y: this.y, size, font, color: ink });
   }
   rule(thick = 0.6) {
+    if (this.y - 7 < this.floor) {
+      this.overflowed = true;
+      return;
+    }
     this.y -= 4;
     this.pen.page.drawLine({ start: { x: this.x, y: this.y }, end: { x: this.x + this.w, y: this.y }, thickness: thick, color: ink });
     this.y -= 3;
+  }
+  /** The one honest line when the box ran out: drawn just BELOW the floor,
+      in the gap every box keeps under its text, so it never lands on the
+      last line written and is always the last thing readable. */
+  more(what = "more on the board") {
+    if (!this.overflowed) return;
+    this.pen.page.drawText(`... ${what}`, { x: this.x, y: this.floor - 9, size: 8, font: this.pen.reg, color: grey });
   }
   heading(text: string) {
     this.gap(5);
@@ -148,9 +184,9 @@ class Cursor {
 function whereLines(o: WorkroomOrder): string[] {
   return [o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean);
 }
-const items = (o: WorkroomOrder) => o.lines.filter((l) => !l.name.startsWith("Delivery (") && !l.name.startsWith("Sales tax"));
-const deliveryLine = (o: WorkroomOrder) => o.lines.find((l) => l.name.startsWith("Delivery ("));
-const taxLine = (o: WorkroomOrder) => o.lines.find((l) => l.name.startsWith("Sales tax"));
+const items = (o: WorkroomOrder) => o.lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l));
+const deliveryLine = (o: WorkroomOrder) => o.lines.find(isDeliveryLine);
+const taxLine = (o: WorkroomOrder) => o.lines.find(isTaxLine);
 const paidWord = (o: WorkroomOrder, atPickup: boolean) =>
   o.payment
     ? `PAID - ${o.payment.method === "other" ? "by hand" : o.payment.method} - ${money(o.payment.totalCents / 100)}`
@@ -162,8 +198,11 @@ const paidWord = (o: WorkroomOrder, atPickup: boolean) =>
 
 function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
   const cols = [0, c.w * 0.58, c.w * 0.68, c.w * 0.83];
-  const head = (t: string, i: number, right = false) =>
-    pen.page.drawText(t, { x: c.x + cols[i] + (right ? 0 : 0), y: c.y, size: size - 2, font: pen.reg, color: grey });
+  const head = (t: string, i: number) => pen.page.drawText(t, { x: c.x + cols[i], y: c.y, size: size - 2, font: pen.reg, color: grey });
+  if (!c.fits(size)) {
+    c.overflowed = true;
+    return;
+  }
   c.y -= size * 1.25;
   head("DESCRIPTION", 0);
   head("QTY", 1);
@@ -179,20 +218,28 @@ function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
   const rows = items(o).map((l) => ({ name: l.name, sub: l.parts?.length ? l.parts.map((p) => `${p.stems} ${p.variety}`).join(", ") : "", qty: l.qty, each: l.each }));
   const dl = deliveryLine(o);
   const tl = taxLine(o);
-  if (dl) rows.push({ name: dl.name, sub: "", qty: 1, each: dl.each });
-  if (tl) rows.push({ name: tl.name, sub: "", qty: 1, each: tl.each });
+  if (dl) rows.push({ name: dl.name, sub: "", qty: dl.qty, each: dl.each });
+  if (tl) rows.push({ name: tl.name, sub: "", qty: tl.qty, each: tl.each });
+  // The TOTAL row is kept back, so a long order loses item rows, never
+  // the total; the "more" line says what was cut.
+  const reserve = size * 1.25 * 2 + 7;
   for (const r of rows) {
     const nameLines = wrap(pen.reg, size, r.name, cols[1] - 6);
+    if (c.y - size * 1.25 - reserve < c.floor) {
+      c.overflowed = true;
+      break;
+    }
     c.y -= size * 1.25;
     cell(nameLines[0], 0, false);
     cell(String(r.qty), 1, true);
     cell(money(r.each), 2, true);
     cell(money(r.each * r.qty), 3, true);
     for (const extra of nameLines.slice(1)) {
+      if (c.y - size * 1.25 - reserve < c.floor) break;
       c.y -= size * 1.25;
       cell(extra, 0, false);
     }
-    if (r.sub) {
+    if (r.sub && c.y - (size - 1.5) * 1.2 - reserve >= c.floor) {
       c.y -= (size - 1.5) * 1.2;
       pen.page.drawText(clean(r.sub), { x: c.x + 8, y: c.y, size: size - 1.5, font: pen.reg, color: grey });
     }
@@ -225,7 +272,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
   // top-left: the enclosure address card, under the pre-printed letterhead
   {
     const b = box(0, 0);
-    const c = new Cursor(pen, b.x, b.top - LETTERHEAD_H, b.w);
+    const c = new Cursor(pen, b.x, b.top - LETTERHEAD_H, b.w, b.bottom);
     c.line(o.recipient || o.name, 12, pen.bold);
     for (const w of where) c.line(w, 10.5, pen.bold);
     if (!deliver) c.line("Pickup at the shop", 10.5, pen.bold);
@@ -239,12 +286,22 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
   // top-right: the card message, centered, above the small pre-printed mark
   {
     const b = box(2, 0);
-    const size = 13;
-    const lines = wrap(pen.serif, size, o.cardMessage || "", b.w - 10);
-    const blockH = lines.length * size * 1.4;
+    // A long message shrinks to fit, down to 8pt; past that it is cut with
+    // a mark, because a card that spills onto the logo is worse than one
+    // that says "see the board".
     const areaTop = b.top - 10;
     const areaBottom = b.bottom + 0.9 * IN;
-    let y = areaTop - (areaTop - areaBottom - blockH) / 2;
+    const areaH = areaTop - areaBottom;
+    let size = 13;
+    let lines = wrap(pen.serif, size, o.cardMessage || "", b.w - 10);
+    while (lines.length * size * 1.4 > areaH && size > 8) {
+      size -= 1;
+      lines = wrap(pen.serif, size, o.cardMessage || "", b.w - 10);
+    }
+    const maxLines = Math.max(1, Math.floor(areaH / (size * 1.4)));
+    if (lines.length > maxLines) lines = [...lines.slice(0, maxLines - 1), "(... the rest is on the board)"];
+    const blockH = lines.length * size * 1.4;
+    let y = areaTop - (areaH - blockH) / 2;
     for (const l of lines) {
       y -= size * 1.4;
       const tw = pen.serif.widthOfTextAtSize(l, size);
@@ -255,20 +312,20 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
   // bottom-left + middle: the work order
   {
     const b = box(0, 1, 2);
-    const c = new Cursor(pen, b.x, b.top, b.w);
+    const c = new Cursor(pen, b.x, b.top, b.w, b.bottom + 10);
     c.row(`Order ${o.number} - ${site.shortName}`, `${deliver ? "Delivery" : "Pickup"}: ${day} | ${weekday}`, 10, pen.bold);
     c.row(`Taken: ${stamp(o.createdAt)}    Occ: ${o.occasion || "none"}`, `Printed: ${stamp(printedAt)}`, 8, pen.reg);
     c.gap(4);
     // two columns: customer, recipient
     const colW = (b.w - 12) / 2;
-    const left = new Cursor(pen, b.x, c.y, colW);
+    const left = new Cursor(pen, b.x, c.y, colW, c.floor);
     left.heading("Customer");
     left.line(o.name, 10.5, pen.bold);
     if (!deliver) for (const w of where) left.line(w, 9.5);
     if (o.phone) left.line(`Phone: ${o.phone}`, 9.5);
     if (o.email) left.line(`Email: ${o.email}`, 9.5);
     left.line(o.source === "web" ? "Website order" : "Phone order", 9.5, pen.reg, { color: grey });
-    const right = new Cursor(pen, b.x + colW + 12, c.y, colW);
+    const right = new Cursor(pen, b.x + colW + 12, c.y, colW, c.floor);
     right.heading("Recipient");
     right.line(o.recipient || o.name, 10.5, pen.bold);
     if (deliver) for (const w of where) right.line(w, 9.5);
@@ -282,12 +339,14 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
       c.heading("Order notes");
       c.line(o.notes, 9.5);
     }
+    c.more();
   }
 
-  // bottom-right: the driver's stub
+  // bottom-right: the driver's stub; its floor sits above the signature line
   {
     const b = box(2, 1);
-    const c = new Cursor(pen, b.x, b.top, b.w);
+    const sy = b.bottom + 14;
+    const c = new Cursor(pen, b.x, b.top, b.w, sy + 16);
     c.line(`Order ${o.number} - ${site.shortName}`, 9.5, pen.bold);
     c.line(`${deliver ? "DELIVERY" : "PICKUP"}: ${day} | ${weekday}`, 11, pen.bold);
     c.gap(6);
@@ -301,11 +360,11 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     for (const l of items(o)) c.line(`${l.name} x ${l.qty}`, 9.5);
     c.gap(6);
     c.line(`Instructions: ${o.notes || ""}`, 9.5);
+    c.more();
     // signature line pinned to the panel's foot
-    const sy = b.bottom + 14;
     page.drawLine({ start: { x: b.x, y: sy }, end: { x: b.x + b.w * 0.75, y: sy }, thickness: 0.6, color: ink });
     page.drawText("Signature", { x: b.x, y: sy - 10, size: 8, font: pen.reg, color: grey });
-    page.drawText(o.number, { x: b.x + b.w * 0.75 - pen.reg.widthOfTextAtSize(o.number, 8) + 0, y: sy - 10, size: 8, font: pen.reg, color: grey });
+    page.drawText(o.number, { x: b.x + b.w * 0.75 - pen.reg.widthOfTextAtSize(o.number, 8), y: sy - 10, size: 8, font: pen.reg, color: grey });
   }
 }
 
@@ -316,7 +375,7 @@ async function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, o: Workroom
   const pen: Pen = { page, ...fonts };
   const M = 0.5 * IN;
   const W = 8.5 * IN - M * 2;
-  const logo = await doc.embedPng(Buffer.from(LOGO_PNG_BASE64, "base64"));
+  const logo = await doc.embedPng(LOGO_PNG);
   const logoW = 2.2 * IN;
   const logoH = (logo.height / logo.width) * logoW;
   page.drawImage(logo, { x: M, y: 11 * IN - M - logoH, width: logoW, height: logoH });
@@ -326,7 +385,8 @@ async function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, o: Workroom
     c.line(`${site.address.city}, ${site.address.state} ${site.address.zip}`, 10, pen.reg, { align: "right" });
     c.line(site.phone, 10, pen.reg, { align: "right" });
   }
-  const c = new Cursor(pen, M, 11 * IN - M - logoH - 10, W);
+  // The floor keeps room for the "more" line and the footer stamp under it.
+  const c = new Cursor(pen, M, 11 * IN - M - logoH - 10, W, M + 26);
   c.rule(1.5);
   c.gap(6);
   const pickup = o.fulfillment === "pickup";
@@ -337,12 +397,12 @@ async function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, o: Workroom
   if (o.status === "hold") c.line("ON HOLD", 16, pen.bold);
   c.gap(6);
   const colW = (W - 24) / 2;
-  const left = new Cursor(pen, M, c.y, colW);
+  const left = new Cursor(pen, M, c.y, colW, c.floor);
   left.heading(pickup ? "Picking up" : "Ordered by");
   left.line(o.name, 12, pen.bold);
   if (o.phone) left.line(o.phone, 10.5);
   if (o.email) left.line(o.email, 10.5);
-  const right = new Cursor(pen, M + colW + 24, c.y, colW);
+  const right = new Cursor(pen, M + colW + 24, c.y, colW, c.floor);
   right.heading(pickup ? "Their address, for the file" : "Deliver to");
   if (!pickup) right.line(o.recipient || o.name, 11, pen.bold);
   if (where.length) for (const w of where) right.line(w, 10.5);
@@ -355,7 +415,14 @@ async function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, o: Workroom
   c.heading("Card message");
   {
     const size = 14;
-    const lines = wrap(pen.serif, size, o.cardMessage || "(none)", W - 24);
+    let lines = wrap(pen.serif, size, o.cardMessage || "(none)", W - 24);
+    // The box takes what fits above the floor, leaving room for the stamp.
+    const room = c.y - c.floor - 20 - 30;
+    const maxLines = Math.max(1, Math.floor(room / (size * 1.4)));
+    if (lines.length > maxLines) {
+      lines = [...lines.slice(0, maxLines - 1), "(... the rest is on the board)"];
+      c.overflowed = true;
+    }
     const h = lines.length * size * 1.4 + 20;
     page.drawRectangle({ x: M, y: c.y - h, width: W, height: h, borderColor: ink, borderWidth: 0.8 });
     let y = c.y - 10;
@@ -369,7 +436,10 @@ async function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, o: Workroom
     c.heading("Notes");
     c.line(o.notes, 10.5);
   }
-  c.gap(14);
+  c.more();
+  // The footer stamp, at the page margin, always.
+  c.y = M + 8.5 * 1.25;
+  c.floor = 0;
   c.row(`Taken ${stamp(o.createdAt)}${o.madeBy ? `    Made by ${o.madeBy}` : ""}`, `Printed ${stamp(printedAt)}`, 8.5, pen.reg);
 }
 
