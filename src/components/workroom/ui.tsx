@@ -67,6 +67,15 @@ export const textButton: React.CSSProperties = {
 /** "September 8, 2026" from "2026-09-08", for the printed documents a
     client holds; an ISO date next to a written one reads as a glitch.
     Noon, not midnight, so no timezone can pull it to the day before. */
+/** "2:00 pm" from "14:00". Their site writes times this way. */
+export function prettyTime(hhmm: string): string {
+  if (!/^\d{2}:\d{2}$/.test(hhmm)) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  const suffix = h < 12 ? "am" : "pm";
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
 export function longDate(iso: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   return new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });

@@ -172,6 +172,9 @@ export type QuotePiece = {
   /** Which family or group is paying for this piece. One service routinely
       splits across several payers, and the ticket has to say which. */
   from?: string;
+  /** Who carries or wears it (weddings: "the bride", "mother of the groom").
+      The wedding-side twin of `from`; the print shows it under the piece. */
+  forWhom?: string;
 };
 export type Quote = {
   id: string;

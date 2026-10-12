@@ -97,6 +97,7 @@ export async function PUT(req: Request) {
       price: num(r.price, 1_000_000),
       ribbon: str(r.ribbon, 80),
       from: str(r.from, 120),
+      forWhom: str(r.forWhom, 120),
       parts: (Array.isArray(r.parts) ? r.parts : [])
         .slice(0, 30)
         .map((pt) => ({
