@@ -305,6 +305,140 @@ function SectionHead({ label, href, linkText }: { label: string; href?: string; 
   );
 }
 
+/**
+ * THE REGISTER LINK, with a button (found 2026-10-12 writing the go-live
+ * steps: the owner connected by typing an API address into the bar, and
+ * landed on a board that did not say whether it worked). Owner tier,
+ * because this is the screen she owns. Connect is a plain link to the
+ * connect route, which bounces through Square's Allow page and lands back
+ * on the board with a flag the board now shows. Disconnect revokes and
+ * forgets, behind a confirm. The catalog push is here too, behind its own
+ * confirm, because the README's rule is that it waits for her yes and a
+ * button she presses IS that yes.
+ */
+type SquareStatus = {
+  configured: boolean;
+  env: string | null;
+  backend: string;
+  webhookKey: boolean;
+  salesLast7Days: number;
+  oauth: { connected: boolean; inUse: boolean; merchantId?: string; location?: string; tokenExpiresAt?: number };
+};
+
+function SquareLink() {
+  const [st, setSt] = useState<SquareStatus | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState<"" | "disconnect" | "sync">("");
+  const [confirm, setConfirm] = useState<"" | "disconnect" | "sync">("");
+  const [report, setReport] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch("/api/square/sync", { cache: "no-store" });
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || "Could not read the Square status.");
+      setSt((await r.json()) as SquareStatus);
+      setErr("");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not read the Square status.");
+    }
+  }, []);
+  useEffect(() => {
+    load().catch(() => {});
+  }, [load]);
+
+  async function disconnect() {
+    setBusy("disconnect");
+    setConfirm("");
+    try {
+      const r = await fetch("/api/square/connect", { method: "DELETE" });
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || "Disconnect failed.");
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Disconnect failed.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function sync() {
+    setBusy("sync");
+    setConfirm("");
+    setReport("");
+    try {
+      const r = await fetch("/api/square/sync", { method: "POST" });
+      const d = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!r.ok) throw new Error((d?.error as string) || "The catalog push failed.");
+      const n = (k: string) => (typeof d?.[k] === "number" ? (d[k] as number) : 0);
+      const strays = Array.isArray(d?.strays) ? (d.strays as unknown[]).length : 0;
+      setReport(`Done: ${n("created")} created, ${n("updated")} updated, ${n("unchanged")} unchanged, ${strays} of hers left alone.`);
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "The catalog push failed.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const connected = !!st?.oauth.connected;
+  return (
+    <>
+      <SectionHead label="Register link" />
+      <div className="panel" style={{ padding: "14px 16px", display: "grid", gap: 10, maxWidth: 640 }}>
+        {!st && !err && <p className="muted" style={{ margin: 0, fontSize: 14 }}>Checking…</p>}
+        {st && (
+          <p style={{ margin: 0, fontSize: 14.5 }}>
+            {connected ? (
+              <>
+                <strong style={{ color: "var(--green)" }}>Connected</strong> to {st.oauth.location || "her Square account"}
+                {st.env ? ` (${st.env})` : ""}. {st.salesLast7Days} register sale{st.salesLast7Days === 1 ? "" : "s"} heard in the last 7 days.
+                {!st.webhookKey && " The webhook key is not set, so sales will not arrive until it is."}
+              </>
+            ) : (
+              <>
+                <strong style={{ color: "var(--rose-ink)" }}>Not connected.</strong> Sign into Square on this device first, then press Connect; Square asks you to allow the site, and you land back on the board.
+                {st.backend !== "postgres" && " The database is not set up here, so a connection could not be kept; set it up first."}
+              </>
+            )}
+          </p>
+        )}
+        {err && <p role="alert" style={{ margin: 0, fontSize: 14, color: "var(--rose-ink)" }}>{err}</p>}
+        {report && <p role="status" style={{ margin: 0, fontSize: 14, color: "var(--green)", fontWeight: 600 }}>{report}</p>}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          {!connected && (
+            <a className="btn btn--solid" href="/api/square/connect">
+              Connect Square
+            </a>
+          )}
+          {connected && confirm === "" && (
+            <>
+              <button type="button" className="btn" disabled={busy !== ""} onClick={() => setConfirm("sync")}>
+                {busy === "sync" ? "Pushing…" : "Put our products on the register"}
+              </button>
+              <button type="button" disabled={busy !== ""} onClick={() => setConfirm("disconnect")} style={{ font: "inherit", fontSize: 13.5, border: 0, background: "none", cursor: "pointer", color: "var(--muted)", padding: "6px 0" }}>
+                Disconnect
+              </button>
+            </>
+          )}
+          {confirm === "sync" && (
+            <>
+              <span style={{ fontSize: 14 }}>Add or update our 57 products on your real register? Items that are not ours are left alone.</span>
+              <button type="button" className="btn btn--solid" onClick={sync}>Yes, push them</button>
+              <button type="button" onClick={() => setConfirm("")} style={{ font: "inherit", fontSize: 13.5, border: 0, background: "none", cursor: "pointer", color: "var(--muted)" }}>Not now</button>
+            </>
+          )}
+          {confirm === "disconnect" && (
+            <>
+              <span style={{ fontSize: 14 }}>Disconnect? Sales stop arriving and card entry closes until you reconnect.</span>
+              <button type="button" className="btn" onClick={disconnect} style={{ color: "var(--rose-ink)" }}>Yes, disconnect</button>
+              <button type="button" onClick={() => setConfirm("")} style={{ font: "inherit", fontSize: 13.5, border: 0, background: "none", cursor: "pointer", color: "var(--muted)" }}>Keep it</button>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 
 export default function Dashboard({ initialAuthed, initialOwner }: { initialAuthed: boolean; initialOwner: boolean }) {
@@ -1043,6 +1177,8 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
           appear the moment the other screens have something to add up.
         </p>
       )}
+
+      <SquareLink />
 
       {/* The provenance, off the face and in one place. */}
       <details style={{ marginTop: 30 }}>

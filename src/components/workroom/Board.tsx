@@ -125,6 +125,19 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       query shows one flat match list, finished orders open, with the count
       said out loud; clearing the box brings the board back. */
   const [find, setFind] = useState("");
+  /** The Square connect's landing flag (?square=connected and friends),
+      read once and then cleared from the address bar so a reload or a
+      bookmark never repeats it. The callback route has always sent it;
+      nothing displayed it until 2026-10-12. */
+  const [squareFlag, setSquareFlag] = useState("");
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const f = u.searchParams.get("square");
+    if (!f) return;
+    setSquareFlag(f);
+    u.searchParams.delete("square");
+    window.history.replaceState(null, "", u.pathname + (u.search || "") + u.hash);
+  }, []);
   /** The full order history, fetched once when a search begins: the board
       loads 60 days, and the order a caller asks about can be older. */
   const [deep, setDeep] = useState<Order[] | null>(null);
@@ -286,6 +299,30 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <h1>Orders</h1>
 
       <MemoryWarning backend={backend} />
+
+      {squareFlag && (
+        <p
+          role="status"
+          className="panel"
+          style={{
+            padding: "10px 14px", margin: "0 0 18px", fontSize: 14.5, maxWidth: 640,
+            borderLeft: `3px solid ${squareFlag === "connected" ? "var(--green)" : "var(--rose-ink)"}`,
+            display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+          }}
+        >
+          <span style={{ flex: "1 1 auto" }}>
+            {squareFlag === "connected" && <><strong>Square is connected.</strong> Register sales will show up here and on the dashboard from now on.</>}
+            {squareFlag === "denied" && <><strong>Square was not connected:</strong> the permission screen was declined. Nothing changed.</>}
+            {squareFlag === "failed" && <><strong>Square did not connect.</strong> Square allowed it but the handshake failed; the usual cause is the app secret (see .env.example). Tell Kevin.</>}
+            {squareFlag === "badstate" && <><strong>Square did not connect:</strong> the return did not match the request. Start again from the dashboard.</>}
+            {squareFlag === "nodatabase" && <><strong>Square did not connect:</strong> there is no database here to keep the connection in. Set it up first.</>}
+            {squareFlag === "unconfigured" && <><strong>Square did not connect:</strong> the Square app is not configured on this deployment.</>}
+          </span>
+          <button type="button" onClick={() => setSquareFlag("")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+            Dismiss
+          </button>
+        </p>
+      )}
 
       <p style={{ margin: "6px 0 26px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
         <button className="btn" type="button" onClick={() => setAdding((v) => !v)}>
