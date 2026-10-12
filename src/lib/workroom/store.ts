@@ -42,6 +42,12 @@ export type WorkroomLine = {
   name: string;
   qty: number;
   each: number; // dollars
+  /** The stems this piece was PRICED FROM at the counter (Katy, 2026-10-06:
+      "select rose x 3 and that = the price"), when it was built by stems
+      rather than taken at the catalog price. Each is then the sum of stems
+      times her per-stem retail from the stem library, computed server-side
+      at write time and kept here as the record of what was promised. */
+  parts?: { variety: string; stems: number }[];
 };
 
 /**

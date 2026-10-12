@@ -3,6 +3,7 @@ import { site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
+import { normalizeVariety } from "@/lib/workroom/derive";
 import { sendDeliveredEmail, sendWorkroomReceipt } from "@/lib/intake";
 
 /**
@@ -43,6 +44,42 @@ export async function POST(req: Request) {
     Custom lines ("casket spray, $250") keep the typed price: the person typing
     is the shop, and half of what a florist sells has no catalog entry.
   */
+  /*
+    BUILT BY STEMS (Katy, 2026-10-06): a line may carry parts, variety and
+    stem count, and then its price is the sum of stems times her per-stem
+    retail from the stem library, never the catalog price and never a
+    number the browser sent. This is the wedding builder's arithmetic at
+    the counter, for Designer's Choice and custom pieces. A variety the
+    library does not price is refused by name rather than priced at zero:
+    a $0 rose on a $100 arrangement is the kind of wrong that ships.
+  */
+  let stemPrices: Map<string, number> | null = null;
+  const priceParts = async (rawParts: unknown): Promise<{ parts: WorkroomLine["parts"]; each: number } | { error: string } | null> => {
+    if (!Array.isArray(rawParts) || rawParts.length === 0) return null;
+    if (!stemPrices) {
+      stemPrices = new Map();
+      for (const v of await getStore().listVarieties()) {
+        if (v.sellStem != null && v.sellStem > 0) stemPrices.set(v.name, v.sellStem);
+      }
+    }
+    const parts: { variety: string; stems: number }[] = [];
+    const unpriced: string[] = [];
+    let cents = 0;
+    for (const rp of rawParts.slice(0, 30)) {
+      const r = (rp ?? {}) as Record<string, unknown>;
+      const variety = normalizeVariety(str(r.variety, 80));
+      const stems = Math.min(999, Math.max(0, Math.round(Number(r.stems) || 0)));
+      if (!variety || stems === 0) continue;
+      const price = stemPrices.get(variety);
+      if (price === undefined) unpriced.push(variety);
+      else cents += Math.round(price * 100) * stems;
+      parts.push({ variety, stems });
+    }
+    if (parts.length === 0) return null;
+    if (unpriced.length) return { error: `No per-stem price in the stem library for: ${unpriced.join(", ")}. Add it on the Inventory tab, then try again.` };
+    return { parts, each: cents / 100 };
+  };
+
   const lines: WorkroomLine[] = [];
   for (const l of (Array.isArray(p.lines) ? p.lines : []).slice(0, 40)) {
     if (!l || typeof l !== "object") continue;
@@ -50,12 +87,14 @@ export async function POST(req: Request) {
     const qty = Math.min(99, Math.max(1, Math.round(Number(raw.qty) || 1)));
     const slug = str(raw.slug, 80);
     const product = bySlug.get(slug);
+    const built = await priceParts(raw.parts);
+    if (built && "error" in built) return NextResponse.json({ error: built.error }, { status: 400 });
     if (product) {
-      lines.push({ slug, name: product.name, qty, each: product.price });
+      lines.push(built ? { slug, name: product.name, qty, each: built.each, parts: built.parts } : { slug, name: product.name, qty, each: product.price });
     } else {
-      const name = str(raw.name, 120);
-      const each = Math.max(0, Math.round((Number(raw.each) || 0) * 100) / 100);
-      if (name) lines.push({ slug: null, name, qty, each });
+      const name = str(raw.name, 120) || (built ? "Custom arrangement" : "");
+      const each = built ? built.each : Math.max(0, Math.round((Number(raw.each) || 0) * 100) / 100);
+      if (name) lines.push(built ? { slug: null, name, qty, each, parts: built.parts } : { slug: null, name, qty, each });
     }
   }
 

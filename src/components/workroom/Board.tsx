@@ -31,7 +31,7 @@ import PayControls from "@/components/workroom/PayControls";
  * accident; the order history already knows.
  */
 
-type Line = { slug: string | null; name: string; qty: number; each: number };
+type Line = { slug: string | null; name: string; qty: number; each: number; parts?: { variety: string; stems: number }[] };
 type Order = {
   id: string;
   number: string;
@@ -860,6 +860,13 @@ function OrderCard({
           <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <span>
               {l.qty} × {l.name}
+              {/* A piece priced by stems says what it was priced from, so the
+                  workroom builds what the counter promised. */}
+              {l.parts && l.parts.length > 0 && (
+                <span className="muted" style={{ display: "block", fontSize: 13 }}>
+                  {l.parts.map((pt) => `${pt.stems} ${pt.variety}`).join(", ")}
+                </span>
+              )}
             </span>
             <span style={{ whiteSpace: "nowrap" }}>{money(l.each * l.qty)}</span>
           </li>
@@ -1000,8 +1007,13 @@ function OrderCard({
  */
 const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name));
 
-type DraftLine = { slug: string; custom: string; each: string; qty: number };
-const blankLine = (): DraftLine => ({ slug: "", custom: "", each: "", qty: 1 });
+type DraftPart = { variety: string; stems: string };
+type DraftLine = { slug: string; custom: string; each: string; qty: number; byStems: boolean; parts: DraftPart[] };
+const blankLine = (): DraftLine => ({ slug: "", custom: "", each: "", qty: 1, byStems: false, parts: [{ variety: "", stems: "" }] });
+/** The lines that can be built by stems: her Designer's Choice three and
+    anything custom. A Peace Lily is a Peace Lily. */
+const canBuild = (l: DraftLine) => !l.slug || l.slug.startsWith("designers-choice");
+type StemPrice = { name: string; sellStem: number | null };
 
 function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: () => void }) {
   const [name, setName] = useState("");
@@ -1036,9 +1048,46 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
   const [error, setError] = useState("");
+  /** The stem library's names and per-stem prices, for building a piece
+      by stems (Katy, 2026-10-06). Loaded once per form open; the route
+      re-prices from the same library at write time, so these numbers only
+      show what the counter is about to promise. */
+  const [library, setLibrary] = useState<StemPrice[]>([]);
+  useEffect(() => {
+    fetch("/api/workroom/varieties", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.varieties) setLibrary((d.varieties as StemPrice[]).map((v) => ({ name: v.name, sellStem: v.sellStem })));
+      })
+      .catch(() => {});
+  }, []);
+  const stemPrice = (variety: string): number | undefined => {
+    const v = library.find((x) => x.name === variety.trim().toLowerCase().replace(/\s+/g, " "));
+    return v && v.sellStem != null && v.sellStem > 0 ? v.sellStem : undefined;
+  };
+  /** The built price of a line, in dollars, plus the varieties the library
+      cannot price (the route will refuse those by name). */
+  const builtPrice = (l: DraftLine): { each: number; unpriced: string[] } => {
+    let cents = 0;
+    const unpriced: string[] = [];
+    for (const pt of l.parts) {
+      const stems = Math.round(Number(pt.stems) || 0);
+      const name = pt.variety.trim();
+      if (!name || stems <= 0) continue;
+      const price = stemPrice(name);
+      if (price === undefined) unpriced.push(name);
+      else cents += Math.round(price * 100) * stems;
+    }
+    return { each: cents / 100, unpriced };
+  };
 
   function setLine(i: number, patch: Partial<DraftLine>) {
     setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...patch } : l)));
+  }
+  function setPart(i: number, j: number, patch: Partial<DraftPart>) {
+    setLines((cur) =>
+      cur.map((l, at) => (at === i ? { ...l, parts: l.parts.map((pt, k) => (k === j ? { ...pt, ...patch } : pt)) } : l)),
+    );
   }
 
   const productBySlug = (slug: string): Product | undefined => sortedProducts.find((p) => p.slug === slug);
@@ -1059,10 +1108,18 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       // "none typed and the zip is off the list": the route adds no line.
       deliveryFee: delivering && deliveryFee.trim() !== "" && Number.isFinite(Number(deliveryFee)) ? Number(deliveryFee) : undefined,
       lines: lines
-        .filter((l) => l.slug || l.custom.trim())
-        .map((l) =>
-          l.slug ? { slug: l.slug, qty: l.qty } : { name: l.custom.trim(), each: Number(l.each) || 0, qty: l.qty },
-        ),
+        .filter((l) => l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)))
+        .map((l) => {
+          // Built by stems: the route prices from the library, so only the
+          // parts travel, never a browser-computed price.
+          const parts =
+            l.byStems && canBuild(l)
+              ? l.parts.filter((pt) => pt.variety.trim() && Number(pt.stems) > 0).map((pt) => ({ variety: pt.variety.trim(), stems: Number(pt.stems) }))
+              : undefined;
+          return l.slug
+            ? { slug: l.slug, qty: l.qty, parts }
+            : { name: l.custom.trim(), each: parts ? 0 : Number(l.each) || 0, qty: l.qty, parts };
+        }),
     };
     const r = await fetch("/api/workroom/orders", {
       method: "POST",
@@ -1390,11 +1447,14 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
         <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
           {lines.map((l, i) => {
             const p = productBySlug(l.slug);
+            const building = l.byStems && canBuild(l);
+            const built = building ? builtPrice(l) : null;
             return (
               /* Flex with wrap, not a fixed grid: four cells at their minimums
                  are ~440px, and a 390px phone needs the row to fold instead of
                  shoving the page sideways. */
-              <div key={i} style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
+              <div key={i} style={{ display: "grid", gap: 8, minWidth: 0 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
                 <select
                   aria-label={`Item ${i + 1} product`}
                   value={l.slug}
@@ -1410,7 +1470,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                 </select>
                 {l.slug ? (
                   <span style={{ alignSelf: "center", fontSize: 14.5, flex: "1 1 auto" }} className="muted">
-                    {p ? money(p.price) : ""} each
+                    {built ? `${money(built.each)} each, by stems` : `${p ? money(p.price) : ""} each`}
                   </span>
                 ) : (
                   <input
@@ -1421,7 +1481,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                     style={{ ...field, flex: "1 1 140px", minWidth: 0, width: "auto" }}
                   />
                 )}
-                {!l.slug && (
+                {!l.slug && !building && (
                   <input
                     aria-label={`Item ${i + 1} price`}
                     placeholder="$"
@@ -1430,6 +1490,11 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                     onChange={(e) => setLine(i, { each: e.target.value })}
                     style={{ ...field, flex: "0 1 90px", minWidth: 0, width: "auto" }}
                   />
+                )}
+                {!l.slug && building && built && (
+                  <span style={{ alignSelf: "center", fontSize: 14.5, flex: "0 1 auto" }} className="muted">
+                    {money(built.each)} each, by stems
+                  </span>
                 )}
                 <input
                   aria-label={`Item ${i + 1} quantity`}
@@ -1441,8 +1506,90 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                   style={{ ...field, flex: "0 0 72px", minWidth: 0, width: "auto" }}
                 />
               </div>
+
+              {/* BUILT BY STEMS (Katy, 2026-10-06: "select rose x 3 and that
+                  = the price... this exists in wedding! just needs to be
+                  under designers choice"). The wedding builder's arithmetic
+                  at the counter: pick a flower from her stem library, say
+                  how many, and the piece prices itself at her per-stem
+                  retail. Wendalyn is $75 and they want to spend $100: build
+                  the $100 here instead of guessing what fits. */}
+              {canBuild(l) && (
+                <div style={{ paddingLeft: 4, display: "grid", gap: 6 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--muted)" }}>
+                    <input
+                      type="checkbox"
+                      checked={l.byStems}
+                      onChange={(e) => setLine(i, { byStems: e.target.checked })}
+                      style={{ width: 18, height: 18, accentColor: "var(--green)" }}
+                    />
+                    Price it by stems
+                  </label>
+                  {building && (
+                    <>
+                      {l.parts.map((pt, j) => {
+                        const price = pt.variety.trim() ? stemPrice(pt.variety) : undefined;
+                        const stems = Math.round(Number(pt.stems) || 0);
+                        return (
+                          <div key={j} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", minWidth: 0 }}>
+                            <input
+                              aria-label={`Item ${i + 1} flower ${j + 1}`}
+                              list="wr-stem-library"
+                              placeholder="Flower, from the stem library"
+                              value={pt.variety}
+                              onChange={(e) => setPart(i, j, { variety: e.target.value })}
+                              style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
+                            />
+                            <span className="muted" style={{ fontSize: 14 }}>×</span>
+                            <input
+                              aria-label={`Item ${i + 1} flower ${j + 1} stems`}
+                              type="number"
+                              min={0}
+                              max={999}
+                              placeholder="stems"
+                              value={pt.stems}
+                              onChange={(e) => setPart(i, j, { stems: e.target.value })}
+                              style={{ ...field, flex: "0 0 84px", minWidth: 0, width: "auto" }}
+                            />
+                            <span style={{ fontSize: 14, minWidth: 110 }} className={price === undefined && pt.variety.trim() ? "" : "muted"}>
+                              {!pt.variety.trim()
+                                ? ""
+                                : price === undefined
+                                  ? <strong style={{ color: "var(--rose-ink)" }}>no stem price in the library</strong>
+                                  : `${money(price)} a stem${stems > 0 ? ` = ${money(price * stems)}` : ""}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
+                        <button type="button" onClick={() => setLine(i, { parts: [...l.parts, { variety: "", stems: "" }] })} style={{ ...textButton, fontSize: 13.5 }}>
+                          Another flower
+                        </button>
+                        {built && built.each > 0 && (
+                          <strong style={{ fontSize: 14.5 }}>
+                            {money(built.each)} each{l.qty > 1 ? ` · ${money(built.each * l.qty)} for ${l.qty}` : ""}
+                          </strong>
+                        )}
+                        {built && built.unpriced.length > 0 && (
+                          <span style={{ fontSize: 13.5, color: "var(--rose-ink)" }}>
+                            Add a per-stem price for {built.unpriced.join(", ")} on the Inventory tab, or it will not save.
+                          </span>
+                        )}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+              </div>
             );
           })}
+          {/* One datalist for every flower field: the library's names, so a
+              typed name is a resident's name and not a near miss. */}
+          <datalist id="wr-stem-library">
+            {library.map((v) => (
+              <option key={v.name} value={v.name} />
+            ))}
+          </datalist>
         </div>
         <p style={{ margin: "8px 0 0" }}>
           <button type="button" onClick={() => setLines((cur) => [...cur, blankLine()])} style={textButton}>
