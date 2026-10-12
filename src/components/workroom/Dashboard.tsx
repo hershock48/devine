@@ -446,6 +446,86 @@ function SquareLink() {
   );
 }
 
+/**
+ * HER OLD SYSTEM'S LISTS, loaded once (2026-10-12). IRIS exports a customer
+ * list and a recipient list; this takes each file as exported, owner tier,
+ * and the phone form's autofill then knows every name and funeral home
+ * she already has. Additive and idempotent, so a second load of the same
+ * file changes nothing. The panel says how many are on file.
+ */
+function IrisImport() {
+  const [counts, setCounts] = useState<{ customer: number; recipient: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState("");
+  const [err, setErr] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch("/api/workroom/contacts", { cache: "no-store" });
+      if (r.ok) setCounts(((await r.json()) as { counts: { customer: number; recipient: number } }).counts);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    load().catch(() => {});
+  }, [load]);
+
+  async function upload(file: File) {
+    setBusy(true);
+    setErr("");
+    setReport("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/workroom/contacts", { method: "POST", body: fd });
+      const d = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!r.ok) throw new Error((d?.error as string) || "The import failed.");
+      const n = (k: string) => (typeof d?.[k] === "number" ? (d[k] as number) : 0);
+      setReport(
+        `${d?.kind === "recipient" ? "Recipient" : "Customer"} list: ${n("rows")} rows read, ${n("written")} on file after folding ${n("merged")} repeats` +
+          (n("badPhones") ? `; ${n("badPhones")} phone cells held something that was not a phone and were left blank` : "") +
+          (n("skipped") ? `; ${n("skipped")} empty rows skipped` : "") +
+          ".",
+      );
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "The import failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <SectionHead label="Her old system's lists" />
+      <div className="panel" style={{ padding: "14px 16px", display: "grid", gap: 10, maxWidth: 640 }}>
+        <p style={{ margin: 0, fontSize: 14.5 }}>
+          {counts
+            ? counts.customer + counts.recipient > 0
+              ? <><strong>{counts.customer.toLocaleString()} customers</strong> and <strong>{counts.recipient.toLocaleString()} recipients</strong> on file. The phone form offers them as you type.</>
+              : "Nothing on file yet. Load the two IRIS exports, Customer List Report and Recipient List Report, as they came out."
+            : "Checking…"}
+        </p>
+        <label style={{ fontSize: 14.5, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span className="btn" style={{ cursor: busy ? "wait" : "pointer" }}>{busy ? "Loading…" : "Load an IRIS list"}</span>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            disabled={busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) upload(f).catch(() => {});
+            }}
+            style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden" }}
+          />
+          <span className="muted" style={{ fontSize: 13.5 }}>Either list; it tells which from the columns. Loading one twice is harmless.</span>
+        </label>
+        {report && <p role="status" style={{ margin: 0, fontSize: 14, color: "var(--green)", fontWeight: 600 }}>{report}</p>}
+        {err && <p role="alert" style={{ margin: 0, fontSize: 14, color: "var(--rose-ink)" }}>{err}</p>}
+      </div>
+    </>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 
 export default function Dashboard({ initialAuthed, initialOwner }: { initialAuthed: boolean; initialOwner: boolean }) {
@@ -1187,6 +1267,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       )}
 
       <SquareLink />
+      <IrisImport />
 
       {/* The provenance, off the face and in one place. */}
       <details style={{ marginTop: 30 }}>
