@@ -122,8 +122,34 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
-  const p = (await req.json().catch(() => ({}))) as { id?: unknown; status?: unknown; markRefunded?: unknown; deliveryFee?: unknown };
+  const p = (await req.json().catch(() => ({}))) as {
+    id?: unknown; status?: unknown; markRefunded?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown;
+  };
   const id = typeof p.id === "string" ? p.id : "";
+  // UNCANCEL (Katy, 2026-10-06): a canceled order goes back to the status
+  // it was canceled from, or to confirmed when that was never recorded
+  // (orders canceled before this shipped). Refused once the money has been
+  // refunded: the PAID badge would lie, and a refunded sale is a closed
+  // book; the counter writes that one up again.
+  if (p.uncancel === true) {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    if (o.status !== "canceled") return NextResponse.json({ error: "That order is not canceled." }, { status: 409 });
+    if (o.payment?.refundedAt) {
+      return NextResponse.json({ error: "Its payment was refunded, so this one stays canceled. Write it up again." }, { status: 409 });
+    }
+    const back: OrderStatus = o.canceledFrom && o.canceledFrom !== "canceled" ? o.canceledFrom : "confirmed";
+    await getStore().patchOrder(id, { status: back });
+    return NextResponse.json({ ok: true, status: back });
+  }
+  // INITIALS alone (fixing or adding who made it after the fact).
+  const madeBy = typeof p.madeBy === "string" ? p.madeBy.trim().toUpperCase().slice(0, 4) : undefined;
+  if (p.status === undefined && madeBy !== undefined) {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    await getStore().patchOrder(id, { madeBy });
+    return NextResponse.json({ ok: true });
+  }
   // Adjusting the delivery fee on an order already on the board (Katy,
   // 2026-10-06): web orders arrive with no delivery line and phone orders
   // with the sheet's, and either may need changing before the card is
@@ -175,7 +201,19 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "A pickup order has no van to be out on." }, { status: 400 });
     }
   }
-  await getStore().setOrderStatus(id, status);
+  if (status === "canceled") {
+    // Remember where it came from, for Uncancel. A repeat tap on an
+    // already-canceled order must not overwrite that with "canceled".
+    const before = await getStore().getOrder(id);
+    await getStore().patchOrder(id, {
+      status,
+      ...(before && before.status !== "canceled" ? { canceledFrom: before.status } : {}),
+    });
+  } else if (madeBy !== undefined) {
+    await getStore().patchOrder(id, { status, madeBy });
+  } else {
+    await getStore().setOrderStatus(id, status);
+  }
   if (deliveredNote) await sendDeliveredEmail(deliveredNote);
   return NextResponse.json({ ok: true });
 }

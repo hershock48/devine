@@ -53,6 +53,8 @@ type Order = {
   subtotal: number;
   createdAt: number;
   payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
+  canceledFrom?: string;
+  madeBy?: string;
 };
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
@@ -149,13 +151,28 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     return () => clearInterval(t);
   }, [authed, pull]);
 
-  async function move(id: string, status: Order["status"]) {
+  async function move(id: string, status: Order["status"], extra?: { madeBy?: string }) {
     await fetch("/api/workroom/orders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
+      body: JSON.stringify({ id, status, ...(extra?.madeBy ? { madeBy: extra.madeBy } : {}) }),
     });
     pull().catch(() => {});
+  }
+
+  /** Uncancel (Katy, 2026-10-06): back to the status it was canceled from.
+      The route refuses a refunded one and says why; the card shows that. */
+  async function uncancel(id: string) {
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, uncancel: true }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      throw new Error(d?.error || "That did not uncancel.");
+    }
+    await pull();
   }
 
   /** The human attestation that the Square refund happened; the workroom
@@ -310,23 +327,23 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
                 Finished &amp; canceled ({buckets.closed.length})
               </h2>
-              <ClosedList orders={buckets.closed} />
+              <ClosedList orders={buckets.closed} onUncancel={uncancel} />
             </section>
           )}
         </>
       ) : (
         <>
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} />
-          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onRefunded={markRefunded} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} />
+          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onRefunded={markRefunded} />
 
           {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
@@ -343,7 +360,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
               {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
             </button>
           </p>
-          {showDone && <ClosedList orders={buckets.closed} />}
+          {showDone && <ClosedList orders={buckets.closed} onUncancel={uncancel} />}
         </>
       )}
     </>
@@ -357,7 +374,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
  * these too, so a caller asking about last month's order is one search and
  * one glance.
  */
-function ClosedList({ orders }: { orders: Order[] }) {
+function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id: string) => Promise<void> }) {
   if (orders.length === 0) return null;
   const moneyWord = (o: Order) => {
     if (!o.payment) return o.status === "canceled" ? "" : "not paid";
@@ -405,7 +422,9 @@ function ClosedList({ orders }: { orders: Order[] }) {
                   : ""}
                 {o.phone ? ` · ${o.phone}` : ""}
                 {o.email ? ` · ${o.email}` : ""}
+                {o.madeBy ? ` · made by ${o.madeBy}` : ""}
               </p>
+              {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
               {o.payment && (
                 <p className="muted" style={{ margin: 0 }}>
                   Paid by {o.payment.method === "other" ? "another way" : o.payment.method}, {money(o.payment.totalCents / 100)}
@@ -432,15 +451,17 @@ function Bucket({
   onPaid,
   onRefunded,
   onFee,
+  onUncancel,
 }: {
   title: string;
   tone?: "late";
   orders: Order[];
   contacts: Contact[];
-  onMove: (id: string, s: Order["status"]) => void;
+  onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
+  onUncancel?: (id: string) => Promise<void>;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -468,10 +489,148 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} />
+          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} />
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * The two buttons under a card, with the pauses Katy asked for (2026-10-06).
+ *
+ * CANCEL ASKS TWICE. Her words: "are you sure you want to cancel?" then
+ * "No. Seriously... are you sure?!" A cancel is the rare move and the one
+ * that un-makes a day's work, so it is two deliberate taps with a way out
+ * at each, and the whole thing resets if the card re-renders with a new
+ * status underneath it.
+ *
+ * MADE ASKS WHO. The Made tap opens a two-letter field for initials so the
+ * ticket says who made it (same meeting). Required at that moment, because
+ * "fill it in later" is never; it can still be corrected afterwards.
+ */
+function Moves({
+  o,
+  next,
+  onMove,
+}: {
+  o: Order;
+  next: { to: Order["status"]; label: string };
+  onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
+}) {
+  const [cancelStep, setCancelStep] = useState<0 | 1 | 2>(0);
+  const [asking, setAsking] = useState(false);
+  const [initials, setInitials] = useState("");
+  const [err, setErr] = useState("");
+
+  if (cancelStep > 0) {
+    return (
+      <p style={{ margin: "12px 0 0", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <strong style={{ color: "var(--rose-ink)", fontSize: 14.5 }}>
+          {cancelStep === 1 ? "Cancel this order?" : "No. Seriously… are you sure?!"}
+        </strong>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => (cancelStep === 1 ? setCancelStep(2) : onMove(o.id, "canceled"))}
+          style={{ color: "var(--rose-ink)" }}
+        >
+          {cancelStep === 1 ? "Yes, cancel it" : "Yes, really cancel it"}
+        </button>
+        <button type="button" onClick={() => setCancelStep(0)} style={{ ...textButton, fontSize: 13.5 }}>
+          Keep it
+        </button>
+      </p>
+    );
+  }
+
+  if (asking) {
+    const ok = /^[A-Za-z]{1,4}$/.test(initials.trim());
+    return (
+      <p style={{ margin: "12px 0 0", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14.5 }}>
+          Made by
+          <input
+            value={initials}
+            onChange={(e) => {
+              setInitials(e.target.value.toUpperCase());
+              setErr("");
+            }}
+            placeholder="initials"
+            maxLength={4}
+            autoFocus
+            aria-label="Your initials"
+            style={{ ...field, width: 84, textTransform: "uppercase" }}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn btn--solid"
+          onClick={() => {
+            if (!ok) {
+              setErr("Your initials, one to four letters.");
+              return;
+            }
+            onMove(o.id, "made", { madeBy: initials.trim().toUpperCase() });
+          }}
+        >
+          Made
+        </button>
+        <button type="button" onClick={() => setAsking(false)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+          Not yet
+        </button>
+        {err && <span style={{ color: "var(--rose-ink)", fontSize: 13.5 }}>{err}</span>}
+      </p>
+    );
+  }
+
+  return (
+    <p style={{ margin: "12px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
+      <button
+        className="btn btn--solid"
+        type="button"
+        onClick={() => (next.to === "made" ? setAsking(true) : onMove(o.id, next.to))}
+      >
+        {next.label}
+      </button>
+      <button type="button" onClick={() => setCancelStep(1)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+        Cancel order
+      </button>
+    </p>
+  );
+}
+
+/** The way back from a cancel (Katy, 2026-10-06). The route decides what
+    it goes back to and refuses a refunded one; this just asks and shows. */
+function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  if (o.payment?.refundedAt) return null;
+  return (
+    <p style={{ margin: "10px 0 0", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13.5 }}>
+      <button
+        type="button"
+        className="btn"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setErr("");
+          try {
+            await onUncancel(o.id);
+          } catch (e) {
+            setErr(e instanceof Error ? e.message : "That did not uncancel.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Putting it back…" : "Uncancel"}
+      </button>
+      <span className="muted">
+        back to {o.canceledFrom && o.canceledFrom !== "canceled" ? o.canceledFrom : "confirmed"}
+      </span>
+      {err && <span style={{ color: "var(--rose-ink)" }}>{err}</span>}
+    </p>
   );
 }
 
@@ -566,13 +725,15 @@ function OrderCard({
   onPaid,
   onRefunded,
   onFee,
+  onUncancel,
 }: {
   o: Order;
   contacts: Contact[];
-  onMove: (id: string, s: Order["status"]) => void;
+  onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
+  onUncancel?: (id: string) => Promise<void>;
 }) {
   const next = nextMove(o);
   const today = todayISO();
@@ -636,6 +797,7 @@ function OrderCard({
             the ticket email, where its Occasion: label explains it. */}
         {o.occasion && o.occasion !== "Everyday" ? ` · ${o.occasion}` : ""}
         {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
+        {o.madeBy ? ` · made by ${o.madeBy}` : ""}
       </p>
 
       {/* Built from the parts that exist: a phone order can be taken before
@@ -787,20 +949,8 @@ function OrderCard({
         />
       )}
 
-      {next && (
-        <p style={{ margin: "12px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
-          <button className="btn btn--solid" type="button" onClick={() => onMove(o.id, next.to)}>
-            {next.label}
-          </button>
-          <button
-            type="button"
-            onClick={() => onMove(o.id, "canceled")}
-            style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}
-          >
-            Cancel order
-          </button>
-        </p>
-      )}
+      {next && <Moves o={o} next={next} onMove={onMove} />}
+      {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
     </article>
   );
 }

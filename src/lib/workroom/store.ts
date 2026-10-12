@@ -95,6 +95,12 @@ export type WorkroomOrder = {
   subtotal: number;
   createdAt: number;
   payment?: OrderPayment | null;
+  /** The status the order held when it was canceled, so Uncancel can put
+      it back where it was (Katy, 2026-10-06 meeting) instead of guessing. */
+  canceledFrom?: OrderStatus;
+  /** Initials of whoever made it, asked for at the Made tap (same meeting:
+      "to see who made it"). Free text, short, uppercased on the way in. */
+  madeBy?: string;
 };
 
 export type StemEvent = {
@@ -430,6 +436,11 @@ type Store = {
       typed note. Number collisions do not exist (date + random). */
   getOrderByNumber(number: string): Promise<WorkroomOrder | null>;
   setOrderStatus(id: string, status: OrderStatus): Promise<void>;
+  /** A small merge of named fields (status, who made it, where a cancel
+      came from). The jsonb-blob decision pays off here: a new field is a
+      key, not a migration. Keeps the status column in step when status is
+      among the fields. */
+  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom">>): Promise<void>;
   setOrderPayment(id: string, p: OrderPayment): Promise<void>;
   /** The pay route appends the delivery-fee line when it charges a
       delivery ticket that never carried one, so the ticket's rows and its
@@ -553,6 +564,10 @@ const memoryStore: Store = {
   async setOrderStatus(id, status) {
     const o = bag().orders.get(id);
     if (o) o.status = status;
+  },
+  async patchOrder(id, patch) {
+    const o = bag().orders.get(id);
+    if (o) Object.assign(o, patch);
   },
   async setOrderPayment(id, p) {
     const o = bag().orders.get(id);
@@ -814,6 +829,14 @@ const postgresStore: Store = {
     await pool.query(
       `UPDATE workroom_orders SET status = $2, data = data || jsonb_build_object('status', $2::text) WHERE id = $1`,
       [id, status],
+    );
+  },
+  async patchOrder(id, patch) {
+    const pool = await pgPool();
+    // COALESCE keeps the column honest when the patch carries no status.
+    await pool.query(
+      `UPDATE workroom_orders SET status = COALESCE($3, status), data = data || $2::jsonb WHERE id = $1`,
+      [id, JSON.stringify(patch), patch.status ?? null],
     );
   },
   async setOrderPayment(id, p) {
