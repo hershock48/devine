@@ -69,7 +69,7 @@ type Outcome =
   | { state: "invalid"; message: string }
   | { state: "unreached"; reason: "unconfigured" | "send-failed" };
 
-type CardConfig = { cards: boolean; applicationId?: string; locationId?: string; env?: string; feeCents?: number; cardPct?: number };
+type CardConfig = { cards: boolean; applicationId?: string; locationId?: string; env?: string; feeCents?: number };
 
 /**
  * The cart's add-on strip. Three small things a flower buyer adds at the
@@ -228,13 +228,13 @@ export default function CartView() {
     };
   }, [payMethod, cfg]);
 
-  /* The single Convenience fee line (Kevin, 2026-09-04): the shop's card
-     fee percent on subtotal plus delivery, plus the flat platform fee.
-     The server computes the same arithmetic in the order route; Square's
-     own order-total check would catch any drift between the two. */
+  /* The single Convenience fee line is the flat 99 cent platform fee
+     alone since the 2026-10-06 meeting (the shop's 3% card fee is
+     retired; see site.ts). The server charges the same number in the
+     order route; Square's own order-total check would catch any drift. */
   const deliveryCents = deliveryFee !== undefined ? Math.round(deliveryFee * 100) : 0;
   const baseCents = Math.round(subtotal * 100) + (delivering0 ? deliveryCents : 0);
-  const convenienceCents = Math.round((baseCents * (cfg.cardPct ?? 3)) / 100) + (cfg.feeCents ?? 99);
+  const convenienceCents = cfg.feeCents ?? 99;
   const cardTotalCents = baseCents + convenienceCents;
 
   // Client date, not build date: a statically frozen "today" once sold birds for

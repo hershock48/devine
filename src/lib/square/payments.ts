@@ -89,16 +89,14 @@ export async function createCardPayment(cfg: ResolvedSquare, p: CardPayment) {
  * the board order's own made-status; the webhook links the sale back by
  * reference id and inventory skips linked sales.
  *
- * THE FEE RULE, per Kevin 2026-09-09 (third revision; see site.cardFeePct
- * for the register half): every card payment carries the shop's own 3%
- * card fee (site.cardFeePct - DEVINE'S money, covering her processing), and
- * orders placed through the WEBSITE additionally carry the 99 cent
- * platform fee (GLAZED WEB'S money, sent as app_fee_money). Online the
- * two combine into one customer-facing "Convenience fee" line; at the
- * board the line reads "Card fee (3%)". Cash carries nothing. The CALLER
- * computes and names the fee via cardFee, so every payment path states
- * its fee story explicitly; only appFeeCents inside it rides to the
- * platform account.
+ * THE FEE RULE, since the 2026-10-06 meeting (fourth revision): the shop's
+ * own 3% card fee is RETIRED - Katy bakes processing into her prices (see
+ * site.ts). What remains is the 99 cent platform fee on orders placed
+ * through the WEBSITE (GLAZED WEB'S money, sent as app_fee_money), shown
+ * online as the "Convenience fee" line. Board charges, card or cash, carry
+ * nothing. The CALLER still states its fee via cardFee, so every payment
+ * path says its fee story explicitly (the board passes cents 0); only
+ * appFeeCents inside it rides to the platform account.
  */
 
 type BoardOrderLine = { name: string; qty: number; each: number };

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
@@ -26,6 +27,11 @@ export async function GET(req: Request) {
 }
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+
+/** The one spelling of the delivery line. The pay route and the board both
+    find it by this prefix, so a renamed line would silently double-charge. */
+const deliveryLineName = (zip: string) => `Delivery (${zip || "no zip"})`;
+const isDeliveryLine = (l: WorkroomLine) => l.name.startsWith("Delivery (");
 
 export async function POST(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
@@ -62,6 +68,23 @@ export async function POST(req: Request) {
     );
   }
 
+  /*
+    THE DELIVERY FEE IS A LINE ON THE TICKET, set while the order is rung up
+    (Katy, 2026-10-06 meeting: the zip sheet is the default, and the person
+    on the phone can change it while quoting the price). The form sends the
+    number it showed, sheet or adjusted; a missing number falls back to the
+    sheet, and a zip off the sheet with nothing typed gets no line, which
+    the pay route also leaves alone (that fee is the call's business). 0 is
+    a real answer ("no charge for delivery") and writes a $0 line, so the
+    pay route does not later append the sheet fee over the top of it.
+  */
+  const fulfillment = p.fulfillment === "pickup" ? "pickup" : "delivery";
+  const zip = str(p.zip, 10);
+  if (fulfillment === "delivery") {
+    const typed = typeof p.deliveryFee === "number" && Number.isFinite(p.deliveryFee) && p.deliveryFee >= 0 ? p.deliveryFee : undefined;
+    const fee = typed !== undefined ? Math.round(typed * 100) / 100 : site.deliveryFees[zip];
+    if (fee !== undefined) lines.push({ slug: null, name: deliveryLineName(zip), qty: 1, each: fee });
+  }
   const now = Date.now();
   const mmdd = date.slice(5).replace("-", "");
   const order: WorkroomOrder = {
@@ -76,11 +99,11 @@ export async function POST(req: Request) {
     name,
     phone: str(p.phone, 40),
     email: str(p.email, 160),
-    fulfillment: p.fulfillment === "pickup" ? "pickup" : "delivery",
+    fulfillment,
     recipient: str(p.recipient, 120),
     street: str(p.street, 160),
     town: str(p.town, 80),
-    zip: str(p.zip, 10),
+    zip,
     date,
     occasion: str(p.occasion, 40),
     cardMessage: str(p.cardMessage, 600),
@@ -99,8 +122,26 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
-  const p = (await req.json().catch(() => ({}))) as { id?: unknown; status?: unknown; markRefunded?: unknown };
+  const p = (await req.json().catch(() => ({}))) as { id?: unknown; status?: unknown; markRefunded?: unknown; deliveryFee?: unknown };
   const id = typeof p.id === "string" ? p.id : "";
+  // Adjusting the delivery fee on an order already on the board (Katy,
+  // 2026-10-06): web orders arrive with no delivery line and phone orders
+  // with the sheet's, and either may need changing before the card is
+  // taken. Replaces the Delivery line (or adds one) and recomputes the
+  // subtotal. Refused once paid: the ticket and the payment must agree.
+  if (p.deliveryFee !== undefined) {
+    const fee = typeof p.deliveryFee === "number" && Number.isFinite(p.deliveryFee) && p.deliveryFee >= 0 ? Math.round(p.deliveryFee * 100) / 100 : null;
+    if (!id || fee === null) return NextResponse.json({ error: "A delivery fee is a number, zero or more." }, { status: 400 });
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    if (o.fulfillment !== "delivery") return NextResponse.json({ error: "A pickup order has no delivery fee." }, { status: 400 });
+    if (o.status === "canceled") return NextResponse.json({ error: "That order is canceled." }, { status: 409 });
+    if (o.payment) return NextResponse.json({ error: "Already paid; the fee is settled with the payment." }, { status: 409 });
+    const lines: WorkroomLine[] = [...o.lines.filter((l) => !isDeliveryLine(l)), { slug: null, name: deliveryLineName(o.zip), qty: 1, each: fee }];
+    const subtotal = Math.round(lines.reduce((s, l) => s + l.each * l.qty, 0) * 100) / 100;
+    await getStore().setOrderLines(id, lines, subtotal);
+    return NextResponse.json({ ok: true, lines, subtotal });
+  }
 
   // The refund attestation: the shop says the Square refund happened, and
   // the money-to-return section clears. Guarded in the store to orders

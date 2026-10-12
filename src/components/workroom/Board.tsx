@@ -170,6 +170,21 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     pull().catch(() => {});
   }
 
+  /** The delivery fee adjusted on the card itself, before the card is
+      taken (Katy, 2026-10-06). The route refuses once the order is paid. */
+  async function setFee(id: string, fee: number) {
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, deliveryFee: fee }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      throw new Error(d?.error || "The fee did not save.");
+    }
+    await pull();
+  }
+
   // Widen to the full history the moment a search starts, once per visit.
   useEffect(() => {
     if (!find.trim() || deep !== null) return;
@@ -295,7 +310,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
@@ -307,11 +322,11 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </>
       ) : (
         <>
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} />
-          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} />
+          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onRefunded={markRefunded} />
 
           {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
@@ -416,6 +431,7 @@ function Bucket({
   onMove,
   onPaid,
   onRefunded,
+  onFee,
 }: {
   title: string;
   tone?: "late";
@@ -424,6 +440,7 @@ function Bucket({
   onMove: (id: string, s: Order["status"]) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
+  onFee?: (id: string, fee: number) => Promise<void>;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -451,10 +468,94 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} />
+          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} />
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * The delivery fee on an unpaid ticket, adjustable in place (Katy,
+ * 2026-10-06: the zip sheet is the default, and whoever is ringing the
+ * order up can change it before the card is taken). A web order arrives
+ * with no delivery line and shows the sheet's fee as "added when charged",
+ * which is exactly what the pay route does; a phone order carries the line
+ * the form wrote. Saving writes (or replaces) the line and the subtotal,
+ * so the ticket, the Take-card total and the receipt all agree. Once paid
+ * this renders nothing: the ticket and the payment must stay in step.
+ */
+function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) => Promise<void> }) {
+  const line = o.lines.find((l) => l.name.startsWith("Delivery ("));
+  const sheet = site.deliveryFees[o.zip];
+  const current = line ? line.each : sheet;
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const note = line
+    ? sheet === undefined
+      ? "set by hand"
+      : line.each === sheet
+        ? "from the zip list"
+        : `adjusted; the list says ${money(sheet)}`
+    : sheet !== undefined
+      ? "from the zip list, added when charged"
+      : "not set; the zip is off the list";
+
+  async function save() {
+    const n = Number(value);
+    if (value.trim() === "" || !Number.isFinite(n) || n < 0) {
+      setError("A number, zero or more.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await onFee(o.id, n);
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Did not save.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <p style={{ margin: "0 0 8px", fontSize: 13.5, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+      <span className="muted">
+        Delivery fee {current !== undefined ? money(current) : "not set"} · {note}
+      </span>
+      {!editing ? (
+        <button
+          type="button"
+          onClick={() => {
+            setValue(current !== undefined ? String(current) : "");
+            setEditing(true);
+          }}
+          style={{ ...textButton, fontSize: 13.5 }}
+        >
+          Adjust
+        </button>
+      ) : (
+        <>
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            inputMode="decimal"
+            aria-label="Delivery fee"
+            style={{ ...field, width: 90 }}
+          />
+          <button type="button" className="btn" disabled={busy} onClick={save}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <button type="button" disabled={busy} onClick={() => setEditing(false)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+            Never mind
+          </button>
+          {error && <span style={{ color: "var(--rose-ink)" }}>{error}</span>}
+        </>
+      )}
+    </p>
   );
 }
 
@@ -464,12 +565,14 @@ function OrderCard({
   onMove,
   onPaid,
   onRefunded,
+  onFee,
 }: {
   o: Order;
   contacts: Contact[];
   onMove: (id: string, s: Order["status"]) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
+  onFee?: (id: string, fee: number) => Promise<void>;
 }) {
   const next = nextMove(o);
   const today = todayISO();
@@ -584,6 +687,8 @@ function OrderCard({
           </>
         )}
       </ul>
+
+      {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && onFee && <FeeAdjust o={o} onFee={onFee} />}
 
       {/* Labeled, because unlabeled they read as mystery text: an employee
           has to KNOW the italic line goes on the card and the other one is
@@ -731,6 +836,10 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
   const [street, setStreet] = useState("");
   const [town, setTown] = useState("");
   const [zip, setZip] = useState("");
+  /** What was typed into the fee field, or null while it still follows the
+      zip sheet. Derived, not an effect: a typed fee survives retyping a zip
+      to fix a digit, and a never-touched field tracks the zip as it changes. */
+  const [feeOverride, setFeeOverride] = useState<string | null>(null);
   const [date, setDate] = useState(todayISO());
   const [occasion, setOccasion] = useState("");
   const [cardMessage, setCardMessage] = useState("");
@@ -756,6 +865,9 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       street: street,
       town: town,
       zip: zip.trim(),
+      // The fee as shown, sheet or typed (Katy, 2026-10-06). Blank means
+      // "none typed and the zip is off the list": the route adds no line.
+      deliveryFee: delivering && deliveryFee.trim() !== "" && Number.isFinite(Number(deliveryFee)) ? Number(deliveryFee) : undefined,
       lines: lines
         .filter((l) => l.slug || l.custom.trim())
         .map((l) =>
@@ -776,6 +888,8 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
   }
 
   const delivering = fulfillment === "delivery";
+  const sheetFee = site.deliveryFees[zip.trim()];
+  const deliveryFee = feeOverride ?? (sheetFee !== undefined ? String(sheetFee) : "");
 
   return (
     <form onSubmit={submit} className="panel" style={{ maxWidth: 640, marginBottom: 30, display: "grid", gap: 14 }}>
@@ -961,6 +1075,32 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
           </label>
         </div>
       </div>
+
+      {/* THE FEE, WHILE THE PRICE IS BEING QUOTED (Katy, 2026-10-06): the
+          zip sheet fills it in, and the person on the phone can change it
+          on the spot. It goes on the ticket as the Delivery line, so what
+          the customer was told is what the card is charged. */}
+      {delivering && (
+        <label style={{ maxWidth: 260 }}>
+          <span style={labelText}>Delivery fee</span>
+          <input
+            value={deliveryFee}
+            onChange={(e) => setFeeOverride(e.target.value)}
+            inputMode="decimal"
+            placeholder={zip.trim() ? "" : "type the zip first"}
+            style={field}
+          />
+          <span className="muted" style={{ fontSize: 13, display: "block", marginTop: 4 }}>
+            {sheetFee !== undefined
+              ? Number(deliveryFee) === sheetFee
+                ? `From the zip list for ${zip.trim()}. Change it if this one is different.`
+                : `The list says ${money(sheetFee)} for ${zip.trim()}; this order charges what you typed.`
+              : zip.trim()
+                ? "That zip is not on the list. Type a fee, or leave it blank to settle on the call."
+                : "The zip fills this in from the list; you can also just type a fee."}
+          </span>
+        </label>
+      )}
 
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         <label>
