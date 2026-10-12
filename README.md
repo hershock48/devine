@@ -28,7 +28,7 @@ Five things live here, on one host:
 |---|---|
 | `public/pitch/devine/index.html` | The proposal. One self-contained file, no build step, hand-editable on a phone if a call goes sideways. |
 | `public/pitch/devine/og.jpg` | The proposal's link card, 1200x630, 44KB. Rendered from a real page, not assembled by hand. |
-| `src/lib/site.ts` | **Every business fact.** Hours, phone, address, delivery towns and zips, the per-zip delivery fees and the two order minimums (from her IRIS sheet, 2026-09-01), the 3% card fee, staff names and roles, policies. One edit fixes any of them everywhere. |
+| `src/lib/site.ts` | **Every business fact.** Hours, phone, address, delivery towns and zips, the per-zip delivery fees and the two order minimums (from her IRIS sheet, 2026-09-01), staff names and roles, policies. No card fee since 2026-10-06; the comment where `cardFeePct` used to be says why. One edit fixes any of them everywhere. |
 | `src/lib/catalog.ts` | All 57 products with their real names, prices and their own copy. Keyed on slug, never on name. |
 | `src/lib/image-manifest.json` | Which products have a real photograph, and its true pixel size. Generated, not hand-written. |
 | `src/components/ProductImage.tsx` | Decides photograph or generated art, per product. Nothing above it knows which. |
@@ -53,12 +53,12 @@ Five things live here, on one host:
 | `.env.example` | The authority on every variable, in five blocks: order intake (five SMTP and address variables, plus `INQUIRY_TO`, `AGREEMENT_TO`, `PHOTO_TO` for the other three inboxes), workroom (`DATABASE_URL`, `WORKROOM_PIN`, `WORKROOM_OWNER_PIN`), Square sandbox credentials, the Glazed platform app (`SQUARE_APP_ID`, `SQUARE_APP_SECRET`, `SQUARE_APP_FEE_CENTS`), and the switches (`CHECKOUT_CARDS`, `SQUARE_ENV`, `SQUARE_VERSION`). Set by Kevin in Vercel; the click paths for Square are written in the file. While this is a pitch, `ORDER_TO` is Glazed's inbox, not the shop's; the flip is an env edit. |
 | `src/app/workroom/**` | **The shop's own tool, Phase 2.** Five tabs in `components/workroom/Chrome.tsx`: the order board at `/workroom` (the front door; web orders land on it by themselves, phone orders get written up on it, and each card settles its money by card or cash), the dashboard at `/workroom/dashboard` (owner PIN only; Day / Week / Month / Year, stat tiles with like-for-like comparisons, one chart of register money pulled live from Square's Payments API when the link is up, stem cost of what sold, per-product margins), inventory, weekly order and quotes. The old `/workroom/stems`, `/workroom/week` and `/workroom/orders` addresses redirect. Sits outside `/demo` because it is not part of the customer demo and does not move on launch day. |
 | `src/components/workroom/Board.tsx` | The order board, adapted from the pjs kitchen screen at florist pace: buckets on the REQUESTED date, not order age. One button moves an order along a life that differs by fulfillment (delivery: new, confirmed, made, out, done; pickup skips the van). "Confirmed" is the phone call and only the phone call; payment has its own controls. "Returning customer" is derived from order history, never typed. |
-| `src/components/workroom/PayControls.tsx`, `src/app/api/workroom/pay/route.ts` | The money corner of an order card: a PAID badge, or "Take card" and "Record cash". Card entry is Square's Web Payments SDK drawing its own iframe, so no card number ever reaches our page or server; the route can only move money INTO the shop's account. Carries the shop's 3% card fee; the 99 cent platform fee rides website orders only. The SDK loads only when someone opens card entry. |
+| `src/components/workroom/PayControls.tsx`, `src/app/api/workroom/pay/route.ts` | The money corner of an order card: a PAID badge, or "Take card" and "Record cash". Card entry is Square's Web Payments SDK drawing its own iframe, so no card number ever reaches our page or server; the route can only move money INTO the shop's account. No fee since the 2026-10-06 meeting: card and cash both charge exactly the ticket (the 99 cent platform fee rides website orders only). The SDK loads only when someone opens card entry. |
 | `src/components/workroom/Dashboard.tsx`, `src/app/api/workroom/summary/route.ts` | The money numbers. Square's own ledger first (her whole register history, including sales that predate the webhook), stored webhook rows as the fallback, and the response says which ledger answered. Windows are computed on the client's clock because serverless runs in UTC and "today" means today in Marshall. Gross, not net: refunds are not subtracted. The summary API 403s a staff cookie. |
 | `src/lib/workroom/derive.ts` | The workroom's shared arithmetic, one copy of every rule more than one screen computes, after the 2026-09-01 review caught three screens disagreeing about the same week's tossed dollars. Costing is LOTS, oldest first (a blended average was retracted the same day). Client-safe on purpose. |
 | `src/lib/workroom/store.ts` | Two storage backends behind one interface, ported from the pjs kitchen system: Postgres when `DATABASE_URL` is set (Neon free tier via Vercel, tables create themselves), in-memory otherwise — and the pages show a plain warning on memory, because a board that silently misses orders is worse than one that says why. Holds orders, stem events, recipes, varieties, weekly orders, plants, quotes, Square sales and tokens, agreement acceptances and photo submissions, all as jsonb blobs keyed by id. |
 | `src/lib/workroom/auth.ts`, `src/app/api/workroom/login/route.ts` | Two PINs and a cookie. A gate, not a vault. `WORKROOM_PIN` opens the working screens; `WORKROOM_OWNER_PIN` (2026-09-02) additionally opens the money: the dashboard and the funeral pad's build-math drawer. **In production an unset PIN closes that tier to everyone**; the shop-phone fallback that used to be committed here survives for `next dev` only. Login is throttled to 10 wrong tries per 10 minutes per IP, because a four-digit space was measured falling in fifteen seconds unthrottled. |
-| `src/app/api/workroom/{orders,stems,recipes,quotes,badges}/route.ts` | The board's orders (last 60 days; POST is the counter's phone order), stem events (90 days plus every recipe, computed in the browser), recipes (PUT replaces whole; an empty parts list means "costed at zero, deliberately", no recipe means "not costed yet"), quotes (GET one with the known stem prices so the builder prefills), and the tab badges (answers unauthed with zeros, not 401, so the PIN gate does not spray the console). |
+| `src/app/api/workroom/{orders,stems,recipes,quotes,badges}/route.ts` | The board's orders (last 60 days; POST is the counter's phone order and writes the delivery fee as a `Delivery (zip)` line, sheet or typed; PATCH with `deliveryFee` replaces that line on an unpaid order), stem events (90 days plus every recipe, computed in the browser), recipes (PUT replaces whole; an empty parts list means "costed at zero, deliberately", no recipe means "not costed yet"), quotes (GET one with the known stem prices so the builder prefills), and the tab badges (answers unauthed with zeros, not 401, so the PIN gate does not spray the console). |
 | `src/app/workroom/quotes/**` | **The quote builder** — the owner's sharpest ask ("a model to input flowers and stem count to accurately produce a quote"). Weddings and funerals as separate templates, flowers priced per stem once per quote (prefilled from purchase history), live totals, a wholesale buy list, autosave, and a print view that is the client's copy: same numbers, none of the workings. |
 | `src/components/workroom/FuneralPad.tsx` | **A different tool at the same URL**, because funerals are quoted on the spot with no spreadsheet. Price-first menu (one tap per piece per price point), the family's budget as the frame with a live gap, the service treated as a deadline rather than a date, ribbon wording and who each piece is from, and a last button that puts it straight on the board while the family is still standing there. |
 | `src/lib/workroom/quote-math.ts` | The quote arithmetic, alone in one file with no imports, so the list, both builders and the print can never disagree. **The model is Katy's own**, rewritten 2026-09-02 from screenshots of her 2026WeddingQuotes sheet and verified against her numbers to the cent: labor is exactly 2/3 of materials (hardgoods included), flat-priced boutonnieres carry no labor, Michigan's 6% tax is on the piece money and not on delivery, and tax is computed on the unrounded sum. Per-stem prices are her RETAIL list, so wedding markup defaults to ×1. Runs BOTH WAYS: forward (stems decide the price) for weddings, reverse (a set price solved back into a flower budget) for the funeral counter and her flat-priced pieces. Still to be checked against the full sheet once she grants access. |
@@ -87,7 +87,7 @@ Five things live here, on one host:
 | `src/components/Logo.tsx`, `tools/extract-petal.py` | The mark with a breeze through it. The petal that blows across the header is lifted out of their own logo, not drawn to resemble it. The un-animated state is the finished state. |
 | `src/components/HeroTrace.tsx`, `src/lib/hero-trace.json`, `tools/trace-hero.py` | Four blooms traced off the pixels of the summer hero photograph and drawn on, then released. Only arms over the photograph it was traced from (`traced: true` in `seasons.ts`). |
 | `tools/motion.mjs`, `tools/filmstrip.mjs` | Sample the logo motion frame by frame and print what it actually does, and a contact sheet of the flight, because every motion bug so far was invisible in the source and obvious in the numbers. |
-| `research/*.md` | Her paper, transcribed: the delivery fee sheet (per-zip fees and handwritten minimums, 2026-09-01) and the weekly order and price lists (2026-08-31). Read from angled photos; occluded cells are marked, never guessed; the owner verifies before any number goes live. |
+| `research/*.md` | Her paper, transcribed: the delivery fee sheet (per-zip fees and handwritten minimums, 2026-09-01) and the weekly order and price lists (2026-08-31). Read from angled photos; occluded cells are marked, never guessed; the owner verifies before any number goes live. Also the meeting to-do lists (`meeting-2026-10-06.md`), ticked as things ship. |
 | `.github/workflows/claude-code-review.yml` | Claude reviews every non-draft pull request, inline HIGH and MEDIUM findings plus one summary comment. The other half of the two-agent rule: Codex reviews through its integration, Kevin merges. |
 
 ## Where the photographs come from
@@ -267,6 +267,17 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
   ZipCheck's rule: a near miss is a phone call, not a wall. The ticket carries a flag
   line instead. The card path is stricter: a zip must be on the fee sheet and the
   flowers must clear the minimum, or the order falls back to pay-on-call.
+- **The delivery fee is a `Delivery (zip)` line on the ticket, and staff can change
+  it** (Katy, 2026-10-06). The phone-order form fills it from the zip sheet and the
+  person quoting the price can type over it, including 0; every unpaid delivery
+  order on the board has an Adjust control that replaces the line and recomputes
+  the subtotal. The pay route appends the sheet fee only when no line exists, so a
+  $0 line means free delivery, not "fee pending". Once paid, the line is locked.
+  Three places find the line by the `Delivery (` prefix; rename it in all or none.
+- **There is no card fee** since 2026-10-06. Katy bakes processing into her prices.
+  The only fee left is the 99 cent platform fee on website orders, which is
+  Glazed's and in Exhibit A. Payments recorded before that date still carry their
+  `feeCents`, and the board shows those as history.
 - **Env changes need a redeploy to reach the runtime.** Flipping `CHECKOUT_CARDS` or
   any Square variable in Vercel and then testing the live site has bitten three
   times. Redeploy, then test.
@@ -392,9 +403,9 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 - [ ] **Fix the proposal letter's payment paragraph.** `public/pitch/devine/index.html`
       still says online card payment "runs on Stripe's own page at Stripe's published
       rate" and "we take nothing on top". The code is Square, through the shop's own
-      account, with the 3% card fee and the 99 cent platform fee shown as one
-      Convenience fee line. The letter is static HTML and cannot read the constant,
-      so this is a hand edit.
+      account, with the 99 cent platform fee shown as the Convenience fee line (the
+      letter's fee sentence was corrected 2026-10-12; the Stripe one was not). The
+      letter is static HTML and cannot read the constant, so this is a hand edit.
 
 ## Done, per glaze/launch.md
 
@@ -486,6 +497,8 @@ Confirmed from their own pages on 2026-08-20:
   50% non-refundable deposit. From her 2026WeddingQuotes sheet, 2026-09-02.
 - Funeral ranges: vases $75 to $250ish, easels and casket sprays $150 to $550, urn
   surrounds $125 to $350. From her texts, 2026-09-02.
+- No card fee on any order; she bakes processing into her prices. Meeting of
+  2026-10-06. The 99 cent website fee is ours and stays.
 - No wire service. No Teleflora, FTD or BloomNet anywhere on their site, so there is
   nothing to license or strip. Checkout is native WooCommerce.
 - Incumbent vendor: Creative Web Designing, Inc. of Coldwater, credited in their footer.
