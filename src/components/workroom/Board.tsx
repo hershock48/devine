@@ -980,6 +980,9 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
    * it writes are the machine's, not the caller's.
    */
   const [typed, setTyped] = useState({ name: false, phone: false });
+  /** Same rule for the recipient field: only what the human typed drives
+      the recipient suggestions, and a pick closes them. */
+  const [typedRecipient, setTypedRecipient] = useState(false);
   const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">("delivery");
   const [email, setEmail] = useState("");
   const [recipient, setRecipient] = useState("");
@@ -1195,9 +1198,78 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       {delivering && (
         <label>
           <span style={labelText}>Recipient (if not the customer)</span>
-          <input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={field} />
+          <input
+            value={recipient}
+            onChange={(e) => {
+              setRecipient(e.target.value);
+              setTypedRecipient(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setTypedRecipient(false);
+            }}
+            style={field}
+          />
         </label>
       )}
+
+      {/* RECIPIENTS COME FROM THE SAME HISTORY (Katy's question, 2026-10-06:
+          "will the same happen with recipients?"). Yes: every delivery
+          order already carries who it went to and where, so typing a few
+          letters of a recipient offers the matching ones and a tap fills
+          the name and the address. Same autocomplete rules as the customer
+          chips above, same no-separate-list design: a funeral home or a
+          grandmother who gets flowers every month is in the orders. */}
+      {delivering &&
+        (() => {
+          const q = typedRecipient ? recipient.trim().toLowerCase() : "";
+          if (q.length < 2) return null;
+          const latest = new Map<string, { c: Contact; count: number }>();
+          for (const c of contacts) {
+            if (c.fulfillment !== "delivery" || !c.recipient) continue;
+            const key = `${c.recipient.trim().toLowerCase()}|${(c.street ?? "").trim().toLowerCase()}`;
+            const cur = latest.get(key);
+            if (!cur) latest.set(key, { c, count: 1 });
+            else {
+              cur.count += 1;
+              if (c.createdAt > cur.c.createdAt) cur.c = c;
+            }
+          }
+          const hits = [...latest.values()]
+            .filter(({ c }) => (c.recipient ?? "").toLowerCase().includes(q))
+            .sort((a, b) => b.c.createdAt - a.c.createdAt)
+            .slice(0, 4);
+          if (hits.length === 0) return null;
+          return (
+            <div role="status" style={{ margin: "-6px 0 0", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {hits.map(({ c, count }) => (
+                <button
+                  key={`${c.recipient}|${c.street}`}
+                  type="button"
+                  onClick={() => {
+                    setTypedRecipient(false);
+                    setRecipient(c.recipient ?? "");
+                    setStreet(c.street ?? "");
+                    setTown(c.town ?? "");
+                    setZip(c.zip ?? "");
+                  }}
+                  style={{
+                    font: "inherit",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "var(--green)",
+                    background: "var(--paper-2)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 2,
+                    padding: "6px 10px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {c.recipient} · {[c.street, c.town].filter(Boolean).join(", ") || "no address on file"} · {count} deliver{count === 1 ? "y" : "ies"}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
       {/* The address block renders for BOTH fulfillments since 2026-09-04
           (Kevin, from the shop's meeting): on a delivery it is where the
           flowers go; on a pickup it is the customer's own address, kept
