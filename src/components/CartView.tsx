@@ -7,7 +7,7 @@ import { bySlug, money, products } from "@/lib/catalog";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
-import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
+import { loadSquareSdk, type BillingContact, type SquareCard } from "@/lib/square/web-sdk";
 
 /**
  * THE CART, AND A CHECKOUT THAT SENDS SOMEWHERE.
@@ -121,6 +121,16 @@ export default function CartView() {
      switch is on AND Square is connected, and everything below renders
      nothing while it is. */
   const [cfg, setCfg] = useState<CardConfig>({ cards: false });
+  /* BILLING, SEPARATE FROM DELIVERY (Katy, 2026-10-06: "put a box where you
+     can select same as billing address"). Card payments only. On a
+     delivery the box is ticked by default and the delivery address is the
+     billing address until someone unticks it; on a pickup there is no
+     delivery address, so the fields show on their own. The postal code is
+     what Square checks against the card; the rest rides along. */
+  const [billingSame, setBillingSame] = useState(true);
+  const [billStreet, setBillStreet] = useState("");
+  const [billTown, setBillTown] = useState("");
+  const [billZip, setBillZip] = useState("");
   const [payMethod, setPayMethod] = useState<"call" | "card">("call");
   const [cardReady, setCardReady] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
@@ -270,11 +280,27 @@ export default function CartView() {
     // Tokenize first when paying by card: no token, no POST, and the
     // message names what to fix. The card number itself never leaves
     // Square's iframe.
+    const useDelivery = delivering && billingSame;
+    const billing = payMethod === "card"
+      ? useDelivery
+        ? { street: dStreet, town: dTown, zip: dZip.trim() }
+        : { street: dom("billStreet", billStreet), town: dom("billTown", billTown), zip: dom("billZip", billZip).trim() }
+      : undefined;
     let cardPayload: { sourceId: string } | undefined;
     if (payMethod === "card") {
       try {
         if (!cardRef.current) throw new Error("The card field is not ready yet.");
-        const t = await cardRef.current.tokenize();
+        if (billing && billing.zip.replace(/\D/g, "").length < 5) throw new Error("The billing zip code is needed for the card.");
+        const [givenName, ...rest] = dName.trim().split(/\s+/);
+        const billingContact: BillingContact = {
+          givenName: givenName || undefined,
+          familyName: rest.length ? rest.join(" ") : undefined,
+          addressLines: billing?.street ? [billing.street] : undefined,
+          locality: billing?.town || undefined,
+          postalCode: billing?.zip || undefined,
+          countryCode: "US",
+        };
+        const t = await cardRef.current.tokenize({ billingContact });
         if (t.status !== "OK" || !t.token) throw new Error(t.errors?.[0]?.message || "The card did not go through. Check the number.");
         cardPayload = { sourceId: t.token };
       } catch (err) {
@@ -292,6 +318,7 @@ export default function CartView() {
       zip: delivering ? dZip.trim() : "",
       date, occasion, cardMessage, notes,
       card: cardPayload,
+      billing: cardPayload ? billing : undefined,
     };
     try {
       const res = await fetch("/api/order", {
@@ -751,6 +778,41 @@ export default function CartView() {
                         <p className="muted" style={{ fontSize: 13.5, margin: "8px 0 0" }}>
                           Paying by card adds the {money(convenienceCents / 100)} convenience fee; cash does not.
                         </p>
+                      )}
+                    </div>
+                  )}
+
+                  {payMethod === "card" && cardAllowed && (
+                    <div style={{ display: "grid", gap: 12 }}>
+                      <span style={labelText}>Billing address <span className="muted" style={{ fontWeight: 400 }}>(where the card is registered)</span></span>
+                      {delivering && (
+                        <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, padding: "2px 0" }}>
+                          <input
+                            type="checkbox"
+                            checked={billingSame}
+                            onChange={(e) => setBillingSame(e.target.checked)}
+                            style={{ width: 20, height: 20, accentColor: "var(--green)" }}
+                          />
+                          Same as the delivery address
+                        </label>
+                      )}
+                      {(!delivering || !billingSame) && (
+                        <>
+                          <label>
+                            <span style={labelText}>Street address</span>
+                            <input name="billStreet" value={billStreet} onChange={(e) => setBillStreet(e.target.value)} required autoComplete="billing street-address" style={field} />
+                          </label>
+                          <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr minmax(110px, 140px)" }}>
+                            <label>
+                              <span style={labelText}>Town</span>
+                              <input name="billTown" value={billTown} onChange={(e) => setBillTown(e.target.value)} required autoComplete="billing address-level2" style={field} />
+                            </label>
+                            <label>
+                              <span style={labelText}>Zip</span>
+                              <input name="billZip" value={billZip} onChange={(e) => setBillZip(e.target.value)} required inputMode="numeric" autoComplete="billing postal-code" style={field} />
+                            </label>
+                          </div>
+                        </>
                       )}
                     </div>
                   )}

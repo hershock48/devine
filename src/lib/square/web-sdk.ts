@@ -10,9 +10,20 @@
  * Browser-only by nature; callers are client components.
  */
 
+/** The billing contact Square accepts at tokenize time. Postal code is the
+    one that moves the needle (AVS); the rest rides along when known. */
+export type BillingContact = {
+  givenName?: string;
+  familyName?: string;
+  addressLines?: string[];
+  locality?: string;
+  postalCode?: string;
+  countryCode?: string;
+};
+
 export type SquareCard = {
   attach: (sel: string | HTMLElement) => Promise<void>;
-  tokenize: () => Promise<{ status: string; token?: string; errors?: { message?: string }[] }>;
+  tokenize: (details?: { billingContact?: BillingContact }) => Promise<{ status: string; token?: string; errors?: { message?: string }[] }>;
   destroy: () => Promise<void>;
 };
 

@@ -52,6 +52,10 @@ export type IntakePayload = {
   occasion: string; // may be ""
   cardMessage: string; // may be ""
   notes: string; // may be ""
+  /** Card payments only (Katy, 2026-10-06: billing separate from delivery,
+      with a same-as box). Where the card lives; printed on the ticket, never
+      used to deliver. Absent on pay-on-call orders. */
+  billing?: { street: string; town: string; zip: string };
 };
 
 export type PricedLine = { slug: string; name: string; qty: number; each: number; line: number };
@@ -115,6 +119,11 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
   const occasionRaw = str(p.occasion, 40);
   const occasion = (OCCASIONS as readonly string[]).includes(occasionRaw) ? occasionRaw : "";
 
+  const b = p.billing && typeof p.billing === "object" ? (p.billing as Record<string, unknown>) : null;
+  const billing = b && (str(b.street, 160) || str(b.zip, 10))
+    ? { street: str(b.street, 160), town: str(b.town, 80), zip: str(b.zip, 10) }
+    : undefined;
+
   return {
     order: {
       number: orderNumber(),
@@ -132,6 +141,7 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
       occasion,
       cardMessage: str(p.cardMessage, 600),
       notes: str(p.notes, 600),
+      ...(billing ? { billing } : {}),
     },
   };
 }
@@ -180,6 +190,7 @@ export function shopTicket(o: PricedOrder, paid?: PaidOnline): string {
     "",
     `${o.fulfillment === "delivery" ? "DELIVERY" : "PICKUP"} requested for ${o.date}`,
     ...where,
+    paid && o.billing ? `Card billing address: ${[o.billing.street, o.billing.town, o.billing.zip].filter(Boolean).join(", ")}` : null,
     o.occasion ? `Occasion: ${o.occasion}` : null,
     "",
     ...lines,
