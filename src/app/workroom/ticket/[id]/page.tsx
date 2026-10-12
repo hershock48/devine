@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Ticket from "@/components/workroom/Ticket";
+import Ticket, { type TicketLayout } from "@/components/workroom/Ticket";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore } from "@/lib/workroom/store";
 
@@ -7,23 +7,24 @@ export const metadata: Metadata = { title: "Ticket" };
 export const dynamic = "force-dynamic";
 
 /**
- * THE TICKET, for the Star TSP100 on the counter (2026-10-12). IRIS printed
- * a slip for every order the moment it landed; this page is that slip, at
- * receipt width, for one order. The board's Print link opens it; the
- * board's auto-print opens it in a hidden frame for every new web order
- * and prints it, which Chrome does silently on the counter PC when it is
- * launched with kiosk printing (research/printing.md). Gated like every
- * workroom page.
+ * THE ORDER SHEET (2026-10-12): the shop's own six-panel form, printed on
+ * the Brother on the counter the way IRIS printed it for every order the
+ * moment it landed. The board's Print link opens it; the board's auto-print
+ * opens it in a hidden frame for every new web order and prints it, which
+ * Chrome does silently on the counter PC when it is launched with kiosk
+ * printing (research/printing.md). Three layouts: the six-panel form for
+ * deliveries, plain paper for pickups, and a receipt-width slip; the order
+ * picks its own and ?layout= overrides. Gated like every workroom page.
  */
 export default async function TicketPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ card?: string }>;
+  searchParams: Promise<{ layout?: string }>;
 }) {
   const { id } = await params;
-  const { card } = await searchParams;
+  const { layout } = await searchParams;
   if (!(await isWorkroomAuthed())) {
     return (
       <>
@@ -45,5 +46,10 @@ export default async function TicketPage({
       </>
     );
   }
-  return <Ticket order={order} card={card === "1"} />;
+  // The layout follows the order unless asked otherwise (Kevin, 2026-10-12:
+  // deliveries print on the six-panel form, pickups on plain paper, and the
+  // employee can choose). ?layout=sheet|plain|slip overrides.
+  const chosen: TicketLayout =
+    layout === "sheet" || layout === "plain" || layout === "slip" ? layout : order.fulfillment === "pickup" ? "plain" : "sheet";
+  return <Ticket order={order} layout={chosen} />;
 }

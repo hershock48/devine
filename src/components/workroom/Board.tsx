@@ -149,10 +149,10 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [squareFlag, setSquareFlag] = useState("");
   /** AUTO-PRINT (2026-10-12): IRIS printed every web order as it landed;
       so does this screen, when the toggle is on. Per device, remembered in
-      this browser, because only the counter PC has the Star printer. A new
-      web order (created after the toggle was turned on, never printed here
-      before) opens its ticket in a hidden frame and prints it; Chrome in
-      kiosk-printing mode sends that to the default printer without a
+      this browser, because only the counter PC has the Brother. A new web
+      order (created after the toggle was turned on, never printed here
+      before) opens its order sheet in a hidden frame and prints it; Chrome
+      in kiosk-printing mode sends that to the default printer without a
       dialog (research/printing.md). Printed ids are remembered so a reload
       never reprints the morning. */
   const [autoPrint, setAutoPrint] = useState<{ on: boolean; since: number }>({ on: false, since: 0 });
@@ -946,16 +946,10 @@ function OrderCard({
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
           {o.number} · {o.source}
           {" · "}
-          {/* The slip for the Star printer (2026-10-12), in its own tab so
-              the board stays put; it prints itself and closes. */}
+          {/* The six-panel order sheet on the Brother (2026-10-12), in its
+              own tab so the board stays put; it prints itself and closes. */}
           <a href={`/workroom/ticket/${o.id}?print=1`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
-            Slip
-          </a>
-          {" · "}
-          {/* The enclosure card for the window envelope, on the laser
-              printer: opens with the dialog so the right printer is picked. */}
-          <a href={`/workroom/ticket/${o.id}?card=1`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
-            Card
+            Print
           </a>
         </span>
       </header>
