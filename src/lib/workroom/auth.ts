@@ -81,6 +81,27 @@ export async function isWorkroomOwner(): Promise<boolean> {
   return jar.get(COOKIE)?.value === owner;
 }
 
+/**
+ * The staff PIN as a request header, for scripts: the catalog sync by curl
+ * and the print helper on the counter PC. Throttled per address like the
+ * login route, because a header is as guessable as a form.
+ */
+const headerTries = new Map<string, { n: number; until: number }>();
+export function headerPinOk(req: Request): boolean {
+  const pin = workroomPin();
+  const given = req.headers.get("x-workroom-pin");
+  if (!pin || !given) return false;
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const t = headerTries.get(ip);
+  if (t && t.n >= 10 && Date.now() < t.until) return false;
+  if (given === pin) {
+    headerTries.delete(ip);
+    return true;
+  }
+  headerTries.set(ip, { n: (t && Date.now() < t.until ? t.n : 0) + 1, until: Date.now() + 10 * 60_000 });
+  return false;
+}
+
 export async function setWorkroomCookie(pin: string): Promise<void> {
   const jar = await cookies();
   jar.set(COOKIE, pin, {

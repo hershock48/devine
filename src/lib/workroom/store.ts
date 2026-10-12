@@ -110,6 +110,9 @@ export type WorkroomOrder = {
   /** Initials of whoever made it, asked for at the Made tap (same meeting:
       "to see who made it"). Free text, short, uppercased on the way in. */
   madeBy?: string;
+  /** When the counter's print helper printed it (web orders). Server-side
+      so a restart or a second machine never prints it twice. */
+  printedAt?: number;
 };
 
 export type StemEvent = {
@@ -481,7 +484,7 @@ type Store = {
       came from). The jsonb-blob decision pays off here: a new field is a
       key, not a migration. Keeps the status column in step when status is
       among the fields. */
-  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom">>): Promise<void>;
+  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom" | "printedAt">>): Promise<void>;
   /** The whole row, rewritten: editing an order that is on hold or not yet
       made (2026-10-12). The route decides what may be edited; the store
       just writes what it is handed, id and all. */
