@@ -624,7 +624,8 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
 
       /* orders */
       const ordersIn = orders.filter(
-        (o) => inMs(o.createdAt) && o.status !== "canceled" && (sourceFilter === "all" || o.source === sourceFilter),
+        // Held orders are limbo, not orders: nothing promised, nothing counted.
+        (o) => inMs(o.createdAt) && o.status !== "canceled" && o.status !== "hold" && (sourceFilter === "all" || o.source === sourceFilter),
       );
       const orderedCents = ordersIn.reduce((sum, o) => sum + Math.round(o.subtotal * 100), 0);
       const web = ordersIn.filter((o) => o.source === "web").length;

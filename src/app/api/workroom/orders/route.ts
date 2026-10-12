@@ -14,7 +14,7 @@ import { sendDeliveredEmail, sendWorkroomReceipt } from "@/lib/intake";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STATUSES: OrderStatus[] = ["new", "confirmed", "made", "out", "done", "canceled"];
+const STATUSES: OrderStatus[] = ["hold", "new", "confirmed", "made", "out", "done", "canceled"];
 
 export async function GET(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
@@ -34,11 +34,13 @@ const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim
 const deliveryLineName = (zip: string) => `Delivery (${zip || "no zip"})`;
 const isDeliveryLine = (l: WorkroomLine) => l.name.startsWith("Delivery (");
 
-export async function POST(req: Request) {
-  if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
-  const p = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!p) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+type ParsedBody = { fields: Omit<WorkroomOrder, "id" | "number" | "source" | "status" | "createdAt" | "payment" | "canceledFrom" | "madeBy">; } | { error: string };
 
+/**
+ * One reading of a written-up order, shared by POST (new) and PUT (edit),
+ * so an edited order is parsed by exactly the rules that made it.
+ */
+async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
   /*
     Catalog lines are re-priced from the catalog, same rule as the web checkout.
     Custom lines ("casket spray, $250") keep the typed price: the person typing
@@ -88,7 +90,7 @@ export async function POST(req: Request) {
     const slug = str(raw.slug, 80);
     const product = bySlug.get(slug);
     const built = await priceParts(raw.parts);
-    if (built && "error" in built) return NextResponse.json({ error: built.error }, { status: 400 });
+    if (built && "error" in built) return { error: built.error };
     if (product) {
       lines.push(built ? { slug, name: product.name, qty, each: built.each, parts: built.parts } : { slug, name: product.name, qty, each: product.price });
     } else {
@@ -97,16 +99,11 @@ export async function POST(req: Request) {
       if (name) lines.push(built ? { slug: null, name, qty, each, parts: built.parts } : { slug: null, name, qty, each });
     }
   }
-
   const name = str(p.name, 120);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(str(p.date, 10)) ? str(p.date, 10) : "";
   if (!name || !date || lines.length === 0) {
-    return NextResponse.json(
-      { error: "A phone order needs a name, a date, and at least one item (pick a product or type a custom one with a price)." },
-      { status: 400 },
-    );
+    return { error: "A phone order needs a name, a date, and at least one item (pick a product or type a custom one with a price)." };
   }
-
   /*
     THE DELIVERY FEE IS A LINE ON THE TICKET, set while the order is rung up
     (Katy, 2026-10-06 meeting: the zip sheet is the default, and the person
@@ -124,8 +121,34 @@ export async function POST(req: Request) {
     const fee = typed !== undefined ? Math.round(typed * 100) / 100 : site.deliveryFees[zip];
     if (fee !== undefined) lines.push({ slug: null, name: deliveryLineName(zip), qty: 1, each: fee });
   }
+  return {
+    fields: {
+      name,
+      phone: str(p.phone, 40),
+      email: str(p.email, 160),
+      fulfillment,
+      recipient: str(p.recipient, 120),
+      street: str(p.street, 160),
+      town: str(p.town, 80),
+      zip,
+      date,
+      occasion: str(p.occasion, 40),
+      cardMessage: str(p.cardMessage, 600),
+      notes: str(p.notes, 600),
+      lines,
+      subtotal: Math.round(lines.reduce((s, l) => s + l.each * l.qty, 0) * 100) / 100,
+    },
+  };
+}
+
+export async function POST(req: Request) {
+  if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  const p = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!p) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+  const parsed = await parseBody(p);
+  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const now = Date.now();
-  const mmdd = date.slice(5).replace("-", "");
+  const mmdd = parsed.fields.date.slice(5).replace("-", "");
   const order: WorkroomOrder = {
     id: newId("wr"),
     // Same DV- shape as the email tickets, P for phone so the two streams
@@ -133,29 +156,49 @@ export async function POST(req: Request) {
     number: `DV-${mmdd}-P${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`,
     source: "phone",
     // A phone order is born confirmed: the shop is already talking to the
-    // customer, which is the whole thing "confirmed" means here.
-    status: "confirmed",
-    name,
-    phone: str(p.phone, 40),
-    email: str(p.email, 160),
-    fulfillment,
-    recipient: str(p.recipient, 120),
-    street: str(p.street, 160),
-    town: str(p.town, 80),
-    zip,
-    date,
-    occasion: str(p.occasion, 40),
-    cardMessage: str(p.cardMessage, 600),
-    notes: str(p.notes, 600),
-    lines,
-    subtotal: Math.round(lines.reduce((s, l) => s + l.each * l.qty, 0) * 100) / 100,
+    // customer, which is the whole thing "confirmed" means here. ON HOLD
+    // (Katy, 2026-10-12) is the exception: written up with questions still
+    // open, parked until someone finishes it.
+    status: p.hold === true ? "hold" : "confirmed",
+    ...parsed.fields,
     createdAt: now,
   };
-
   await getStore().createOrder(order);
   // The form asks for an email "for their receipt"; this is the receipt.
-  // Best-effort and awaited; a bounced copy never fails the write-up.
-  if (order.email) await sendWorkroomReceipt(order);
+  // Best-effort and awaited; a bounced copy never fails the write-up. Not
+  // for a held order: nothing has been promised yet.
+  if (order.email && order.status !== "hold") await sendWorkroomReceipt(order);
+  return NextResponse.json({ ok: true, order });
+}
+
+/**
+ * EDITING A WRITTEN-UP ORDER (Katy, 2026-10-12, from the on-hold story:
+ * "she went back in, found the order that was on hold, edited it and
+ * finished it"). Allowed while the order is on hold, new, or confirmed and
+ * unpaid: nothing has been made and no money has moved, so the ticket is
+ * still a conversation. Once it is made, paid, out or done, the ticket is
+ * a record and the counter writes a fresh one. The number, source, who
+ * made it and the created time survive the edit; everything typed is
+ * re-read by the same rules as a new order. A held order released here
+ * becomes confirmed and gets its receipt then.
+ */
+export async function PUT(req: Request) {
+  if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  const p = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const id = p && typeof p.id === "string" ? p.id : "";
+  if (!p || !id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+  const existing = await getStore().getOrder(id);
+  if (!existing) return NextResponse.json({ error: "No such order." }, { status: 404 });
+  if (existing.payment) return NextResponse.json({ error: "Already paid; the ticket is settled. Write up a new one for changes." }, { status: 409 });
+  if (!["hold", "new", "confirmed"].includes(existing.status)) {
+    return NextResponse.json({ error: `Already ${existing.status}; too late to edit. Write up a new one for changes.` }, { status: 409 });
+  }
+  const parsed = await parseBody(p);
+  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  const status: OrderStatus = p.hold === true ? "hold" : existing.status === "hold" ? "confirmed" : existing.status;
+  const order: WorkroomOrder = { ...existing, ...parsed.fields, status };
+  await getStore().replaceOrder(order);
+  if (existing.status === "hold" && status === "confirmed" && order.email) await sendWorkroomReceipt(order);
   return NextResponse.json({ ok: true, order });
 }
 

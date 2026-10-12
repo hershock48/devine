@@ -36,7 +36,7 @@ type Order = {
   id: string;
   number: string;
   source: "web" | "phone";
-  status: "new" | "confirmed" | "made" | "out" | "done" | "canceled";
+  status: "hold" | "new" | "confirmed" | "made" | "out" | "done" | "canceled";
   name: string;
   phone: string;
   email: string;
@@ -57,8 +57,17 @@ type Order = {
   madeBy?: string;
 };
 
+/** Editable while nothing has been made and no money has moved (the PUT
+    route enforces the same line). */
+const canEdit = (o: Order) => !o.payment && (o.status === "hold" || o.status === "new" || o.status === "confirmed");
+
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   switch (o.status) {
+    case "hold":
+      // Released from limbo onto the make list (Katy, 2026-10-12). The
+      // phone call has usually happened by now; confirmed is where a
+      // finished phone order starts.
+      return { to: "confirmed", label: "Ready to make" };
     case "new":
       // "Confirmed", not "Confirmed & paid": the old label predates tracked
       // payments and lied about money. Kevin, testing as an employee, near
@@ -112,6 +121,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [backend, setBackend] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  /** The order open in the form for editing (on hold, or not yet made).
+      The form remounts per id so a half-typed edit never bleeds across. */
+  const [editing, setEditing] = useState<Order | null>(null);
   const [showDone, setShowDone] = useState(false);
   /** The find box: a caller says "order DV-0901-4226" or "it's under
       Wanda" and the counter should not have to scan a busy board by eye.
@@ -171,6 +183,14 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       body: JSON.stringify({ id, status, ...(extra?.madeBy ? { madeBy: extra.madeBy } : {}) }),
     });
     pull().catch(() => {});
+  }
+
+  /** Open an order in the form (on hold, or not yet made). The form sits
+      at the top of the page, so the page goes there with it. */
+  function openEdit(o: Order) {
+    setAdding(false);
+    setEditing(o);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   /** Uncancel (Katy, 2026-10-06): back to the status it was canceled from.
@@ -245,7 +265,11 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       o.name.toLowerCase().includes(q) ||
       (qDigits.length >= 3 && o.phone.replace(/\D/g, "").includes(qDigits));
     const shown = base.filter(matches);
-    const open = shown.filter((o) => o.status !== "done" && o.status !== "canceled");
+    // Held orders are limbo (Katy, 2026-10-12): parked with questions open,
+    // not on the make list, so they get their own section and never read
+    // as late, today, or coming up.
+    const open = shown.filter((o) => o.status !== "done" && o.status !== "canceled" && o.status !== "hold");
+    const held = shown.filter((o) => o.status === "hold");
     // Within a day, deliveries first: they own a van schedule and a hard
     // deadline; pickups wait patiently in the cooler. Date stays primary,
     // because a florist's whole question is "what has to exist by when".
@@ -267,6 +291,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
       (o.status === "done" && !!o.payment);
     return {
+      held: held.sort(byDate),
       overdue: open.filter((o) => o.date < today).sort(byDate),
       today: open.filter((o) => o.date === today).sort(byDate),
       upcoming: open.filter((o) => o.date > today).sort(byDate),
@@ -325,8 +350,15 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       )}
 
       <p style={{ margin: "6px 0 26px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <button className="btn" type="button" onClick={() => setAdding((v) => !v)}>
-          {adding ? "Close the form" : "Write up a phone order"}
+        <button
+          className="btn"
+          type="button"
+          onClick={() => {
+            if (editing) setEditing(null);
+            else setAdding((v) => !v);
+          }}
+        >
+          {adding || editing ? "Close the form" : "Write up a phone order"}
         </button>
         <input
           type="search"
@@ -343,11 +375,14 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         )}
       </p>
 
-      {adding && (
+      {(adding || editing) && (
         <PhoneOrderForm
+          key={editing?.id ?? "new"}
           contacts={contacts}
+          editing={editing}
           onSaved={() => {
             setAdding(false);
+            setEditing(null);
             pull().catch(() => {});
           }}
         />
@@ -364,7 +399,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
@@ -376,13 +411,14 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </>
       ) : (
         <>
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} />
-          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onRefunded={markRefunded} />
+          <Bucket title="On hold" orders={buckets.held} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
 
-          {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
+          {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
               Nothing open. Web orders land here on their own; phone orders get written up above.
             </p>
@@ -489,6 +525,7 @@ function Bucket({
   onRefunded,
   onFee,
   onUncancel,
+  onEdit,
 }: {
   title: string;
   tone?: "late";
@@ -499,6 +536,7 @@ function Bucket({
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
   onUncancel?: (id: string) => Promise<void>;
+  onEdit?: (o: Order) => void;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -526,7 +564,7 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} />
+          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} />
         ))}
       </div>
     </section>
@@ -550,10 +588,13 @@ function Moves({
   o,
   next,
   onMove,
+  onEdit,
 }: {
   o: Order;
   next: { to: Order["status"]; label: string };
   onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
+  /** Present while the order may still be edited (on hold, or not yet made). */
+  onEdit?: () => void;
 }) {
   const [cancelStep, setCancelStep] = useState<0 | 1 | 2>(0);
   const [asking, setAsking] = useState(false);
@@ -630,6 +671,11 @@ function Moves({
       >
         {next.label}
       </button>
+      {onEdit && (
+        <button type="button" onClick={onEdit} style={{ ...textButton, fontSize: 13.5 }}>
+          {o.status === "hold" ? "Finish it" : "Edit"}
+        </button>
+      )}
       <button type="button" onClick={() => setCancelStep(1)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
         Cancel order
       </button>
@@ -763,6 +809,7 @@ function OrderCard({
   onRefunded,
   onFee,
   onUncancel,
+  onEdit,
 }: {
   o: Order;
   contacts: Contact[];
@@ -771,6 +818,7 @@ function OrderCard({
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
   onUncancel?: (id: string) => Promise<void>;
+  onEdit?: (o: Order) => void;
 }) {
   const next = nextMove(o);
   const today = todayISO();
@@ -778,7 +826,7 @@ function OrderCard({
   const sympathy = o.occasion === "Sympathy or funeral";
   const prior = priorOrders(contacts, o.phone, o.email, o.createdAt);
   const statusWord =
-    o.status === "out" ? "en route" : o.status === "new" ? "needs the confirm call" : o.status;
+    o.status === "out" ? "en route" : o.status === "new" ? "needs the confirm call" : o.status === "hold" ? "on hold, not ready to make" : o.status;
 
   return (
     <article
@@ -787,6 +835,8 @@ function OrderCard({
         padding: 18,
         borderLeft: sympathy
           ? "3px solid var(--ink)"
+          : o.status === "hold"
+            ? "3px dashed var(--muted)"
           : o.status === "new"
             ? "3px solid var(--rose-ink)"
             : o.status === "out"
@@ -894,7 +944,7 @@ function OrderCard({
         )}
       </ul>
 
-      {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && onFee && <FeeAdjust o={o} onFee={onFee} />}
+      {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
 
       {/* Labeled, because unlabeled they read as mystery text: an employee
           has to KNOW the italic line goes on the card and the other one is
@@ -974,7 +1024,7 @@ function OrderCard({
         </div>
       )}
 
-      {o.status !== "canceled" && (
+      {o.status !== "canceled" && o.status !== "hold" && (
         <PayControls
           orderId={o.id}
           subtotal={o.subtotal}
@@ -993,7 +1043,7 @@ function OrderCard({
         />
       )}
 
-      {next && <Moves o={o} next={next} onMove={onMove} />}
+      {next && <Moves o={o} next={next} onMove={onMove} onEdit={onEdit && canEdit(o) ? () => onEdit(o) : undefined} />}
       {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
     </article>
   );
@@ -1015,9 +1065,24 @@ const blankLine = (): DraftLine => ({ slug: "", custom: "", each: "", qty: 1, by
 const canBuild = (l: DraftLine) => !l.slug || l.slug.startsWith("designers-choice");
 type StemPrice = { name: string; sellStem: number | null };
 
-function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: () => void }) {
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+/** A stored line back into the form's shape, for editing. The Delivery
+    line is not an item; it becomes the fee field. */
+const fromLines = (o: Order): DraftLine[] => {
+  const items = o.lines.filter((l) => !l.name.startsWith("Delivery ("));
+  if (items.length === 0) return [blankLine()];
+  return items.map((l) => ({
+    slug: l.slug ?? "",
+    custom: l.slug ? "" : l.name,
+    each: l.slug ? "" : String(l.each),
+    qty: l.qty,
+    byStems: !!(l.parts && l.parts.length),
+    parts: l.parts && l.parts.length ? l.parts.map((pt) => ({ variety: pt.variety, stems: String(pt.stems) })) : [{ variety: "", stems: "" }],
+  }));
+};
+
+function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Contact[]; onSaved: () => void; editing?: Order | null }) {
+  const [name, setName] = useState(editing?.name ?? "");
+  const [phone, setPhone] = useState(editing?.phone ?? "");
   const [picked, setPicked] = useState<Contact | null>(null);
   /**
    * Which of the two lookup fields the HUMAN has typed in since the last
@@ -1032,22 +1097,26 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
   /** Same rule for the recipient field: only what the human typed drives
       the recipient suggestions, and a pick closes them. */
   const [typedRecipient, setTypedRecipient] = useState(false);
-  const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">("delivery");
-  const [email, setEmail] = useState("");
-  const [recipient, setRecipient] = useState("");
-  const [street, setStreet] = useState("");
-  const [town, setTown] = useState("");
-  const [zip, setZip] = useState("");
+  const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">(editing?.fulfillment ?? "delivery");
+  const [email, setEmail] = useState(editing?.email ?? "");
+  const [recipient, setRecipient] = useState(editing?.recipient ?? "");
+  const [street, setStreet] = useState(editing?.street ?? "");
+  const [town, setTown] = useState(editing?.town ?? "");
+  const [zip, setZip] = useState(editing?.zip ?? "");
   /** What was typed into the fee field, or null while it still follows the
       zip sheet. Derived, not an effect: a typed fee survives retyping a zip
       to fix a digit, and a never-touched field tracks the zip as it changes. */
-  const [feeOverride, setFeeOverride] = useState<string | null>(null);
-  const [date, setDate] = useState(todayISO());
-  const [occasion, setOccasion] = useState("");
-  const [cardMessage, setCardMessage] = useState("");
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
+  const [feeOverride, setFeeOverride] = useState<string | null>(() => {
+    const dl = editing?.lines.find((l) => l.name.startsWith("Delivery ("));
+    return dl ? String(dl.each) : null;
+  });
+  const [date, setDate] = useState(editing?.date ?? todayISO());
+  const [occasion, setOccasion] = useState(editing?.occasion ?? "");
+  const [cardMessage, setCardMessage] = useState(editing?.cardMessage ?? "");
+  const [notes, setNotes] = useState(editing?.notes ?? "");
+  const [lines, setLines] = useState<DraftLine[]>(() => (editing ? fromLines(editing) : [blankLine()]));
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState<"" | "board" | "hold">("");
   /** The stem library's names and per-stem prices, for building a piece
       by stems (Katy, 2026-10-06). Loaded once per form open; the route
       re-prices from the same library at write time, so these numbers only
@@ -1092,10 +1161,15 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
 
   const productBySlug = (slug: string): Product | undefined => sortedProducts.find((p) => p.slug === slug);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  /** Save it. `hold` parks it (Katy, 2026-10-12: typed up with questions
+      still open, not ready to make); otherwise it goes onto the board as
+      confirmed, or an existing one keeps its place. */
+  async function save(hold: boolean) {
     setError("");
+    setSaving(hold ? "hold" : "board");
     const payload = {
+      id: editing?.id,
+      hold,
       name, phone, email, fulfillment, date, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
       // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
@@ -1122,16 +1196,21 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
         }),
     };
     const r = await fetch("/api/workroom/orders", {
-      method: "POST",
+      method: editing ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     const d = await r.json().catch(() => null);
+    setSaving("");
     if (!r.ok) {
       setError(d?.error || "That did not save. Look it over and try again.");
       return;
     }
     onSaved();
+  }
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    save(false).catch(() => setSaving(""));
   }
 
   const delivering = fulfillment === "delivery";
@@ -1608,8 +1687,21 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       </label>
 
       <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center" }}>
-        <button className="btn btn--solid" type="submit">
-          Put it on the board
+        <button className="btn btn--solid" type="submit" disabled={saving !== ""}>
+          {saving === "board"
+            ? "Saving…"
+            : editing?.status === "hold"
+              ? "Finish it: put it on the board"
+              : editing
+                ? "Save the changes"
+                : "Put it on the board"}
+        </button>
+        {/* ON HOLD (Katy, 2026-10-12): the email came in, the order is typed,
+            and two questions are open. Park it with everything typed; it
+            waits in its own section, off the make list, until someone
+            finishes it. */}
+        <button className="btn" type="button" disabled={saving !== ""} onClick={() => save(true).catch(() => setSaving(""))}>
+          {saving === "hold" ? "Saving…" : editing && editing.status !== "hold" ? "Put it on hold" : "Save on hold"}
         </button>
         <span aria-live="polite" style={{ color: "var(--rose-ink)", fontWeight: 600, fontSize: 14.5 }}>{error}</span>
       </p>

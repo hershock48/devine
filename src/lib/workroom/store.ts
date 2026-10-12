@@ -34,7 +34,10 @@ import "server-only";
  * A pickup goes made -> done when it leaves the counter; there is no van to
  * track. The board enforces which button shows; the store just holds the word.
  */
-export type OrderStatus = "new" | "confirmed" | "made" | "out" | "done" | "canceled";
+/** "hold" (Katy, 2026-10-12): written up but parked. Everything typed,
+    nothing promised: not on the make list, not chargeable, editable, until
+    someone finishes it and releases it to confirmed. */
+export type OrderStatus = "hold" | "new" | "confirmed" | "made" | "out" | "done" | "canceled";
 
 export type WorkroomLine = {
   /** Catalog slug when the line came from the shop's catalog; null for a custom item. */
@@ -451,6 +454,10 @@ type Store = {
       key, not a migration. Keeps the status column in step when status is
       among the fields. */
   patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom">>): Promise<void>;
+  /** The whole row, rewritten: editing an order that is on hold or not yet
+      made (2026-10-12). The route decides what may be edited; the store
+      just writes what it is handed, id and all. */
+  replaceOrder(o: WorkroomOrder): Promise<void>;
   setOrderPayment(id: string, p: OrderPayment): Promise<void>;
   /** The pay route appends the delivery-fee line when it charges a
       delivery ticket that never carried one, so the ticket's rows and its
@@ -578,6 +585,9 @@ const memoryStore: Store = {
   async patchOrder(id, patch) {
     const o = bag().orders.get(id);
     if (o) Object.assign(o, patch);
+  },
+  async replaceOrder(o) {
+    bag().orders.set(o.id, o);
   },
   async setOrderPayment(id, p) {
     const o = bag().orders.get(id);
@@ -848,6 +858,10 @@ const postgresStore: Store = {
       `UPDATE workroom_orders SET status = COALESCE($3, status), data = data || $2::jsonb WHERE id = $1`,
       [id, JSON.stringify(patch), patch.status ?? null],
     );
+  },
+  async replaceOrder(o) {
+    const pool = await pgPool();
+    await pool.query(`UPDATE workroom_orders SET status = $2, data = $3 WHERE id = $1`, [o.id, o.status, JSON.stringify(o)]);
   },
   async setOrderPayment(id, p) {
     const pool = await pgPool();
