@@ -95,18 +95,16 @@ export const site = {
   /** Flowers subtotal a delivery order starts at (see the note above). */
   deliveryMinimums: { marshall: 45, outside: 55 },
 
-  /**
-   * The shop's own card fee, percent of the charge, on EVERY card payment
-   * (Kevin, 2026-09-09, superseding the 09-04 remote-only reading): our
-   * platform applies it on phone and website orders; register swipes carry
-   * it too, applied by the shop at her own POS, which our code cannot
-   * reach. This one is DEVINE'S money - it covers her processing - unlike
-   * the 99 cent platform fee, which is Glazed Web's and rides only on
-   * website orders. Online the two combine into a single "Convenience fee"
-   * line; a phone order keyed at the board shows "Card fee (3%)" alone.
-   * Cash alone never fees.
-   */
-  cardFeePct: 3,
+  /*
+    NO CARD FEE, since the 2026-10-06 meeting: Katy is baking processing
+    into her prices, so the shop's own 3% card fee (cardFeePct, three
+    revisions between 09-04 and 09-09) is retired everywhere our code
+    charges a card: the board's Take-card pane and the online checkout.
+    The 99 cent platform fee on WEBSITE orders is a different thing - it is
+    Glazed Web's, in Exhibit A - and it stays (lib/square/payments.ts,
+    appFeeCents). Payments recorded before this date still carry their
+    feeCents, and the board shows those as history.
+  */
 
   delivery: {
     sameDay: "Same-day delivery whenever possible.",

@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { site } from "@/lib/site";
 import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, normalizeVariety } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -31,12 +31,12 @@ import PayControls from "@/components/workroom/PayControls";
  * accident; the order history already knows.
  */
 
-type Line = { slug: string | null; name: string; qty: number; each: number };
+type Line = { slug: string | null; name: string; qty: number; each: number; parts?: { variety: string; stems: number }[] };
 type Order = {
   id: string;
   number: string;
   source: "web" | "phone";
-  status: "new" | "confirmed" | "made" | "out" | "done" | "canceled";
+  status: "hold" | "new" | "confirmed" | "made" | "out" | "done" | "canceled";
   name: string;
   phone: string;
   email: string;
@@ -53,10 +53,21 @@ type Order = {
   subtotal: number;
   createdAt: number;
   payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
+  canceledFrom?: string;
+  madeBy?: string;
 };
+
+/** Editable while nothing has been made and no money has moved (the PUT
+    route enforces the same line). */
+const canEdit = (o: Order) => !o.payment && (o.status === "hold" || o.status === "new" || o.status === "confirmed");
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   switch (o.status) {
+    case "hold":
+      // Released from limbo onto the make list (Katy, 2026-10-12). The
+      // phone call has usually happened by now; confirmed is where a
+      // finished phone order starts.
+      return { to: "confirmed", label: "Ready to make" };
     case "new":
       // "Confirmed", not "Confirmed & paid": the old label predates tracked
       // payments and lied about money. Kevin, testing as an employee, near
@@ -110,6 +121,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [backend, setBackend] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  /** The order open in the form for editing (on hold, or not yet made).
+      The form remounts per id so a half-typed edit never bleeds across. */
+  const [editing, setEditing] = useState<Order | null>(null);
   const [showDone, setShowDone] = useState(false);
   /** The find box: a caller says "order DV-0901-4226" or "it's under
       Wanda" and the counter should not have to scan a busy board by eye.
@@ -123,6 +137,19 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       query shows one flat match list, finished orders open, with the count
       said out loud; clearing the box brings the board back. */
   const [find, setFind] = useState("");
+  /** The Square connect's landing flag (?square=connected and friends),
+      read once and then cleared from the address bar so a reload or a
+      bookmark never repeats it. The callback route has always sent it;
+      nothing displayed it until 2026-10-12. */
+  const [squareFlag, setSquareFlag] = useState("");
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const f = u.searchParams.get("square");
+    if (!f) return;
+    setSquareFlag(f);
+    u.searchParams.delete("square");
+    window.history.replaceState(null, "", u.pathname + (u.search || "") + u.hash);
+  }, []);
   /** The full order history, fetched once when a search begins: the board
       loads 60 days, and the order a caller asks about can be older. */
   const [deep, setDeep] = useState<Order[] | null>(null);
@@ -149,13 +176,36 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     return () => clearInterval(t);
   }, [authed, pull]);
 
-  async function move(id: string, status: Order["status"]) {
+  async function move(id: string, status: Order["status"], extra?: { madeBy?: string }) {
     await fetch("/api/workroom/orders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
+      body: JSON.stringify({ id, status, ...(extra?.madeBy ? { madeBy: extra.madeBy } : {}) }),
     });
     pull().catch(() => {});
+  }
+
+  /** Open an order in the form (on hold, or not yet made). The form sits
+      at the top of the page, so the page goes there with it. */
+  function openEdit(o: Order) {
+    setAdding(false);
+    setEditing(o);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** Uncancel (Katy, 2026-10-06): back to the status it was canceled from.
+      The route refuses a refunded one and says why; the card shows that. */
+  async function uncancel(id: string) {
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, uncancel: true }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      throw new Error(d?.error || "That did not uncancel.");
+    }
+    await pull();
   }
 
   /** The human attestation that the Square refund happened; the workroom
@@ -168,6 +218,21 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       body: JSON.stringify({ id, markRefunded: true }),
     });
     pull().catch(() => {});
+  }
+
+  /** The delivery fee adjusted on the card itself, before the card is
+      taken (Katy, 2026-10-06). The route refuses once the order is paid. */
+  async function setFee(id: string, fee: number) {
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, deliveryFee: fee }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      throw new Error(d?.error || "The fee did not save.");
+    }
+    await pull();
   }
 
   // Widen to the full history the moment a search starts, once per visit.
@@ -200,7 +265,11 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       o.name.toLowerCase().includes(q) ||
       (qDigits.length >= 3 && o.phone.replace(/\D/g, "").includes(qDigits));
     const shown = base.filter(matches);
-    const open = shown.filter((o) => o.status !== "done" && o.status !== "canceled");
+    // Held orders are limbo (Katy, 2026-10-12): parked with questions open,
+    // not on the make list, so they get their own section and never read
+    // as late, today, or coming up.
+    const open = shown.filter((o) => o.status !== "done" && o.status !== "canceled" && o.status !== "hold");
+    const held = shown.filter((o) => o.status === "hold");
     // Within a day, deliveries first: they own a van schedule and a hard
     // deadline; pickups wait patiently in the cooler. Date stays primary,
     // because a florist's whole question is "what has to exist by when".
@@ -222,6 +291,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
       (o.status === "done" && !!o.payment);
     return {
+      held: held.sort(byDate),
       overdue: open.filter((o) => o.date < today).sort(byDate),
       today: open.filter((o) => o.date === today).sort(byDate),
       upcoming: open.filter((o) => o.date > today).sort(byDate),
@@ -255,9 +325,40 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
       <MemoryWarning backend={backend} />
 
+      {squareFlag && (
+        <p
+          role="status"
+          className="panel"
+          style={{
+            padding: "10px 14px", margin: "0 0 18px", fontSize: 14.5, maxWidth: 640,
+            borderLeft: `3px solid ${squareFlag === "connected" ? "var(--green)" : "var(--rose-ink)"}`,
+            display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+          }}
+        >
+          <span style={{ flex: "1 1 auto" }}>
+            {squareFlag === "connected" && <><strong>Square is connected.</strong> Register sales will show up here and on the dashboard from now on.</>}
+            {squareFlag === "denied" && <><strong>Square was not connected:</strong> the permission screen was declined. Nothing changed.</>}
+            {squareFlag === "failed" && <><strong>Square did not connect.</strong> Square allowed it but the handshake failed; the usual cause is the app secret (see .env.example). Tell Kevin.</>}
+            {squareFlag === "badstate" && <><strong>Square did not connect:</strong> the return did not match the request. Start again from the dashboard.</>}
+            {squareFlag === "nodatabase" && <><strong>Square did not connect:</strong> there is no database here to keep the connection in. Set it up first.</>}
+            {squareFlag === "unconfigured" && <><strong>Square did not connect:</strong> the Square app is not configured on this deployment.</>}
+          </span>
+          <button type="button" onClick={() => setSquareFlag("")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+            Dismiss
+          </button>
+        </p>
+      )}
+
       <p style={{ margin: "6px 0 26px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <button className="btn" type="button" onClick={() => setAdding((v) => !v)}>
-          {adding ? "Close the form" : "Write up a phone order"}
+        <button
+          className="btn"
+          type="button"
+          onClick={() => {
+            if (editing) setEditing(null);
+            else setAdding((v) => !v);
+          }}
+        >
+          {adding || editing ? "Close the form" : "Write up a phone order"}
         </button>
         <input
           type="search"
@@ -274,11 +375,14 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         )}
       </p>
 
-      {adding && (
+      {(adding || editing) && (
         <PhoneOrderForm
+          key={editing?.id ?? "new"}
           contacts={contacts}
+          editing={editing}
           onSaved={() => {
             setAdding(false);
+            setEditing(null);
             pull().catch(() => {});
           }}
         />
@@ -295,25 +399,26 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
                 Finished &amp; canceled ({buckets.closed.length})
               </h2>
-              <ClosedList orders={buckets.closed} />
+              <ClosedList orders={buckets.closed} onUncancel={uncancel} />
             </section>
           )}
         </>
       ) : (
         <>
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} />
-          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onRefunded={markRefunded} />
+          <Bucket title="On hold" orders={buckets.held} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
 
-          {buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
+          {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
               Nothing open. Web orders land here on their own; phone orders get written up above.
             </p>
@@ -328,7 +433,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
               {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
             </button>
           </p>
-          {showDone && <ClosedList orders={buckets.closed} />}
+          {showDone && <ClosedList orders={buckets.closed} onUncancel={uncancel} />}
         </>
       )}
     </>
@@ -342,7 +447,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
  * these too, so a caller asking about last month's order is one search and
  * one glance.
  */
-function ClosedList({ orders }: { orders: Order[] }) {
+function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id: string) => Promise<void> }) {
   if (orders.length === 0) return null;
   const moneyWord = (o: Order) => {
     if (!o.payment) return o.status === "canceled" ? "" : "not paid";
@@ -390,7 +495,9 @@ function ClosedList({ orders }: { orders: Order[] }) {
                   : ""}
                 {o.phone ? ` · ${o.phone}` : ""}
                 {o.email ? ` · ${o.email}` : ""}
+                {o.madeBy ? ` · made by ${o.madeBy}` : ""}
               </p>
+              {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
               {o.payment && (
                 <p className="muted" style={{ margin: 0 }}>
                   Paid by {o.payment.method === "other" ? "another way" : o.payment.method}, {money(o.payment.totalCents / 100)}
@@ -416,14 +523,20 @@ function Bucket({
   onMove,
   onPaid,
   onRefunded,
+  onFee,
+  onUncancel,
+  onEdit,
 }: {
   title: string;
   tone?: "late";
   orders: Order[];
   contacts: Contact[];
-  onMove: (id: string, s: Order["status"]) => void;
+  onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
+  onFee?: (id: string, fee: number) => Promise<void>;
+  onUncancel?: (id: string) => Promise<void>;
+  onEdit?: (o: Order) => void;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -451,10 +564,279 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} />
+          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} />
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * The two buttons under a card, with the pauses Katy asked for (2026-10-06).
+ *
+ * CANCEL ASKS TWICE. Her words: "are you sure you want to cancel?" then
+ * "No. Seriously... are you sure?!" A cancel is the rare move and the one
+ * that un-makes a day's work, so it is two deliberate taps with a way out
+ * at each, and the whole thing resets if the card re-renders with a new
+ * status underneath it.
+ *
+ * MADE ASKS WHO. The Made tap opens a two-letter field for initials so the
+ * ticket says who made it (same meeting). Required at that moment, because
+ * "fill it in later" is never; it can still be corrected afterwards.
+ */
+function Moves({
+  o,
+  next,
+  onMove,
+  onEdit,
+}: {
+  o: Order;
+  next: { to: Order["status"]; label: string };
+  onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
+  /** Present while the order may still be edited (on hold, or not yet made). */
+  onEdit?: () => void;
+}) {
+  const [cancelStep, setCancelStep] = useState<0 | 1 | 2>(0);
+  const [asking, setAsking] = useState(false);
+  const [initials, setInitials] = useState("");
+  const [err, setErr] = useState("");
+
+  if (cancelStep > 0) {
+    return (
+      <p style={{ margin: "12px 0 0", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <strong style={{ color: "var(--rose-ink)", fontSize: 14.5 }}>
+          {cancelStep === 1 ? "Cancel this order?" : "No. Seriously… are you sure?!"}
+        </strong>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => (cancelStep === 1 ? setCancelStep(2) : onMove(o.id, "canceled"))}
+          style={{ color: "var(--rose-ink)" }}
+        >
+          {cancelStep === 1 ? "Yes, cancel it" : "Yes, really cancel it"}
+        </button>
+        <button type="button" onClick={() => setCancelStep(0)} style={{ ...textButton, fontSize: 13.5 }}>
+          Keep it
+        </button>
+      </p>
+    );
+  }
+
+  if (asking) {
+    const ok = /^[A-Za-z]{1,4}$/.test(initials.trim());
+    return (
+      <p style={{ margin: "12px 0 0", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14.5 }}>
+          Made by
+          <input
+            value={initials}
+            onChange={(e) => {
+              setInitials(e.target.value.toUpperCase());
+              setErr("");
+            }}
+            placeholder="initials"
+            maxLength={4}
+            autoFocus
+            aria-label="Your initials"
+            style={{ ...field, width: 84, textTransform: "uppercase" }}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn btn--solid"
+          onClick={() => {
+            if (!ok) {
+              setErr("Your initials, one to four letters.");
+              return;
+            }
+            onMove(o.id, "made", { madeBy: initials.trim().toUpperCase() });
+          }}
+        >
+          Made
+        </button>
+        <button type="button" onClick={() => setAsking(false)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+          Not yet
+        </button>
+        {err && <span style={{ color: "var(--rose-ink)", fontSize: 13.5 }}>{err}</span>}
+      </p>
+    );
+  }
+
+  return (
+    <p style={{ margin: "12px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
+      <button
+        className="btn btn--solid"
+        type="button"
+        onClick={() => (next.to === "made" ? setAsking(true) : onMove(o.id, next.to))}
+      >
+        {next.label}
+      </button>
+      {onEdit && (
+        <button type="button" onClick={onEdit} style={{ ...textButton, fontSize: 13.5 }}>
+          {o.status === "hold" ? "Finish it" : "Edit"}
+        </button>
+      )}
+      <button type="button" onClick={() => setCancelStep(1)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+        Cancel order
+      </button>
+    </p>
+  );
+}
+
+/** "made by KD", with a fix: initials mistyped at the Made tap are
+    corrected here, through the same route, status unchanged. */
+function MadeBy({ o, onMove }: { o: Order; onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(o.madeBy ?? "");
+  if (!editing) {
+    return (
+      <p style={{ margin: "0 0 6px", fontSize: 13.5 }} className="muted">
+        made by {o.madeBy}
+        {" · "}
+        <button type="button" onClick={() => { setV(o.madeBy ?? ""); setEditing(true); }} style={{ ...textButton, fontSize: 13 }}>
+          fix
+        </button>
+      </p>
+    );
+  }
+  const ok = /^[A-Za-z]{1,4}$/.test(v.trim());
+  return (
+    <p style={{ margin: "0 0 6px", display: "flex", gap: 8, alignItems: "center", fontSize: 13.5 }}>
+      <span className="muted">made by</span>
+      <input value={v} onChange={(e) => setV(e.target.value.toUpperCase())} maxLength={4} aria-label="Initials" autoFocus style={{ ...field, width: 72, textTransform: "uppercase" }} />
+      <button
+        type="button"
+        className="btn"
+        disabled={!ok}
+        onClick={() => {
+          onMove(o.id, o.status, { madeBy: v.trim().toUpperCase() });
+          setEditing(false);
+        }}
+      >
+        Save
+      </button>
+      <button type="button" onClick={() => setEditing(false)} style={{ ...textButton, fontSize: 13, color: "var(--muted)" }}>
+        Never mind
+      </button>
+    </p>
+  );
+}
+
+/** The way back from a cancel (Katy, 2026-10-06). The route decides what
+    it goes back to and refuses a refunded one; this just asks and shows. */
+function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  if (o.payment?.refundedAt) return null;
+  return (
+    <p style={{ margin: "10px 0 0", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13.5 }}>
+      <button
+        type="button"
+        className="btn"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setErr("");
+          try {
+            await onUncancel(o.id);
+          } catch (e) {
+            setErr(e instanceof Error ? e.message : "That did not uncancel.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Putting it back…" : "Uncancel"}
+      </button>
+      <span className="muted">
+        back to {o.canceledFrom && o.canceledFrom !== "canceled" ? o.canceledFrom : "confirmed"}
+      </span>
+      {err && <span style={{ color: "var(--rose-ink)" }}>{err}</span>}
+    </p>
+  );
+}
+
+/**
+ * The delivery fee on an unpaid ticket, adjustable in place (Katy,
+ * 2026-10-06: the zip sheet is the default, and whoever is ringing the
+ * order up can change it before the card is taken). A web order arrives
+ * with no delivery line and shows the sheet's fee as "added when charged",
+ * which is exactly what the pay route does; a phone order carries the line
+ * the form wrote. Saving writes (or replaces) the line and the subtotal,
+ * so the ticket, the Take-card total and the receipt all agree. Once paid
+ * this renders nothing: the ticket and the payment must stay in step.
+ */
+function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) => Promise<void> }) {
+  const line = o.lines.find((l) => l.name.startsWith("Delivery ("));
+  const sheet = site.deliveryFees[o.zip];
+  const current = line ? line.each : sheet;
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const note = line
+    ? sheet === undefined
+      ? "set by hand"
+      : line.each === sheet
+        ? "from the zip list"
+        : `adjusted; the list says ${money(sheet)}`
+    : sheet !== undefined
+      ? "from the zip list, added when charged"
+      : "not set; the zip is off the list";
+
+  async function save() {
+    const n = Number(value);
+    if (value.trim() === "" || !Number.isFinite(n) || n < 0) {
+      setError("A number, zero or more.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await onFee(o.id, n);
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Did not save.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <p style={{ margin: "0 0 8px", fontSize: 13.5, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+      <span className="muted">
+        Delivery fee {current !== undefined ? money(current) : "not set"} · {note}
+      </span>
+      {!editing ? (
+        <button
+          type="button"
+          onClick={() => {
+            setValue(current !== undefined ? String(current) : "");
+            setEditing(true);
+          }}
+          style={{ ...textButton, fontSize: 13.5 }}
+        >
+          Adjust
+        </button>
+      ) : (
+        <>
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            inputMode="decimal"
+            aria-label="Delivery fee"
+            style={{ ...field, width: 90 }}
+          />
+          <button type="button" className="btn" disabled={busy} onClick={save}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <button type="button" disabled={busy} onClick={() => setEditing(false)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+            Never mind
+          </button>
+          {error && <span style={{ color: "var(--rose-ink)" }}>{error}</span>}
+        </>
+      )}
+    </p>
   );
 }
 
@@ -464,12 +846,18 @@ function OrderCard({
   onMove,
   onPaid,
   onRefunded,
+  onFee,
+  onUncancel,
+  onEdit,
 }: {
   o: Order;
   contacts: Contact[];
-  onMove: (id: string, s: Order["status"]) => void;
+  onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
+  onFee?: (id: string, fee: number) => Promise<void>;
+  onUncancel?: (id: string) => Promise<void>;
+  onEdit?: (o: Order) => void;
 }) {
   const next = nextMove(o);
   const today = todayISO();
@@ -477,7 +865,7 @@ function OrderCard({
   const sympathy = o.occasion === "Sympathy or funeral";
   const prior = priorOrders(contacts, o.phone, o.email, o.createdAt);
   const statusWord =
-    o.status === "out" ? "en route" : o.status === "new" ? "needs the confirm call" : o.status;
+    o.status === "out" ? "en route" : o.status === "new" ? "needs the confirm call" : o.status === "hold" ? "on hold, not ready to make" : o.status;
 
   return (
     <article
@@ -486,6 +874,8 @@ function OrderCard({
         padding: 18,
         borderLeft: sympathy
           ? "3px solid var(--ink)"
+          : o.status === "hold"
+            ? "3px dashed var(--muted)"
           : o.status === "new"
             ? "3px solid var(--rose-ink)"
             : o.status === "out"
@@ -534,6 +924,7 @@ function OrderCard({
         {o.occasion && o.occasion !== "Everyday" ? ` · ${o.occasion}` : ""}
         {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
       </p>
+      {o.madeBy && <MadeBy o={o} onMove={onMove} />}
 
       {/* Built from the parts that exist: a phone order can be taken before
           the address is known, and "Smoke Test · ," is not an address. A named
@@ -558,6 +949,13 @@ function OrderCard({
           <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <span>
               {l.qty} × {l.name}
+              {/* A piece priced by stems says what it was priced from, so the
+                  workroom builds what the counter promised. */}
+              {l.parts && l.parts.length > 0 && (
+                <span className="muted" style={{ display: "block", fontSize: 13 }}>
+                  {l.parts.map((pt) => `${pt.stems} ${pt.variety}`).join(", ")}
+                </span>
+              )}
             </span>
             <span style={{ whiteSpace: "nowrap" }}>{money(l.each * l.qty)}</span>
           </li>
@@ -584,6 +982,8 @@ function OrderCard({
           </>
         )}
       </ul>
+
+      {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
 
       {/* Labeled, because unlabeled they read as mystery text: an employee
           has to KNOW the italic line goes on the card and the other one is
@@ -663,7 +1063,7 @@ function OrderCard({
         </div>
       )}
 
-      {o.status !== "canceled" && (
+      {o.status !== "canceled" && o.status !== "hold" && (
         <PayControls
           orderId={o.id}
           subtotal={o.subtotal}
@@ -682,20 +1082,10 @@ function OrderCard({
         />
       )}
 
-      {next && (
-        <p style={{ margin: "12px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
-          <button className="btn btn--solid" type="button" onClick={() => onMove(o.id, next.to)}>
-            {next.label}
-          </button>
-          <button
-            type="button"
-            onClick={() => onMove(o.id, "canceled")}
-            style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}
-          >
-            Cancel order
-          </button>
-        </p>
-      )}
+      {/* Keyed by status so a half-finished cancel confirm or initials
+          prompt resets when the 30s poll brings a new status underneath. */}
+      {next && <Moves key={o.status} o={o} next={next} onMove={onMove} onEdit={onEdit && canEdit(o) ? () => onEdit(o) : undefined} />}
+      {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
     </article>
   );
 }
@@ -708,12 +1098,32 @@ function OrderCard({
  */
 const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name));
 
-type DraftLine = { slug: string; custom: string; each: string; qty: number };
-const blankLine = (): DraftLine => ({ slug: "", custom: "", each: "", qty: 1 });
+type DraftPart = { variety: string; stems: string };
+type DraftLine = { slug: string; custom: string; each: string; qty: number; byStems: boolean; parts: DraftPart[] };
+const blankLine = (): DraftLine => ({ slug: "", custom: "", each: "", qty: 1, byStems: false, parts: [{ variety: "", stems: "" }] });
+/** The lines that can be built by stems: her Designer's Choice three and
+    anything custom. A Peace Lily is a Peace Lily. */
+const canBuild = (l: DraftLine) => !l.slug || l.slug.startsWith("designers-choice");
+type StemPrice = { name: string; sellStem: number | null };
 
-function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: () => void }) {
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+/** A stored line back into the form's shape, for editing. The Delivery
+    line is not an item; it becomes the fee field. */
+const fromLines = (o: Order): DraftLine[] => {
+  const items = o.lines.filter((l) => !l.name.startsWith("Delivery ("));
+  if (items.length === 0) return [blankLine()];
+  return items.map((l) => ({
+    slug: l.slug ?? "",
+    custom: l.slug ? "" : l.name,
+    each: l.slug ? "" : String(l.each),
+    qty: l.qty,
+    byStems: !!(l.parts && l.parts.length),
+    parts: l.parts && l.parts.length ? l.parts.map((pt) => ({ variety: pt.variety, stems: String(pt.stems) })) : [{ variety: "", stems: "" }],
+  }));
+};
+
+function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Contact[]; onSaved: () => void; editing?: Order | null }) {
+  const [name, setName] = useState(editing?.name ?? "");
+  const [phone, setPhone] = useState(editing?.phone ?? "");
   const [picked, setPicked] = useState<Contact | null>(null);
   /**
    * Which of the two lookup fields the HUMAN has typed in since the last
@@ -725,29 +1135,91 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
    * it writes are the machine's, not the caller's.
    */
   const [typed, setTyped] = useState({ name: false, phone: false });
-  const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">("delivery");
-  const [email, setEmail] = useState("");
-  const [recipient, setRecipient] = useState("");
-  const [street, setStreet] = useState("");
-  const [town, setTown] = useState("");
-  const [zip, setZip] = useState("");
-  const [date, setDate] = useState(todayISO());
-  const [occasion, setOccasion] = useState("");
-  const [cardMessage, setCardMessage] = useState("");
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
+  /** Same rule for the recipient field: only what the human typed drives
+      the recipient suggestions, and a pick closes them. */
+  const [typedRecipient, setTypedRecipient] = useState(false);
+  const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">(editing?.fulfillment ?? "delivery");
+  const [email, setEmail] = useState(editing?.email ?? "");
+  const [recipient, setRecipient] = useState(editing?.recipient ?? "");
+  const [street, setStreet] = useState(editing?.street ?? "");
+  const [town, setTown] = useState(editing?.town ?? "");
+  const [zip, setZip] = useState(editing?.zip ?? "");
+  /** What was typed into the fee field, or null while it still follows the
+      zip sheet. Derived, not an effect: a typed fee survives retyping a zip
+      to fix a digit, and a never-touched field tracks the zip as it changes. */
+  const [feeOverride, setFeeOverride] = useState<string | null>(() => {
+    const dl = editing?.lines.find((l) => l.name.startsWith("Delivery ("));
+    return dl ? String(dl.each) : null;
+  });
+  const [date, setDate] = useState(editing?.date ?? todayISO());
+  const [occasion, setOccasion] = useState(editing?.occasion ?? "");
+  const [cardMessage, setCardMessage] = useState(editing?.cardMessage ?? "");
+  const [notes, setNotes] = useState(editing?.notes ?? "");
+  const [lines, setLines] = useState<DraftLine[]>(() => (editing ? fromLines(editing) : [blankLine()]));
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState<"" | "board" | "hold">("");
+  /** The stem library's names and per-stem prices, for building a piece
+      by stems (Katy, 2026-10-06). Loaded once per form open; the route
+      re-prices from the same library at write time, so these numbers only
+      show what the counter is about to promise. */
+  const [library, setLibrary] = useState<StemPrice[]>([]);
+  useEffect(() => {
+    fetch("/api/workroom/varieties", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.varieties) setLibrary((d.varieties as StemPrice[]).map((v) => ({ name: v.name, sellStem: v.sellStem })));
+      })
+      .catch(() => {});
+  }, []);
+  const stemPrice = (variety: string): number | undefined => {
+    const v = library.find((x) => x.name === normalizeVariety(variety));
+    return v && v.sellStem != null && v.sellStem > 0 ? v.sellStem : undefined;
+  };
+  /** The built price of a line, in dollars, plus the varieties the library
+      cannot price (the route will refuse those by name). */
+  const builtPrice = (l: DraftLine): { each: number; unpriced: string[] } => {
+    let cents = 0;
+    const unpriced: string[] = [];
+    for (const pt of l.parts) {
+      const stems = Math.round(Number(pt.stems) || 0);
+      const name = pt.variety.trim();
+      if (!name || stems <= 0) continue;
+      const price = stemPrice(name);
+      if (price === undefined) unpriced.push(name);
+      else cents += Math.round(price * 100) * stems;
+    }
+    return { each: cents / 100, unpriced };
+  };
 
   function setLine(i: number, patch: Partial<DraftLine>) {
     setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...patch } : l)));
   }
+  function setPart(i: number, j: number, patch: Partial<DraftPart>) {
+    setLines((cur) =>
+      cur.map((l, at) => (at === i ? { ...l, parts: l.parts.map((pt, k) => (k === j ? { ...pt, ...patch } : pt)) } : l)),
+    );
+  }
 
   const productBySlug = (slug: string): Product | undefined => sortedProducts.find((p) => p.slug === slug);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  /** Save it. `hold` parks it (Katy, 2026-10-12: typed up with questions
+      still open, not ready to make); otherwise it goes onto the board as
+      confirmed, or an existing one keeps its place. */
+  async function save(hold: boolean) {
     setError("");
+    // A piece marked "by stems" with no flower and count typed would save
+    // at $0 with its price field hidden; refuse here, in words.
+    const halfBuilt = lines.find(
+      (l) => l.byStems && canBuild(l) && (l.slug || l.custom.trim()) && !l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0),
+    );
+    if (halfBuilt) {
+      setError(`"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`);
+      return;
+    }
+    setSaving(hold ? "hold" : "board");
     const payload = {
+      id: editing?.id,
+      hold,
       name, phone, email, fulfillment, date, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
       // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
@@ -756,26 +1228,44 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       street: street,
       town: town,
       zip: zip.trim(),
+      // The fee as shown, sheet or typed (Katy, 2026-10-06). Blank means
+      // "none typed and the zip is off the list": the route adds no line.
+      deliveryFee: delivering && deliveryFee.trim() !== "" && Number.isFinite(Number(deliveryFee)) ? Number(deliveryFee) : undefined,
       lines: lines
-        .filter((l) => l.slug || l.custom.trim())
-        .map((l) =>
-          l.slug ? { slug: l.slug, qty: l.qty } : { name: l.custom.trim(), each: Number(l.each) || 0, qty: l.qty },
-        ),
+        .filter((l) => l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)))
+        .map((l) => {
+          // Built by stems: the route prices from the library, so only the
+          // parts travel, never a browser-computed price.
+          const parts =
+            l.byStems && canBuild(l)
+              ? l.parts.filter((pt) => pt.variety.trim() && Number(pt.stems) > 0).map((pt) => ({ variety: pt.variety.trim(), stems: Number(pt.stems) }))
+              : undefined;
+          return l.slug
+            ? { slug: l.slug, qty: l.qty, parts }
+            : { name: l.custom.trim(), each: parts ? 0 : Number(l.each) || 0, qty: l.qty, parts };
+        }),
     };
     const r = await fetch("/api/workroom/orders", {
-      method: "POST",
+      method: editing ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     const d = await r.json().catch(() => null);
+    setSaving("");
     if (!r.ok) {
       setError(d?.error || "That did not save. Look it over and try again.");
       return;
     }
     onSaved();
   }
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    save(false).catch(() => setSaving(""));
+  }
 
   const delivering = fulfillment === "delivery";
+  const sheetFee = site.deliveryFees[zip.trim()];
+  const deliveryFee = feeOverride ?? (sheetFee !== undefined ? String(sheetFee) : "");
 
   return (
     <form onSubmit={submit} className="panel" style={{ maxWidth: 640, marginBottom: 30, display: "grid", gap: 14 }}>
@@ -931,9 +1421,78 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       {delivering && (
         <label>
           <span style={labelText}>Recipient (if not the customer)</span>
-          <input value={recipient} onChange={(e) => setRecipient(e.target.value)} style={field} />
+          <input
+            value={recipient}
+            onChange={(e) => {
+              setRecipient(e.target.value);
+              setTypedRecipient(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setTypedRecipient(false);
+            }}
+            style={field}
+          />
         </label>
       )}
+
+      {/* RECIPIENTS COME FROM THE SAME HISTORY (Katy's question, 2026-10-06:
+          "will the same happen with recipients?"). Yes: every delivery
+          order already carries who it went to and where, so typing a few
+          letters of a recipient offers the matching ones and a tap fills
+          the name and the address. Same autocomplete rules as the customer
+          chips above, same no-separate-list design: a funeral home or a
+          grandmother who gets flowers every month is in the orders. */}
+      {delivering &&
+        (() => {
+          const q = typedRecipient ? recipient.trim().toLowerCase() : "";
+          if (q.length < 2) return null;
+          const latest = new Map<string, { c: Contact; count: number }>();
+          for (const c of contacts) {
+            if (c.fulfillment !== "delivery" || !c.recipient) continue;
+            const key = `${c.recipient.trim().toLowerCase()}|${(c.street ?? "").trim().toLowerCase()}`;
+            const cur = latest.get(key);
+            if (!cur) latest.set(key, { c, count: 1 });
+            else {
+              cur.count += 1;
+              if (c.createdAt > cur.c.createdAt) cur.c = c;
+            }
+          }
+          const hits = [...latest.values()]
+            .filter(({ c }) => (c.recipient ?? "").toLowerCase().includes(q))
+            .sort((a, b) => b.c.createdAt - a.c.createdAt)
+            .slice(0, 4);
+          if (hits.length === 0) return null;
+          return (
+            <div role="status" style={{ margin: "-6px 0 0", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {hits.map(({ c, count }) => (
+                <button
+                  key={`${c.recipient}|${c.street}`}
+                  type="button"
+                  onClick={() => {
+                    setTypedRecipient(false);
+                    setRecipient(c.recipient ?? "");
+                    setStreet(c.street ?? "");
+                    setTown(c.town ?? "");
+                    setZip(c.zip ?? "");
+                  }}
+                  style={{
+                    font: "inherit",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "var(--green)",
+                    background: "var(--paper-2)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 2,
+                    padding: "6px 10px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {c.recipient} · {[c.street, c.town].filter(Boolean).join(", ") || "no address on file"} · {count} deliver{count === 1 ? "y" : "ies"}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
       {/* The address block renders for BOTH fulfillments since 2026-09-04
           (Kevin, from the shop's meeting): on a delivery it is where the
           flowers go; on a pickup it is the customer's own address, kept
@@ -961,6 +1520,32 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
           </label>
         </div>
       </div>
+
+      {/* THE FEE, WHILE THE PRICE IS BEING QUOTED (Katy, 2026-10-06): the
+          zip sheet fills it in, and the person on the phone can change it
+          on the spot. It goes on the ticket as the Delivery line, so what
+          the customer was told is what the card is charged. */}
+      {delivering && (
+        <label style={{ maxWidth: 260 }}>
+          <span style={labelText}>Delivery fee</span>
+          <input
+            value={deliveryFee}
+            onChange={(e) => setFeeOverride(e.target.value)}
+            inputMode="decimal"
+            placeholder={zip.trim() ? "" : "type the zip first"}
+            style={field}
+          />
+          <span className="muted" style={{ fontSize: 13, display: "block", marginTop: 4 }}>
+            {sheetFee !== undefined
+              ? Number(deliveryFee) === sheetFee
+                ? `From the zip list for ${zip.trim()}. Change it if this one is different.`
+                : `The list says ${money(sheetFee)} for ${zip.trim()}; this order charges what you typed.`
+              : zip.trim()
+                ? "That zip is not on the list. Type a fee, or leave it blank to settle on the call."
+                : "The zip fills this in from the list; you can also just type a fee."}
+          </span>
+        </label>
+      )}
 
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         <label>
@@ -991,11 +1576,14 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
         <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
           {lines.map((l, i) => {
             const p = productBySlug(l.slug);
+            const building = l.byStems && canBuild(l);
+            const built = building ? builtPrice(l) : null;
             return (
               /* Flex with wrap, not a fixed grid: four cells at their minimums
                  are ~440px, and a 390px phone needs the row to fold instead of
                  shoving the page sideways. */
-              <div key={i} style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
+              <div key={i} style={{ display: "grid", gap: 8, minWidth: 0 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
                 <select
                   aria-label={`Item ${i + 1} product`}
                   value={l.slug}
@@ -1011,7 +1599,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                 </select>
                 {l.slug ? (
                   <span style={{ alignSelf: "center", fontSize: 14.5, flex: "1 1 auto" }} className="muted">
-                    {p ? money(p.price) : ""} each
+                    {built ? `${money(built.each)} each, by stems` : `${p ? money(p.price) : ""} each`}
                   </span>
                 ) : (
                   <input
@@ -1022,7 +1610,7 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                     style={{ ...field, flex: "1 1 140px", minWidth: 0, width: "auto" }}
                   />
                 )}
-                {!l.slug && (
+                {!l.slug && !building && (
                   <input
                     aria-label={`Item ${i + 1} price`}
                     placeholder="$"
@@ -1031,6 +1619,11 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                     onChange={(e) => setLine(i, { each: e.target.value })}
                     style={{ ...field, flex: "0 1 90px", minWidth: 0, width: "auto" }}
                   />
+                )}
+                {!l.slug && building && built && (
+                  <span style={{ alignSelf: "center", fontSize: 14.5, flex: "0 1 auto" }} className="muted">
+                    {money(built.each)} each, by stems
+                  </span>
                 )}
                 <input
                   aria-label={`Item ${i + 1} quantity`}
@@ -1042,8 +1635,90 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
                   style={{ ...field, flex: "0 0 72px", minWidth: 0, width: "auto" }}
                 />
               </div>
+
+              {/* BUILT BY STEMS (Katy, 2026-10-06: "select rose x 3 and that
+                  = the price... this exists in wedding! just needs to be
+                  under designers choice"). The wedding builder's arithmetic
+                  at the counter: pick a flower from her stem library, say
+                  how many, and the piece prices itself at her per-stem
+                  retail. Wendalyn is $75 and they want to spend $100: build
+                  the $100 here instead of guessing what fits. */}
+              {canBuild(l) && (
+                <div style={{ paddingLeft: 4, display: "grid", gap: 6 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--muted)" }}>
+                    <input
+                      type="checkbox"
+                      checked={l.byStems}
+                      onChange={(e) => setLine(i, { byStems: e.target.checked })}
+                      style={{ width: 18, height: 18, accentColor: "var(--green)" }}
+                    />
+                    Price it by stems
+                  </label>
+                  {building && (
+                    <>
+                      {l.parts.map((pt, j) => {
+                        const price = pt.variety.trim() ? stemPrice(pt.variety) : undefined;
+                        const stems = Math.round(Number(pt.stems) || 0);
+                        return (
+                          <div key={j} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", minWidth: 0 }}>
+                            <input
+                              aria-label={`Item ${i + 1} flower ${j + 1}`}
+                              list="wr-stem-library"
+                              placeholder="Flower, from the stem library"
+                              value={pt.variety}
+                              onChange={(e) => setPart(i, j, { variety: e.target.value })}
+                              style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
+                            />
+                            <span className="muted" style={{ fontSize: 14 }}>×</span>
+                            <input
+                              aria-label={`Item ${i + 1} flower ${j + 1} stems`}
+                              type="number"
+                              min={0}
+                              max={999}
+                              placeholder="stems"
+                              value={pt.stems}
+                              onChange={(e) => setPart(i, j, { stems: e.target.value })}
+                              style={{ ...field, flex: "0 0 84px", minWidth: 0, width: "auto" }}
+                            />
+                            <span style={{ fontSize: 14, minWidth: 110 }} className={price === undefined && pt.variety.trim() ? "" : "muted"}>
+                              {!pt.variety.trim()
+                                ? ""
+                                : price === undefined
+                                  ? <strong style={{ color: "var(--rose-ink)" }}>no stem price in the library</strong>
+                                  : `${money(price)} a stem${stems > 0 ? ` = ${money(price * stems)}` : ""}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
+                        <button type="button" onClick={() => setLine(i, { parts: [...l.parts, { variety: "", stems: "" }] })} style={{ ...textButton, fontSize: 13.5 }}>
+                          Another flower
+                        </button>
+                        {built && built.each > 0 && (
+                          <strong style={{ fontSize: 14.5 }}>
+                            {money(built.each)} each{l.qty > 1 ? ` · ${money(built.each * l.qty)} for ${l.qty}` : ""}
+                          </strong>
+                        )}
+                        {built && built.unpriced.length > 0 && (
+                          <span style={{ fontSize: 13.5, color: "var(--rose-ink)" }}>
+                            Add a per-stem price for {built.unpriced.join(", ")} on the Inventory tab, or it will not save.
+                          </span>
+                        )}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+              </div>
             );
           })}
+          {/* One datalist for every flower field: the library's names, so a
+              typed name is a resident's name and not a near miss. */}
+          <datalist id="wr-stem-library">
+            {library.map((v) => (
+              <option key={v.name} value={v.name} />
+            ))}
+          </datalist>
         </div>
         <p style={{ margin: "8px 0 0" }}>
           <button type="button" onClick={() => setLines((cur) => [...cur, blankLine()])} style={textButton}>
@@ -1062,8 +1737,21 @@ function PhoneOrderForm({ contacts, onSaved }: { contacts: Contact[]; onSaved: (
       </label>
 
       <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center" }}>
-        <button className="btn btn--solid" type="submit">
-          Put it on the board
+        <button className="btn btn--solid" type="submit" disabled={saving !== ""}>
+          {saving === "board"
+            ? "Saving…"
+            : editing?.status === "hold"
+              ? "Finish it: put it on the board"
+              : editing
+                ? "Save the changes"
+                : "Put it on the board"}
+        </button>
+        {/* ON HOLD (Katy, 2026-10-12): the email came in, the order is typed,
+            and two questions are open. Park it with everything typed; it
+            waits in its own section, off the make list, until someone
+            finishes it. */}
+        <button className="btn" type="button" disabled={saving !== ""} onClick={() => save(true).catch(() => setSaving(""))}>
+          {saving === "hold" ? "Saving…" : editing && editing.status !== "hold" ? "Put it on hold" : "Save on hold"}
         </button>
         <span aria-live="polite" style={{ color: "var(--rose-ink)", fontWeight: 600, fontSize: 14.5 }}>{error}</span>
       </p>

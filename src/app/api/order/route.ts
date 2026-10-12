@@ -123,13 +123,12 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
     ...order.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
     ...(deliveryFee > 0 ? [{ name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }] : []),
   ];
-  /* The website's fee story (Kevin, 2026-09-04): one Convenience fee line
-     combining the shop's 3% card fee with the 99 cent platform fee. Only
-     the 99 cents ride to the Glazed account; the 3% is the shop's. The
-     browser shows the same arithmetic (CartView) and Square's order-total
-     check would catch any drift between the two. */
-  const baseCents = chargeLines.reduce((s, l) => s + Math.round(l.each * 100) * l.qty, 0);
-  const convenienceCents = Math.round((baseCents * site.cardFeePct) / 100) + appFeeCents();
+  /* The website's fee line is the 99 cent platform fee alone since the
+     2026-10-06 meeting (the shop's 3% card fee is retired; see site.ts).
+     It rides to the Glazed account as app_fee_money. The browser shows the
+     same number (CartView, from /api/checkout/config) and Square's
+     order-total check would catch any drift between the two. */
+  const convenienceCents = appFeeCents();
   let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
   try {
     charged = await chargeBoardOrder(cfg, {

@@ -305,6 +305,147 @@ function SectionHead({ label, href, linkText }: { label: string; href?: string; 
   );
 }
 
+/**
+ * THE REGISTER LINK, with a button (found 2026-10-12 writing the go-live
+ * steps: the owner connected by typing an API address into the bar, and
+ * landed on a board that did not say whether it worked). Owner tier,
+ * because this is the screen she owns. Connect is a plain link to the
+ * connect route, which bounces through Square's Allow page and lands back
+ * on the board with a flag the board now shows. Disconnect revokes and
+ * forgets, behind a confirm. The catalog push is here too, behind its own
+ * confirm, because the README's rule is that it waits for her yes and a
+ * button she presses IS that yes.
+ */
+type SquareStatus = {
+  configured: boolean;
+  appConfigured?: boolean;
+  env: string | null;
+  backend: string;
+  webhookKey: boolean;
+  salesLast7Days: number;
+  oauth: { connected: boolean; inUse: boolean; merchantId?: string; location?: string; tokenExpiresAt?: number };
+};
+
+function SquareLink() {
+  const [st, setSt] = useState<SquareStatus | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState<"" | "disconnect" | "sync">("");
+  const [confirm, setConfirm] = useState<"" | "disconnect" | "sync">("");
+  const [report, setReport] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch("/api/square/sync", { cache: "no-store" });
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || "Could not read the Square status.");
+      setSt((await r.json()) as SquareStatus);
+      setErr("");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not read the Square status.");
+    }
+  }, []);
+  useEffect(() => {
+    load().catch(() => {});
+  }, [load]);
+
+  async function disconnect() {
+    setBusy("disconnect");
+    setConfirm("");
+    try {
+      const r = await fetch("/api/square/connect", { method: "DELETE" });
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || "Disconnect failed.");
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Disconnect failed.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function sync() {
+    setBusy("sync");
+    setConfirm("");
+    setReport("");
+    try {
+      const r = await fetch("/api/square/sync", { method: "POST" });
+      const d = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!r.ok) throw new Error((d?.error as string) || "The catalog push failed.");
+      const n = (k: string) => (typeof d?.[k] === "number" ? (d[k] as number) : 0);
+      const strays = Array.isArray(d?.strays) ? (d.strays as unknown[]).length : 0;
+      setReport(`Done: ${n("created")} created, ${n("updated")} updated, ${n("unchanged")} unchanged, ${strays} of hers left alone.`);
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "The catalog push failed.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const connected = !!st?.oauth.connected;
+  return (
+    <>
+      <SectionHead label="Register link" />
+      <div className="panel" style={{ padding: "14px 16px", display: "grid", gap: 10, maxWidth: 640 }}>
+        {!st && !err && <p className="muted" style={{ margin: 0, fontSize: 14 }}>Checking…</p>}
+        {st && (
+          <p style={{ margin: 0, fontSize: 14.5 }}>
+            {connected ? (
+              <>
+                <strong style={{ color: "var(--green)" }}>Connected</strong> to {st.oauth.location || "her Square account"}
+                {st.env ? ` (${st.env})` : ""}. {st.salesLast7Days} register sale{st.salesLast7Days === 1 ? "" : "s"} heard in the last 7 days.
+                {!st.webhookKey && " The webhook key is not set, so sales will not arrive until it is."}
+              </>
+            ) : (
+              <>
+                <strong style={{ color: "var(--rose-ink)" }}>Not connected.</strong> Sign into Square on this device first, then press Connect; Square asks you to allow the site, and you land back on the board.
+                {st.backend !== "postgres" && " The database is not set up here, so a connection could not be kept; set it up first."}
+                {st.appConfigured === false && " The Square app id and secret are not set on this deployment (SQUARE_APP_ID, SQUARE_APP_SECRET), so there is nothing to connect through yet."}
+              </>
+            )}
+          </p>
+        )}
+        {err && <p role="alert" style={{ margin: 0, fontSize: 14, color: "var(--rose-ink)" }}>{err}</p>}
+        {report && <p role="status" style={{ margin: 0, fontSize: 14, color: "var(--green)", fontWeight: 600 }}>{report}</p>}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          {!connected && st && (st.appConfigured === false || st.backend !== "postgres") && (
+            <span className="btn" aria-disabled="true" style={{ opacity: 0.6, cursor: "not-allowed" }}>
+              Connect Square
+            </span>
+          )}
+          {!connected && (!st || (st.appConfigured !== false && st.backend === "postgres")) && (
+            <a className="btn btn--solid" href="/api/square/connect">
+              Connect Square
+            </a>
+          )}
+          {connected && confirm === "" && (
+            <>
+              <button type="button" className="btn" disabled={busy !== ""} onClick={() => setConfirm("sync")}>
+                {busy === "sync" ? "Pushing…" : "Put our products on the register"}
+              </button>
+              <button type="button" disabled={busy !== ""} onClick={() => setConfirm("disconnect")} style={{ font: "inherit", fontSize: 13.5, border: 0, background: "none", cursor: "pointer", color: "var(--muted)", padding: "6px 0" }}>
+                Disconnect
+              </button>
+            </>
+          )}
+          {confirm === "sync" && (
+            <>
+              <span style={{ fontSize: 14 }}>Add or update our 57 products on your real register? Items that are not ours are left alone.</span>
+              <button type="button" className="btn btn--solid" onClick={sync}>Yes, push them</button>
+              <button type="button" onClick={() => setConfirm("")} style={{ font: "inherit", fontSize: 13.5, border: 0, background: "none", cursor: "pointer", color: "var(--muted)" }}>Not now</button>
+            </>
+          )}
+          {confirm === "disconnect" && (
+            <>
+              <span style={{ fontSize: 14 }}>Disconnect? Sales stop arriving and card entry closes until you reconnect.</span>
+              <button type="button" className="btn" onClick={disconnect} style={{ color: "var(--rose-ink)" }}>Yes, disconnect</button>
+              <button type="button" onClick={() => setConfirm("")} style={{ font: "inherit", fontSize: 13.5, border: 0, background: "none", cursor: "pointer", color: "var(--muted)" }}>Keep it</button>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 
 export default function Dashboard({ initialAuthed, initialOwner }: { initialAuthed: boolean; initialOwner: boolean }) {
@@ -322,6 +463,11 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
   const [backend, setBackend] = useState<string | null>(null);
   const [range, setRange] = useState<Range>("week");
   const [back, setBack] = useState(0);
+  /** WEBSITE OR PHONE (Katy, 2026-10-06: "sort out via website vs other
+      orders"). Filters every order-derived figure on this screen: the
+      Orders tiles, best sellers, occasions, lead time and margins. Register
+      money is untouched; Square does not know where an order came from. */
+  const [sourceFilter, setSourceFilter] = useState<"all" | "web" | "phone">("all");
   /** The chart scroll region's real inner width, so the SVG can draw at
       native scale instead of letterboxing (see the CW note below). */
   const chartBox = useRef<HTMLDivElement>(null);
@@ -484,7 +630,10 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       const handMarkedCents = handMarked.reduce((sum, o) => sum + (o.payment?.totalCents ?? 0), 0);
 
       /* orders */
-      const ordersIn = orders.filter((o) => inMs(o.createdAt) && o.status !== "canceled");
+      const ordersIn = orders.filter(
+        // Held orders are limbo, not orders: nothing promised, nothing counted.
+        (o) => inMs(o.createdAt) && o.status !== "canceled" && o.status !== "hold" && (sourceFilter === "all" || o.source === sourceFilter),
+      );
       const orderedCents = ordersIn.reduce((sum, o) => sum + Math.round(o.subtotal * 100), 0);
       const web = ordersIn.filter((o) => o.source === "web").length;
       const delivery = ordersIn.filter((o) => o.fulfillment === "delivery").length;
@@ -626,7 +775,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
     const owedCents = owed.reduce((sum, o) => sum + Math.round(o.subtotal * 100), 0);
 
     return { now, prev, owedCount: owed.length, owedCents };
-  }, [events, recipes, orders, sales, contacts, win]);
+  }, [events, recipes, orders, sales, contacts, win, sourceFilter]);
 
   if (!authed) {
     return (
@@ -891,8 +1040,31 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       )}
 
       <SectionHead label="Orders" href="/workroom" linkText="Open the board" />
+      <div role="group" aria-label="Orders from" style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: 3, overflow: "hidden", margin: "0 0 12px" }}>
+        {(["all", "web", "phone"] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            aria-pressed={sourceFilter === f}
+            onClick={() => setSourceFilter(f)}
+            style={{
+              font: "inherit", fontSize: 13.5, fontWeight: sourceFilter === f ? 700 : 400, cursor: "pointer",
+              border: 0, padding: "7px 13px",
+              background: sourceFilter === f ? "var(--ink)" : "var(--paper)",
+              color: sourceFilter === f ? "var(--paper)" : "var(--ink)",
+            }}
+          >
+            {f === "all" ? "All orders" : f === "web" ? "Website" : "Phone & counter"}
+          </button>
+        ))}
+      </div>
       <div style={grid}>
-        <Tile label="New orders" value={String(now.ordersCount)} sub={`${now.web} web · ${now.phone} phone`} delta={<Delta basis={basis} cur={now.ordersCount} prev={prev.ordersCount} />} />
+        <Tile
+          label={sourceFilter === "all" ? "New orders" : sourceFilter === "web" ? "Website orders" : "Phone & counter orders"}
+          value={String(now.ordersCount)}
+          sub={sourceFilter === "all" ? `${now.web} web · ${now.phone} phone` : "the tiles below follow this filter"}
+          delta={<Delta basis={basis} cur={now.ordersCount} prev={prev.ordersCount} />}
+        />
         <Tile label="Ordered" value={wholeDollars(now.orderedCents)} sub="tickets written, paid or not" delta={<Delta basis={basis} cur={now.orderedCents} prev={prev.orderedCents} fmt={wholeDollars} />} />
         <Tile label="Deliveries" value={String(now.delivery)} sub={`${now.pickup} pickup${now.pickup === 1 ? "" : "s"}`} delta={<Delta basis={basis} cur={now.delivery} prev={prev.delivery} />} />
         <Tile
@@ -1013,6 +1185,8 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
           appear the moment the other screens have something to add up.
         </p>
       )}
+
+      <SquareLink />
 
       {/* The provenance, off the face and in one place. */}
       <details style={{ marginTop: 30 }}>

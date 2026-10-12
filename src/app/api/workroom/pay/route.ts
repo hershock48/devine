@@ -43,6 +43,7 @@ export async function POST(req: Request) {
   const order = await store.getOrder(id);
   if (!order) return NextResponse.json({ error: "No such order." }, { status: 404 });
   if (order.status === "canceled") return NextResponse.json({ error: "That order is canceled." }, { status: 409 });
+  if (order.status === "hold") return NextResponse.json({ error: "That order is on hold; finish it first, then take payment." }, { status: 409 });
   if (order.payment) {
     return NextResponse.json({ error: `Already paid (${order.payment.method}).` }, { status: 409 });
   }
@@ -91,22 +92,16 @@ export async function POST(req: Request) {
   }
 
   try {
-    /* The board's fee story (Kevin, 2026-09-04 evening): the shop's own 3%
-       card fee on card payments, kept by the shop (appFeeCents 0 - the 99
-       cent platform fee rides website orders only). Cash charges exactly
-       its lines; chargeBoardOrder ignores cardFee on cash. */
-    const chargedCents = Math.round(subtotal * 100);
+    /* No fee at the board since the 2026-10-06 meeting: the shop's 3% card
+       fee is retired (site.ts), and the 99 cent platform fee rides website
+       orders only. Card and cash both charge exactly the lines. */
     const charged = await chargeBoardOrder(cfg, {
       workroomOrderId: order.id,
       orderNumber: order.number,
       lines: lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
       method,
       sourceId,
-      cardFee: {
-        name: `Card fee (${site.cardFeePct}%)`,
-        cents: Math.round((chargedCents * site.cardFeePct) / 100),
-        appFeeCents: 0,
-      },
+      cardFee: { name: "", cents: 0, appFeeCents: 0 },
     });
     const payment: OrderPayment = {
       at: Date.now(),

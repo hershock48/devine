@@ -1,15 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Quote } from "@/lib/workroom/store";
 import { priceQuote } from "@/lib/workroom/quote-math";
-import { money, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { field, money, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 
 /**
  * The quote drawer. Two big buttons to start, then every quote as one row a
  * thumb can hit: who, when, how much, where it stands. Newest first, because
  * the quote being worked is almost always the quote touched last.
+ *
+ * FIND, SORT, PUT AWAY (Katy, 2026-10-06: "can we order these by days or
+ * somehow organize these better? search through quotes bar"). A search box
+ * over names, the deceased, venue, phone and dates; a sort between last
+ * touched, event date soonest, and amount; and Archive, which hides a
+ * quote without deleting it. Archived quotes come back under "Show
+ * archived" with a Restore. Nothing on this page deletes.
  */
+
+type Sort = "touched" | "event" | "amount";
+
+function quoteLabel(q: Quote): string {
+  return q.kind === "funeral" && q.deceased ? `Service for ${q.deceased}` : q.clientName || `Unnamed ${q.kind} quote`;
+}
 
 /* House tokens only: an invented --gold with a hex fallback is a color the
    auditor never validated on any ground. Sent reads as ink, bold; draft as
@@ -26,6 +39,40 @@ export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [backend, setBackend] = useState<string | null>(null);
   const [starting, setStarting] = useState<"wedding" | "funeral" | null>(null);
+  const [find, setFind] = useState("");
+  const [sort, setSort] = useState<Sort>("touched");
+  const [showArchived, setShowArchived] = useState(false);
+
+  async function setArchived(id: string, archived: boolean) {
+    await fetch("/api/workroom/quotes", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, archived }),
+    });
+    pull().catch(() => {});
+  }
+
+  const shown = useMemo(() => {
+    const q = find.trim().toLowerCase();
+    const digits = q.replace(/\D/g, "");
+    const hit = (x: Quote) =>
+      !q ||
+      [x.clientName, x.deceased ?? "", x.venue, x.eventDate, x.kind, x.status, x.notes]
+        .some((v) => v.toLowerCase().includes(q)) ||
+      (digits.length >= 3 && x.phone.replace(/\D/g, "").includes(digits));
+    const list = quotes.filter((x) => (showArchived ? !!x.archivedAt : !x.archivedAt) && hit(x));
+    // Totals once per quote, not once per comparison.
+    const total = new Map(list.map((x) => [x.id, priceQuote(x).total]));
+    const by: Record<Sort, (a: Quote, b: Quote) => number> = {
+      touched: (a, b) => b.updatedAt - a.updatedAt,
+      // Soonest first; undated quotes sink to the bottom rather than
+      // sorting as the empty string, which would float them to the top.
+      event: (a, b) => (a.eventDate || "9999").localeCompare(b.eventDate || "9999") || b.updatedAt - a.updatedAt,
+      amount: (a, b) => (total.get(b.id) ?? 0) - (total.get(a.id) ?? 0),
+    };
+    return [...list].sort(by[sort]);
+  }, [quotes, find, sort, showArchived]);
+  const archivedCount = quotes.filter((x) => !!x.archivedAt).length;
 
   const pull = useCallback(async () => {
     const r = await fetch("/api/workroom/quotes", { cache: "no-store" });
@@ -98,27 +145,55 @@ export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
         </button>
       </div>
 
+      {quotes.length > 0 && (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", margin: "-12px 0 16px" }}>
+          <input
+            type="search"
+            aria-label="Find a quote"
+            placeholder="Find: name, deceased, venue, phone, date"
+            value={find}
+            onChange={(e) => setFind(e.target.value)}
+            style={{ ...field, width: "auto", flex: "0 1 300px", minWidth: 0 }}
+          />
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+            Sort
+            <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} style={{ ...field, width: "auto" }}>
+              <option value="touched">Last touched</option>
+              <option value="event">Event date, soonest</option>
+              <option value="amount">Amount, largest</option>
+            </select>
+          </label>
+          {(archivedCount > 0 || showArchived) && (
+            <button type="button" onClick={() => setShowArchived((v) => !v)} style={{ ...textButton, fontSize: 14 }}>
+              {showArchived ? "Back to open quotes" : `Show archived (${archivedCount})`}
+            </button>
+          )}
+        </div>
+      )}
+
       {quotes.length === 0 ? (
         <p className="lede">Nothing quoted yet. Start one above; it saves itself as you type.</p>
+      ) : shown.length === 0 ? (
+        <p className="muted" role="status">
+          {showArchived ? "Nothing archived" : "Nothing"}{find.trim() ? ` matches "${find.trim()}"` : ""}.
+        </p>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {quotes.map((q) => {
+          {shown.map((q) => {
             const total = priceQuote(q).total;
             return (
-              <li key={q.id} style={{ borderBottom: "1px solid var(--line)" }}>
+              <li key={q.id} style={{ borderBottom: "1px solid var(--line)", display: "flex", alignItems: "baseline", gap: 10 }}>
                 <a
                   href={`/workroom/quotes/${q.id}`}
                   style={{
                     display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap",
-                    padding: "14px 2px", textDecoration: "none", color: "var(--ink)",
+                    padding: "14px 2px", textDecoration: "none", color: "var(--ink)", flex: "1 1 auto", minWidth: 0,
                   }}
                 >
                   <span style={{ fontWeight: 600, fontSize: 17, flex: "1 1 180px" }}>
                     {/* A funeral is looked up by whose service it is, not by
                         which relative happened to be at the counter. */}
-                    {q.kind === "funeral" && q.deceased
-                      ? `Service for ${q.deceased}`
-                      : q.clientName || `Unnamed ${q.kind} quote`}
+                    {quoteLabel(q)}
                     {q.source === "web" && !q.seenAt && (
                       <span style={{
                         marginLeft: 8, padding: "2px 7px", borderRadius: 9,
@@ -140,6 +215,15 @@ export default function Quotes({ initialAuthed }: { initialAuthed: boolean }) {
                     {q.status}
                   </span>
                 </a>
+                {/* Outside the link, so a tap on it never opens the quote. */}
+                <button
+                  type="button"
+                  aria-label={`${q.archivedAt ? "Restore" : "Archive"} ${quoteLabel(q)}`}
+                  onClick={() => setArchived(q.id, !q.archivedAt)}
+                  style={{ ...textButton, fontSize: 13.5, color: "var(--muted)", whiteSpace: "nowrap" }}
+                >
+                  {q.archivedAt ? "Restore" : "Archive"}
+                </button>
               </li>
             );
           })}

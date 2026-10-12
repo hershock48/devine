@@ -97,6 +97,7 @@ export async function PUT(req: Request) {
       price: num(r.price, 1_000_000),
       ribbon: str(r.ribbon, 80),
       from: str(r.from, 120),
+      forWhom: str(r.forWhom, 120),
       parts: (Array.isArray(r.parts) ? r.parts : [])
         .slice(0, 30)
         .map((pt) => ({
@@ -147,6 +148,26 @@ export async function PUT(req: Request) {
   };
   await getStore().upsertQuote(quote);
   return NextResponse.json({ ok: true, updatedAt: quote.updatedAt });
+}
+
+/**
+ * Archive and restore (Katy, 2026-10-06). A quote is a record of a
+ * conversation with a family or a couple, so it is never deleted by the
+ * list; it is put away. PATCH { id, archived: true | false }.
+ */
+export async function PATCH(req: Request) {
+  if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  const p = (await req.json().catch(() => ({}))) as { id?: unknown; archived?: unknown };
+  if (typeof p.id !== "string" || !p.id || typeof p.archived !== "boolean") {
+    return NextResponse.json({ error: "Malformed." }, { status: 400 });
+  }
+  const existing = await getStore().getQuote(p.id);
+  if (!existing) return NextResponse.json({ error: "No such quote." }, { status: 404 });
+  const quote: Quote = { ...existing, updatedAt: Date.now() };
+  if (p.archived) quote.archivedAt = Date.now();
+  else delete quote.archivedAt;
+  await getStore().upsertQuote(quote);
+  return NextResponse.json({ ok: true, archivedAt: quote.archivedAt ?? null });
 }
 
 export async function DELETE(req: Request) {

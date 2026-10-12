@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Quote } from "@/lib/workroom/store";
 import { priceQuote, type QuotePricing } from "@/lib/workroom/quote-math";
+import { QUOTE_TEMPLATES } from "@/lib/workroom/quote-templates";
 import { site, addressOneLine } from "@/lib/site";
-import { field, labelText, longDate, money, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { field, labelText, longDate, money, prettyTime, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 
 /**
  * The quote builder. One page that IS the quote: type into it and the price
@@ -27,9 +28,12 @@ import { field, labelText, longDate, money, textButton, MemoryWarning, PinGate }
 /* The draft mirrors Quote but keeps editable numbers as strings, so a field
    mid-edit ("2." on the way to "2.5") never fights the keyboard. */
 type DraftPart = { variety: string; stems: string };
-type DraftPiece = { id: string; name: string; qty: string; hardgoods: string; parts: DraftPart[] };
-type Draft = Omit<Quote, "pieces" | "flowers" | "markup" | "laborPct" | "taxPct" | "delivery" | "setup"> & {
+type DraftPiece = { id: string; name: string; qty: string; hardgoods: string; forWhom: string; parts: DraftPart[] };
+type Draft = Omit<Quote, "pieces" | "flowers" | "markup" | "laborPct" | "taxPct" | "delivery" | "setup" | "budgetTarget"> & {
   pieces: DraftPiece[];
+  /** Their number, as typed (Katy, 2026-10-06: the funeral pad's budget
+      frame, wanted on weddings too). The route reads it as a number. */
+  budgetTarget: string;
   flowers: { variety: string; costPerStem: string }[];
   markup: string;
   laborPct: string;
@@ -44,6 +48,7 @@ const toDraft = (q: Quote): Draft => ({
     ...p,
     qty: String(p.qty),
     hardgoods: p.hardgoods ? String(p.hardgoods) : "",
+    forWhom: p.forWhom ?? "",
     parts: p.parts.map((pt) => ({ variety: pt.variety, stems: pt.stems ? String(pt.stems) : "" })),
   })),
   flowers: q.flowers.map((f) => ({ variety: f.variety, costPerStem: f.costPerStem ? String(f.costPerStem) : "" })),
@@ -53,6 +58,7 @@ const toDraft = (q: Quote): Draft => ({
   taxPct: q.taxPct != null ? String(q.taxPct) : "0",
   delivery: q.delivery ? String(q.delivery) : "",
   setup: q.setup ? String(q.setup) : "",
+  budgetTarget: q.budgetTarget ? String(q.budgetTarget) : "",
 });
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -327,6 +333,12 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
                   <span style={labelText}>{draft.kind === "wedding" ? "Wedding date" : "Service date"}</span>
                   <input type="date" value={draft.eventDate} onChange={(e) => set({ eventDate: e.target.value })} style={field} />
                 </label>
+                {/* The funeral pad has had the hour since day one; a wedding
+                    has one too (parity, 2026-10-12). Stored in the same field. */}
+                <label style={{ minWidth: 0 }}>
+                  <span style={labelText}>Ceremony at</span>
+                  <input type="time" value={draft.serviceTime ?? ""} onChange={(e) => set({ serviceTime: e.target.value })} style={field} />
+                </label>
                 <label style={{ minWidth: 0, gridColumn: "1 / -1" }}>
                   <span style={labelText}>{draft.kind === "wedding" ? "Venue" : "Service location"}</span>
                   <input value={draft.venue} onChange={(e) => set({ venue: e.target.value })} style={field} />
@@ -359,17 +371,42 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
                   />
                 ))}
               </div>
+              {/* ONE TAP PER PIECE, the funeral pad's menu idea on the wedding
+                  side (parity, 2026-10-12): her sheet's own piece names as
+                  chips. A tap adds that piece with the template's hardgoods
+                  and no stems, since stems are this conversation's. */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", margin: "12px 0 0" }}>
+                <span className="muted" style={{ fontSize: 13.5, marginRight: 4 }}>Add:</span>
+                {QUOTE_TEMPLATES.wedding.map((t) => (
+                  <button
+                    key={t.name}
+                    type="button"
+                    className="fp-chip"
+                    style={{ border: "1px solid var(--line)", background: "var(--paper)", borderRadius: 3, font: "inherit", fontSize: 13.5, padding: "5px 10px", cursor: "pointer", color: "var(--ink)" }}
+                    onClick={() =>
+                      set({
+                        pieces: [
+                          ...draft.pieces,
+                          { id: `pc_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: t.name, qty: "1", hardgoods: t.hardgoods ? String(t.hardgoods) : "", forWhom: "", parts: [] },
+                        ],
+                      })
+                    }
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
               <p style={{ margin: "10px 0 0" }}>
                 <button
                   type="button"
                   style={textButton}
                   onClick={() =>
                     set({
-                      pieces: [...draft.pieces, { id: `pc_${Date.now().toString(36)}`, name: "", qty: "1", hardgoods: "", parts: [] }],
+                      pieces: [...draft.pieces, { id: `pc_${Date.now().toString(36)}`, name: "", qty: "1", hardgoods: "", forWhom: "", parts: [] }],
                     })
                   }
                 >
-                  Add a piece
+                  Something else
                 </button>
               </p>
               {/* One datalist for every flower input on the page. Rendered
@@ -515,6 +552,30 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
               <span style={{ fontFamily: "var(--serif)", fontSize: 20 }}>Total</span>
               <strong style={{ fontSize: 26, fontVariantNumeric: "tabular-nums" }}>{money(pricing.total)}</strong>
             </div>
+            {/* THEIR NUMBER, as a frame (Katy, 2026-10-06: the funeral
+                pad's budget line, wanted here too). A couple names a
+                budget at the consult and the quote is built toward it;
+                the gap reads out loud the whole time, same words as the
+                pad. Optional: blank means no frame, and nothing prints. */}
+            <label>
+              <span style={labelText}>What they can spend <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></span>
+              <input
+                inputMode="decimal"
+                value={draft.budgetTarget}
+                onChange={(e) => set({ budgetTarget: e.target.value })}
+                style={field}
+              />
+            </label>
+            {(() => {
+              const target = Number(draft.budgetTarget);
+              if (!draft.budgetTarget.trim() || !Number.isFinite(target) || target <= 0) return null;
+              const over = Math.round((pricing.total - target) * 100) / 100;
+              return (
+                <p role="status" style={{ margin: 0, fontSize: 15, fontWeight: 600, color: over > 0 ? "var(--rose-ink)" : "var(--green)" }}>
+                  {over > 0 ? `${money(over)} over what they said.` : over === 0 ? "Right on their number." : `${money(-over)} still to spend.`}
+                </p>
+              );
+            })()}
             {draft.kind === "wedding" && pricing.total > 0 && (
               <p className="muted" style={{ margin: 0, fontSize: 14 }}>
                 Deposit to save the date: <strong>{money(pricing.deposit)}</strong> (50%).
@@ -669,6 +730,18 @@ function PieceCard({
         <button type="button" style={textButton} onClick={() => onChange({ ...piece, parts: [...piece.parts, { variety: "", stems: "" }] })}>
           Add a flower
         </button>
+        {/* Who carries it (parity with the funeral pad's "from", 2026-10-12):
+            "the bride", "mother of the groom". Prints under the piece. */}
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 14, flex: "1 1 170px", minWidth: 0 }}>
+          <span className="muted">For</span>
+          <input
+            aria-label={`Who ${piece.name || "this piece"} is for`}
+            placeholder="the bride, mother of the groom…"
+            value={piece.forWhom}
+            onChange={(e) => onChange({ ...piece, forWhom: e.target.value })}
+            style={{ ...field, minWidth: 0 }}
+          />
+        </label>
         <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 14 }}>
           <span className="muted">Hardgoods $</span>
           <input
@@ -713,7 +786,7 @@ function PrintDoc({ draft, pricing }: { draft: Draft; pricing: QuotePricing }) {
         {draft.clientName || "—"}
       </p>
       <p style={{ margin: "0 0 6mm", fontSize: "11pt" }}>
-        {[draft.eventDate ? longDate(draft.eventDate) : "", draft.venue].filter(Boolean).join(" · ") || " "}
+        {[draft.eventDate ? longDate(draft.eventDate) : "", draft.serviceTime ? prettyTime(draft.serviceTime) : "", draft.venue].filter(Boolean).join(" · ") || " "}
         <span style={{ float: "right" }}>Prepared {today}</span>
       </p>
 
@@ -736,7 +809,10 @@ function PrintDoc({ draft, pricing }: { draft: Draft; pricing: QuotePricing }) {
               const pp = pricing.perPiece.get(p.id);
               return (
                 <tr key={p.id}>
-                  <td style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6" }}>{p.name}</td>
+                  <td style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6" }}>
+                    {p.name}
+                    {p.forWhom && <span style={{ display: "block", fontSize: "9.5pt" }}>For {p.forWhom}</span>}
+                  </td>
                   <td style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6", textAlign: "right" }}>{Number(p.qty) || 1}</td>
                   <td style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6", textAlign: "right" }}>{pp ? money(pp.each) : ""}</td>
                   <td style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6", textAlign: "right" }}>{pp ? money(pp.total) : ""}</td>

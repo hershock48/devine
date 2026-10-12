@@ -10,9 +10,32 @@
  * Browser-only by nature; callers are client components.
  */
 
+/** The billing contact Square accepts at tokenize time. Postal code is the
+    one that moves the needle (AVS); the rest rides along when known. */
+export type BillingContact = {
+  givenName?: string;
+  familyName?: string;
+  addressLines?: string[];
+  locality?: string;
+  postalCode?: string;
+  countryCode?: string;
+};
+
+/** Square's verification details, whole: when any are passed the SDK wants
+    the charge intent, the amount as a decimal string in major units, the
+    currency, and the two initiated flags, not billingContact on its own. */
+export type VerificationDetails = {
+  intent: "CHARGE" | "STORE";
+  amount: string;
+  currencyCode: "USD";
+  billingContact: BillingContact;
+  customerInitiated: boolean;
+  sellerKeyedIn: boolean;
+};
+
 export type SquareCard = {
   attach: (sel: string | HTMLElement) => Promise<void>;
-  tokenize: () => Promise<{ status: string; token?: string; errors?: { message?: string }[] }>;
+  tokenize: (details?: VerificationDetails) => Promise<{ status: string; token?: string; errors?: { message?: string }[] }>;
   destroy: () => Promise<void>;
 };
 

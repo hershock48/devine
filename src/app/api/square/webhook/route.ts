@@ -180,7 +180,10 @@ export async function POST(req: Request) {
     if (workroomOrderId) {
       try {
         const order = await getStore().getOrder(workroomOrderId);
-        if (order && !order.payment) {
+        // A held order is not chargeable (2026-10-12); a register ring
+        // naming its number stays an unlinked sale rather than settling a
+        // ticket that still has open questions.
+        if (order && !order.payment && order.status !== "hold") {
           await getStore().setOrderPayment(workroomOrderId, {
             at: Date.now(),
             method: payment.source_type === "CASH" ? "cash" : "register",

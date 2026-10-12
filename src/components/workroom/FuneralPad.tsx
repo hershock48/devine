@@ -5,7 +5,7 @@ import type { Quote } from "@/lib/workroom/store";
 import { priceQuote, type QuotePricing } from "@/lib/workroom/quote-math";
 import { FUNERAL_MENU, RIBBON_WORDS } from "@/lib/workroom/quote-templates";
 import { site, addressOneLine } from "@/lib/site";
-import { field, labelText, longDate, money, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { field, labelText, longDate, money, prettyTime, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 
 /**
  * THE FUNERAL PAD. A different tool from the wedding builder, because the
@@ -55,11 +55,12 @@ type DraftPiece = {
   from: string;
   parts: { variety: string; stems: string }[];
 };
-type Draft = Omit<Quote, "pieces" | "flowers" | "markup" | "laborPct" | "delivery" | "setup" | "budgetTarget"> & {
+type Draft = Omit<Quote, "pieces" | "flowers" | "markup" | "laborPct" | "taxPct" | "delivery" | "setup" | "budgetTarget"> & {
   pieces: DraftPiece[];
   flowers: { variety: string; costPerStem: string }[];
   markup: string;
   laborPct: string;
+  taxPct: string;
   delivery: string;
   setup: string;
   budgetTarget: string;
@@ -85,18 +86,13 @@ const toDraft = (q: Quote): Draft => ({
   flowers: q.flowers.map((f) => ({ variety: f.variety, costPerStem: f.costPerStem ? String(f.costPerStem) : "" })),
   markup: String(q.markup),
   laborPct: String(q.laborPct),
+  // Older funeral rows have no taxPct; 0 keeps a quote's total as shown.
+  taxPct: q.taxPct != null ? String(q.taxPct) : "0",
   delivery: q.delivery ? String(q.delivery) : "",
   setup: q.setup ? String(q.setup) : "",
 });
 
-/** "2:00 pm" from "14:00". Their site writes times this way. */
-function prettyTime(hhmm: string): string {
-  if (!/^\d{2}:\d{2}$/.test(hhmm)) return "";
-  const [h, m] = hhmm.split(":").map(Number);
-  const suffix = h < 12 ? "am" : "pm";
-  const hour = h % 12 === 0 ? 12 : h % 12;
-  return `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
-}
+const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
 /**
  * The delivery deadline in words, from the earliest thing happening that day.
@@ -135,6 +131,10 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
   const [placeError, setPlaceError] = useState("");
   const [placing, setPlacing] = useState(false);
   const [openPiece, setOpenPiece] = useState<string | null>(null);
+  /** Which piece has its flowers open (the wedding builder's parts, here
+      for the workroom: parity between the two quoters, 2026-10-12). */
+  const [openFlowers, setOpenFlowers] = useState<string | null>(null);
+  const [stemPrices, setStemPrices] = useState<Record<string, number>>({});
   /** The serialization last known to be on the server. */
   const savedRef = useRef<string>("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -153,6 +153,7 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
     }
     const d = await r.json();
     setBackend(d.backend ?? "memory");
+    setStemPrices(d.stemPrices ?? {});
     const loaded = toDraft(d.quote as Quote);
     savedRef.current = JSON.stringify(loaded);
     setDraft(loaded);
@@ -252,6 +253,22 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
   const setPiece = (pid: string, patch: Partial<DraftPiece>) =>
     setDraft((d) => (d ? { ...d, pieces: d.pieces.map((p) => (p.id === pid ? { ...p, ...patch } : p)) } : d));
 
+  /* A variety typed into a piece prices itself once, same as the wedding
+     builder: on blur it joins the flower list, prefilled from the stem
+     library's sell price where one exists. Funerals are priced by the
+     piece, so this list feeds the workroom's build math and the buy list,
+     never the family's total. */
+  const ensureFlower = (varietyRaw: string) => {
+    const v = norm(varietyRaw);
+    if (!v) return;
+    setDraft((d) => {
+      if (!d || d.flowers.some((f) => norm(f.variety) === v)) return d;
+      const known = stemPrices[v];
+      return { ...d, flowers: [...d.flowers, { variety: v, costPerStem: known ? String(known) : "" }] };
+    });
+  };
+  const knownVarieties = [...new Set([...Object.keys(stemPrices), ...draft.flowers.map((f) => f.variety)])].sort();
+
   function addFromMenu(name: string, price: number, hardgoods: number) {
     const pid = `pc_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     setDraft((d) =>
@@ -344,7 +361,10 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
       someone stop trusting both.
     */
     const deliveryCharge = Number(draft.delivery) || 0;
+    if (pricing && pricing.tax > 0) lines.push({ name: `Sales tax (${pricing.taxPct}%)`, each: pricing.tax, qty: 1 });
     if (deliveryCharge > 0) lines.push({ name: "Delivery to the service", each: deliveryCharge, qty: 1 });
+    const setupCharge = Number(draft.setup) || 0;
+    if (setupCharge > 0) lines.push({ name: "Setup at the service", each: setupCharge, qty: 1 });
     const notes = [
       draft.deceased ? `Service for ${draft.deceased}.` : "",
       draft.serviceTime ? `Service ${prettyTime(draft.serviceTime)}.` : "",
@@ -426,6 +446,14 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
             <span aria-live="polite" className="muted" style={{ fontSize: 14, minWidth: 110, textAlign: "right", color: saveState === "failed" ? "var(--rose-ink)" : undefined }}>
               {saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : "Not saved — check connection"}
             </span>
+            <label style={{ fontSize: 14.5, display: "flex", gap: 8, alignItems: "center" }}>
+              <span className="muted">Status</span>
+              <select value={draft.status} onChange={(e) => set({ status: e.target.value as Quote["status"] })} style={{ ...field, width: "auto" }}>
+                {(["draft", "sent", "accepted", "declined"] as const).map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </label>
             <button className="btn" type="button" onClick={() => window.print()}>Print for the family</button>
           </div>
         </div>
@@ -492,6 +520,10 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
                 <label style={{ minWidth: 0 }}>
                   <span style={labelText}>Phone</span>
                   <input type="tel" value={draft.phone} onChange={(e) => set({ phone: e.target.value })} style={field} />
+                </label>
+                <label style={{ minWidth: 0 }}>
+                  <span style={labelText}>Email <span className="muted" style={{ fontWeight: 400 }}>(for their copy)</span></span>
+                  <input type="email" value={draft.email} onChange={(e) => set({ email: e.target.value })} style={field} />
                 </label>
               </div>
             </section>
@@ -612,6 +644,17 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
                               style={{ ...field, width: 84, fontWeight: 600 }}
                             />
                           </label>
+                          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 14 }}>
+                            <span className="muted" style={{ whiteSpace: "nowrap" }}>Hardgoods $</span>
+                            <input
+                              aria-label={`Hardgoods for ${p.name || "piece"}`}
+                              inputMode="decimal"
+                              placeholder="0"
+                              value={p.hardgoods}
+                              onChange={(e) => setPiece(p.id, { hardgoods: e.target.value })}
+                              style={{ ...field, width: 70 }}
+                            />
+                          </label>
                           <strong style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", fontSize: 16 }}>
                             {pp ? money(pp.total) : ""}
                           </strong>
@@ -658,6 +701,59 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
                           </div>
                         )}
 
+                        {/* THE FLOWERS IN IT (parity with the wedding builder,
+                            2026-10-12). Price-first stays the rule: these stems
+                            never change the family's number. They are for the
+                            workroom: what to pull, what to order, and whether the
+                            price bought enough flower. Closed until opened,
+                            because the counter does not need them. */}
+                        {(p.parts.length > 0 || openFlowers === p.id) && (
+                          <div style={{ display: "grid", gap: 6 }}>
+                            {p.parts.map((part, i) => (
+                              <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                <input
+                                  aria-label={`Flower ${i + 1} in ${p.name || "piece"}`}
+                                  list="fp-varieties"
+                                  placeholder="flower"
+                                  value={part.variety}
+                                  onChange={(e) => setPiece(p.id, { parts: p.parts.map((x, at) => (at === i ? { ...x, variety: e.target.value } : x)) })}
+                                  onBlur={(e) => ensureFlower(e.target.value)}
+                                  style={{ ...field, flex: "1 1 150px", minWidth: 0, width: "auto" }}
+                                />
+                                <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 14 }}>
+                                  <input
+                                    aria-label={`Stems of ${part.variety || `flower ${i + 1}`}`}
+                                    inputMode="numeric"
+                                    placeholder="stems"
+                                    value={part.stems}
+                                    onChange={(e) => setPiece(p.id, { parts: p.parts.map((x, at) => (at === i ? { ...x, stems: e.target.value } : x)) })}
+                                    style={{ ...field, width: 74 }}
+                                  />
+                                  <span className="muted">stems</span>
+                                </label>
+                                <button
+                                  type="button"
+                                  aria-label={`Remove ${part.variety || `flower ${i + 1}`} from ${p.name || "piece"}`}
+                                  onClick={() => setPiece(p.id, { parts: p.parts.filter((_, at) => at !== i) })}
+                                  style={{ ...textButton, fontSize: 13.5, color: "var(--muted)", marginLeft: "auto" }}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                            <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap", fontSize: 13.5 }}>
+                              <button type="button" style={{ ...textButton, fontSize: 13.5 }} onClick={() => setPiece(p.id, { parts: [...p.parts, { variety: "", stems: "" }] })}>
+                                Add a flower
+                              </button>
+                              {pp && pp.stemBudget != null && p.parts.some((x) => x.variety.trim()) && (
+                                <span className="muted">
+                                  {money(pp.stemBudget)} of flowers in this price{(Number(p.qty) || 1) > 1 ? ", each" : ""}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        )}
+
                         <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 13.5 }}>
                           {/* The per-piece flower budget used to sit here in
                               every card. Kevin's question was the right one:
@@ -668,6 +764,11 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
                           <button type="button" style={{ ...textButton, fontSize: 13.5 }} onClick={() => setOpenPiece(open ? null : p.id)}>
                             {open ? "Done" : "Ribbon & who it's from"}
                           </button>
+                          {p.parts.length === 0 && openFlowers !== p.id && (
+                            <button type="button" style={{ ...textButton, fontSize: 13.5 }} onClick={() => setOpenFlowers(p.id)}>
+                              Flowers in it
+                            </button>
+                          )}
                           <button
                             type="button"
                             style={{ ...textButton, fontSize: 13.5, color: "var(--muted)", marginLeft: "auto" }}
@@ -682,6 +783,85 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
                 </div>
               )}
             </section>
+
+            {/* One datalist for every flower input on the page. */}
+            <datalist id="fp-varieties">
+              {knownVarieties.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
+
+            {/* -------- flower prices, for the workroom -------- */}
+            {draft.flowers.length > 0 && (
+              <section className="panel" style={{ minWidth: 0 }}>
+                <h2 style={{ fontSize: 20, margin: "0 0 4px" }}>Flower prices</h2>
+                <p className="muted" style={{ fontSize: 14.5, margin: "0 0 12px" }}>
+                  Per stem, the shop&rsquo;s own list, prefilled from the stem library. These size the
+                  workroom&rsquo;s build math; the family&rsquo;s prices above never move.
+                </p>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {draft.flowers.map((f, fi) => {
+                    const used = pricing.buyList.find((b) => b.variety === norm(f.variety));
+                    return (
+                      <div key={fi} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ flex: "1 1 140px", fontSize: 15.5 }}>{f.variety}</span>
+                        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 14.5 }}>
+                          <span className="muted">$</span>
+                          <input
+                            aria-label={`Price per stem, ${f.variety}`}
+                            inputMode="decimal"
+                            placeholder="0.00"
+                            value={f.costPerStem}
+                            onChange={(e) => set({ flowers: draft.flowers.map((x, i) => (i === fi ? { ...x, costPerStem: e.target.value } : x)) })}
+                            style={{ ...field, width: 84 }}
+                          />
+                          <span className="muted">a stem</span>
+                        </label>
+                        <span className="muted" style={{ fontSize: 13.5 }}>
+                          {used ? `${used.stems} stems in this quote` : "not used yet"}
+                        </span>
+                        {!used && (
+                          <button type="button" style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}
+                            onClick={() => set({ flowers: draft.flowers.filter((_, i) => i !== fi) })}>
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* -------- the buy list -------- */}
+            {pricing.buyList.length > 0 && (
+              <section className="panel" style={{ minWidth: 0 }}>
+                <h2 style={{ fontSize: 20, margin: "0 0 4px" }}>Flowers to order</h2>
+                <p className="muted" style={{ fontSize: 14.5, margin: "0 0 10px" }}>
+                  The stems this service needs, at her list price.
+                </p>
+                <div tabIndex={0} role="region" aria-label="Flowers to order" style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", minWidth: 340, borderCollapse: "collapse", fontSize: 14.5 }}>
+                    <thead>
+                      <tr>
+                        {["Variety", "Stems", "At list price"].map((h, i) => (
+                          <th key={h} style={{ textAlign: i === 0 ? "left" : "right", padding: "6px 8px", borderBottom: "1px solid var(--line)", fontSize: 12.5, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--muted)" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pricing.buyList.map((b) => (
+                        <tr key={b.variety}>
+                          <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)" }}>{b.variety}</td>
+                          <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.stems}</td>
+                          <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--line)", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.cost == null ? "needs a price" : money(b.cost)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
 
             <label style={{ maxWidth: 620 }}>
               <span style={labelText}>Notes <span className="muted" style={{ fontWeight: 400 }}>(internal, never printed)</span></span>
@@ -720,10 +900,50 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
               </p>
             )}
 
-            <label>
-              <span style={labelText}>Delivery $</span>
-              <input inputMode="decimal" value={draft.delivery} onChange={(e) => set({ delivery: e.target.value })} style={field} />
-            </label>
+            {/* THE DIALS the wedding rail has (parity, 2026-10-12), worded
+                for a service: tax on the pieces if she charges it, delivery
+                to the service, setup at the funeral home. Each shows as its
+                own row only when it is not zero. */}
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
+              <label style={{ minWidth: 0 }}>
+                <span style={labelText}>Delivery $</span>
+                <input inputMode="decimal" value={draft.delivery} onChange={(e) => set({ delivery: e.target.value })} style={field} />
+              </label>
+              <label style={{ minWidth: 0 }}>
+                <span style={labelText}>Setup $</span>
+                <input inputMode="decimal" value={draft.setup} onChange={(e) => set({ setup: e.target.value })} style={field} />
+              </label>
+              <label style={{ minWidth: 0 }}>
+                <span style={labelText}>Sales tax %</span>
+                <input inputMode="decimal" value={draft.taxPct} onChange={(e) => set({ taxPct: e.target.value })} style={field} />
+              </label>
+            </div>
+            {(pricing.tax > 0 || pricing.delivery > 0 || pricing.setup > 0) && (
+              <dl style={{ margin: 0, fontSize: 14.5, display: "grid", gap: 5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <dt style={{ margin: 0 }}>Pieces</dt>
+                  <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>{money(pricing.total - pricing.tax - pricing.delivery - pricing.setup)}</dd>
+                </div>
+                {pricing.tax > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <dt style={{ margin: 0 }}>Sales tax, {pricing.taxPct}%</dt>
+                    <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>{money(pricing.tax)}</dd>
+                  </div>
+                )}
+                {pricing.delivery > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <dt style={{ margin: 0 }}>Delivery to the service</dt>
+                    <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>{money(pricing.delivery)}</dd>
+                  </div>
+                )}
+                {pricing.setup > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <dt style={{ margin: 0 }}>Setup</dt>
+                    <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>{money(pricing.setup)}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
 
             {/* Build arithmetic, closed by default AND owner-tier: the
                 family across the counter never sees flower budgets or
@@ -850,10 +1070,22 @@ function FuneralPrint({ draft, pricing }: { draft: Draft; pricing: QuotePricing 
               </tr>
             );
           })}
+          {pricing.tax > 0 && (
+            <tr>
+              <td colSpan={3} style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6" }}>Sales tax ({pricing.taxPct}%)</td>
+              <td style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6", textAlign: "right" }}>{money(pricing.tax)}</td>
+            </tr>
+          )}
           {pricing.delivery > 0 && (
             <tr>
               <td colSpan={3} style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6" }}>Delivery to the service</td>
               <td style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6", textAlign: "right" }}>{money(pricing.delivery)}</td>
+            </tr>
+          )}
+          {pricing.setup > 0 && (
+            <tr>
+              <td colSpan={3} style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6" }}>Setup at the service</td>
+              <td style={{ padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6", textAlign: "right" }}>{money(pricing.setup)}</td>
             </tr>
           )}
         </tbody>

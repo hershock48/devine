@@ -34,7 +34,10 @@ import "server-only";
  * A pickup goes made -> done when it leaves the counter; there is no van to
  * track. The board enforces which button shows; the store just holds the word.
  */
-export type OrderStatus = "new" | "confirmed" | "made" | "out" | "done" | "canceled";
+/** "hold" (Katy, 2026-10-12): written up but parked. Everything typed,
+    nothing promised: not on the make list, not chargeable, editable, until
+    someone finishes it and releases it to confirmed. */
+export type OrderStatus = "hold" | "new" | "confirmed" | "made" | "out" | "done" | "canceled";
 
 export type WorkroomLine = {
   /** Catalog slug when the line came from the shop's catalog; null for a custom item. */
@@ -42,6 +45,12 @@ export type WorkroomLine = {
   name: string;
   qty: number;
   each: number; // dollars
+  /** The stems this piece was PRICED FROM at the counter (Katy, 2026-10-06:
+      "select rose x 3 and that = the price"), when it was built by stems
+      rather than taken at the catalog price. Each is then the sum of stems
+      times her per-stem retail from the stem library, computed server-side
+      at write time and kept here as the record of what was promised. */
+  parts?: { variety: string; stems: number }[];
 };
 
 /**
@@ -95,6 +104,12 @@ export type WorkroomOrder = {
   subtotal: number;
   createdAt: number;
   payment?: OrderPayment | null;
+  /** The status the order held when it was canceled, so Uncancel can put
+      it back where it was (Katy, 2026-10-06 meeting) instead of guessing. */
+  canceledFrom?: OrderStatus;
+  /** Initials of whoever made it, asked for at the Made tap (same meeting:
+      "to see who made it"). Free text, short, uppercased on the way in. */
+  madeBy?: string;
 };
 
 export type StemEvent = {
@@ -157,6 +172,9 @@ export type QuotePiece = {
   /** Which family or group is paying for this piece. One service routinely
       splits across several payers, and the ticket has to say which. */
   from?: string;
+  /** Who carries or wears it (weddings: "the bride", "mother of the groom").
+      The wedding-side twin of `from`; the print shows it under the piece. */
+  forWhom?: string;
 };
 export type Quote = {
   id: string;
@@ -169,6 +187,10 @@ export type Quote = {
   /** When somebody in the shop first laid eyes on a web-seeded quote (the
       Quotes list marks its visible ones on load). Absent = unseen. */
   seenAt?: number;
+  /** Put away, never deleted (Katy, 2026-10-06: "do we ever archive funeral
+      quotes? want to keep the quotes"). An archived quote leaves the list
+      until "Show archived", and comes back with one tap. */
+  archivedAt?: number;
   clientName: string;
   phone: string;
   email: string;
@@ -430,6 +452,15 @@ type Store = {
       typed note. Number collisions do not exist (date + random). */
   getOrderByNumber(number: string): Promise<WorkroomOrder | null>;
   setOrderStatus(id: string, status: OrderStatus): Promise<void>;
+  /** A small merge of named fields (status, who made it, where a cancel
+      came from). The jsonb-blob decision pays off here: a new field is a
+      key, not a migration. Keeps the status column in step when status is
+      among the fields. */
+  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom">>): Promise<void>;
+  /** The whole row, rewritten: editing an order that is on hold or not yet
+      made (2026-10-12). The route decides what may be edited; the store
+      just writes what it is handed, id and all. */
+  replaceOrder(o: WorkroomOrder): Promise<void>;
   setOrderPayment(id: string, p: OrderPayment): Promise<void>;
   /** The pay route appends the delivery-fee line when it charges a
       delivery ticket that never carried one, so the ticket's rows and its
@@ -553,6 +584,13 @@ const memoryStore: Store = {
   async setOrderStatus(id, status) {
     const o = bag().orders.get(id);
     if (o) o.status = status;
+  },
+  async patchOrder(id, patch) {
+    const o = bag().orders.get(id);
+    if (o) Object.assign(o, patch);
+  },
+  async replaceOrder(o) {
+    bag().orders.set(o.id, o);
   },
   async setOrderPayment(id, p) {
     const o = bag().orders.get(id);
@@ -815,6 +853,18 @@ const postgresStore: Store = {
       `UPDATE workroom_orders SET status = $2, data = data || jsonb_build_object('status', $2::text) WHERE id = $1`,
       [id, status],
     );
+  },
+  async patchOrder(id, patch) {
+    const pool = await pgPool();
+    // COALESCE keeps the column honest when the patch carries no status.
+    await pool.query(
+      `UPDATE workroom_orders SET status = COALESCE($3, status), data = data || $2::jsonb WHERE id = $1`,
+      [id, JSON.stringify(patch), patch.status ?? null],
+    );
+  },
+  async replaceOrder(o) {
+    const pool = await pgPool();
+    await pool.query(`UPDATE workroom_orders SET status = $2, data = $3 WHERE id = $1`, [o.id, o.status, JSON.stringify(o)]);
   },
   async setOrderPayment(id, p) {
     const pool = await pgPool();

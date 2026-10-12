@@ -51,13 +51,10 @@ export const agreement = {
   editAllowance: "2 hours per month",
   hourlyRate: 125,
   /** Customer-paid, on ORDERS PLACED THROUGH THE WEBSITE only, retained
-      by Glazed Web. Online it combines with the shop's own card fee
-      (site.cardFeePct, HER money) into one Convenience fee line; a card
-      keyed at the board carries the shop's fee alone. THE CARD FEE RULE,
-      per Kevin 2026-09-09 (third revision, superseding both 09-04 ones):
-      the 3% rides EVERY card payment, register swipes included - the shop
-      applies it at her own register, the platform applies it everywhere
-      else. Cash alone carries nothing. */
+      by Glazed Web, shown online as the Convenience fee line. Since the
+      2026-10-06 meeting it is the only fee: the shop's own 3% card fee is
+      retired (Katy bakes processing into her prices; site.ts), so a card
+      keyed at the board carries nothing, and cash never did. */
   serviceFeeCents: 99,
 
   scope: [
