@@ -49,6 +49,41 @@ export const HISTORY_DAYS = 400;
  * recipe form needs the same rule to say "not on the stem list" BEFORE the
  * server does.
  */
+/**
+ * THE DELIVERY LINE, spelled once. The orders route writes it, the pay
+ * route appends it when missing, the board adjusts it, the printed order
+ * sets it apart from the flowers: all by this prefix, and a renamed line
+ * would silently double-charge or print the fee as a flower.
+ */
+export const deliveryLineName = (zip: string) => `Delivery (${zip || "no zip"})`;
+export const isDeliveryLine = (l: { name: string }) => l.name.startsWith("Delivery (");
+export const isTaxLine = (l: { name: string }) => l.name.startsWith("Sales tax");
+
+/**
+ * WHICH PAPER AN ORDER PRINTS ON (Kevin's notes from the shop, 2026-10-12):
+ * deliveries get the six-panel form; pickups get plain paper, unless the
+ * pickup carries a card message, because then it needs the enclosure card
+ * panel only the form has. Here, client-safe, so the board's banner and
+ * the PDF route agree by construction.
+ */
+export type PrintLayout = "sheet" | "plain";
+export const printLayoutFor = (o: { fulfillment: string; cardMessage: string }): PrintLayout =>
+  o.fulfillment === "pickup" && !o.cardMessage.trim() ? "plain" : "sheet";
+export const printPaperFor = (o: { fulfillment: string; cardMessage: string }): "forms" | "plain" =>
+  printLayoutFor(o) === "sheet" ? "forms" : "plain";
+
+/**
+ * WHAT IS WAITING TO PRINT: a website order from the last three days that
+ * nothing has printed and nobody canceled. One predicate for the queue
+ * route, the board's banner and the helper's list, so the three can never
+ * disagree about which orders are owed a sheet of paper.
+ */
+export const PRINT_WINDOW_MS = 3 * 86_400_000;
+export const waitingToPrint = (
+  o: { source: string; status: string; createdAt: number; printedAt?: number },
+  now = Date.now(),
+): boolean => o.source === "web" && !o.printedAt && o.status !== "canceled" && o.createdAt >= now - PRINT_WINDOW_MS;
+
 export function normalizeVariety(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }

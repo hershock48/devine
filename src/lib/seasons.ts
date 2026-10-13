@@ -43,6 +43,7 @@
  */
 
 import { cookies } from "next/headers";
+import { site } from "@/lib/site";
 
 /* ---- calendar plumbing ---------------------------------------------------- */
 
@@ -54,7 +55,7 @@ const serial = ({ y, m, d }: YMD) => y * 10000 + m * 100 + d;
 /** Today on the shop's own clock, not the server's. Vercel runs UTC. */
 export function todayInMarshall(): YMD {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Detroit",
+    timeZone: site.timeZone,
     year: "numeric",
     month: "numeric",
     day: "numeric",

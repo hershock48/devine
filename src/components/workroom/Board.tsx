@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { site } from "@/lib/site";
 import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, normalizeVariety } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, isDeliveryLine, normalizeVariety, printPaperFor, waitingToPrint } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -55,6 +55,7 @@ type Order = {
   payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
   canceledFrom?: string;
   madeBy?: string;
+  printedAt?: number;
 };
 
 /** Editable while nothing has been made and no money has moved (the PUT
@@ -142,6 +143,42 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       query shows one flat match list, finished orders open, with the count
       said out loud; clearing the box brings the board back. */
   const [find, setFind] = useState("");
+  /** WHAT CAME IN SINCE ANYONE PRINTED (Kevin, 2026-10-12): the website
+      orders nobody has printed yet, on every sign-in and every refresh,
+      until each is printed or marked. One PDF per paper, so the morning is
+      two clicks: the delivery forms, then the pickup tickets. Read off
+      the orders the board already polls (same window, same rule as the
+      queue route), so there is one clock and no second request. */
+  const [printError, setPrintError] = useState("");
+  /** Open one PDF with exactly the listed orders for that paper (or the
+      one order asked for). The route marks them printed as the document
+      goes out: on OPEN, not on the dialog's Print, which a page cannot
+      see; the card's own Print link is the reprint if the dialog was
+      cancelled. */
+  async function printPaper(paper: "forms" | "plain", only?: string) {
+    const ids = toPrint.filter((t) => printPaperFor(t) === paper && (!only || t.id === only)).map((t) => t.id);
+    if (ids.length === 0) return;
+    setPrintError("");
+    // No "noopener" in the features string: that makes window.open answer
+    // null even when the tab opened, which would read as blocked here.
+    // Same-origin PDF; the opener is cut by hand instead.
+    const w = window.open(`/api/workroom/print/queue?paper=${paper}&ids=${ids.join(",")}`, "_blank");
+    if (!w) {
+      setPrintError("The browser blocked the pop-up. Allow pop-ups for this site, then try again; nothing was marked printed.");
+      return;
+    }
+    w.opener = null;
+    // The PDF marks on the server; give it a moment, then re-read the board.
+    await new Promise((r) => setTimeout(r, 2500));
+    await pull();
+  }
+  async function markPrinted(ids: string[]) {
+    setPrintError("");
+    const r = await fetch("/api/workroom/print/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }).catch(() => null);
+    if (!r || !r.ok) setPrintError("Could not mark them; check the connection and try again.");
+    await pull();
+  }
+
   /** The Square connect's landing flag (?square=connected and friends),
       read once and then cleared from the address bar so a reload or a
       bookmark never repeats it. The callback route has always sent it;
@@ -253,6 +290,10 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
   const searching = find.trim().length > 0;
   const today = todayISO();
+  const toPrint = useMemo(() => {
+    const now = Date.now();
+    return orders.filter((o) => waitingToPrint(o, now)).sort((a, b) => a.createdAt - b.createdAt);
+  }, [orders]);
   const buckets = useMemo(() => {
     const q = find.trim().toLowerCase();
     // Search runs over the whole fetched history; the live board stays on
@@ -329,6 +370,10 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <h1>Orders</h1>
 
       <MemoryWarning backend={backend} />
+
+      {toPrint.length > 0 && (
+        <PrintBanner items={toPrint} onPrint={printPaper} onPrintOne={(t) => printPaper(printPaperFor(t), t.id)} onMark={markPrinted} error={printError} />
+      )}
 
       {squareFlag && (
         <p
@@ -688,6 +733,88 @@ function Moves({
   );
 }
 
+/**
+ * THE MORNING BANNER. What IRIS did by printing overnight, this does by
+ * refusing to be ignored: every website order nobody has printed, listed
+ * by name and paper, with one button per paper. It stays through every
+ * sign-in and refresh until each order is printed or marked, so a busy
+ * afternoon cannot lose one. The helper on the counter PC, if it is ever
+ * installed, empties this list by itself.
+ */
+function PrintBanner({
+  items,
+  onPrint,
+  onPrintOne,
+  onMark,
+  error,
+}: {
+  items: Order[];
+  onPrint: (paper: "forms" | "plain") => Promise<void>;
+  onPrintOne: (o: Order) => Promise<void>;
+  onMark: (ids: string[]) => Promise<void>;
+  error?: string;
+}) {
+  const [busy, setBusy] = useState<"" | "forms" | "plain" | "mark" | "one">("");
+  const forms = items.filter((t) => printPaperFor(t) === "forms");
+  const plain = items.filter((t) => printPaperFor(t) === "plain");
+  const run = async (what: "forms" | "plain" | "mark" | "one", fn: () => Promise<void>) => {
+    setBusy(what);
+    try {
+      await fn();
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <section
+      className="panel"
+      aria-label="Website orders to print"
+      style={{ padding: "14px 16px", margin: "0 0 20px", borderLeft: "3px solid var(--rose-ink)", maxWidth: 760 }}
+    >
+      <p style={{ margin: "0 0 8px", fontSize: 15.5, fontWeight: 700 }}>
+        {items.length === 1 ? "1 website order came in" : `${items.length} website orders came in`} and {items.length === 1 ? "has" : "have"} not been printed.
+      </p>
+      <ul style={{ listStyle: "none", padding: 0, margin: "0 0 12px", fontSize: 14.5, display: "grid", gap: 3 }}>
+        {items.map((t) => (
+          <li key={t.id} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+            <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>{t.number}</span>
+            <span style={{ fontWeight: 600 }}>{t.fulfillment === "delivery" && t.recipient ? `${t.recipient} (from ${t.name})` : t.name}</span>
+            <span className="muted">
+              {t.fulfillment} · {t.date} · {printPaperFor(t) === "forms" ? "order form, bottom tray" : "plain paper, top tray"}
+            </span>
+            <button type="button" disabled={busy !== ""} onClick={() => run("one", () => onPrintOne(t))} style={{ ...textButton, fontSize: 13.5 }}>
+              just this one
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        {forms.length > 0 && (
+          <button type="button" className="btn btn--solid" disabled={busy !== ""} onClick={() => run("forms", () => onPrint("forms"))}>
+            {busy === "forms" ? "Opening…" : `Print ${forms.length === 1 ? "the delivery form" : `the ${forms.length} delivery forms`}`}
+          </button>
+        )}
+        {plain.length > 0 && (
+          <button type="button" className={forms.length > 0 ? "btn" : "btn btn--solid"} disabled={busy !== ""} onClick={() => run("plain", () => onPrint("plain"))}>
+            {busy === "plain" ? "Opening…" : `Print ${plain.length === 1 ? "the pickup ticket" : `the ${plain.length} pickup tickets`}`}
+          </button>
+        )}
+        <button type="button" disabled={busy !== ""} onClick={() => run("mark", () => onMark(items.map((t) => t.id)))} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+          Already printed these
+        </button>
+      </div>
+      {error && (
+        <p role="alert" style={{ margin: "8px 0 0", fontSize: 13.5, color: "var(--rose-ink)" }}>
+          {error}
+        </p>
+      )}
+      <p className="muted" style={{ margin: "8px 0 0", fontSize: 13 }}>
+        Each button opens one document with a page per order; in the print dialog pick the tray by name. The list clears once opened; a card&rsquo;s own Print link reprints any one.
+      </p>
+    </section>
+  );
+}
+
 /** "made by KD", with a fix: initials mistyped at the Made tap are
     corrected here, through the same route, status unchanged. */
 function MadeBy({ o, onMove }: { o: Order; onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void }) {
@@ -772,7 +899,7 @@ function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Pro
  * this renders nothing: the ticket and the payment must stay in step.
  */
 function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) => Promise<void> }) {
-  const line = o.lines.find((l) => l.name.startsWith("Delivery ("));
+  const line = o.lines.find(isDeliveryLine);
   const sheet = site.deliveryFees[o.zip];
   const current = line ? line.each : sheet;
   const [editing, setEditing] = useState(false);
@@ -893,6 +1020,16 @@ function OrderCard({
         <strong style={{ fontSize: 17 }}>{o.name}</strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
           {o.number} · {o.source}
+          {" · "}
+          {/* The order as a PDF on its paper (2026-10-12): the six-panel
+              form for a delivery, plain paper for a pickup. Opens in a tab;
+              the viewer's print button picks the tray by printer name. The
+              counter's print helper prints web orders by itself; this is
+              for everything else and for a second copy. */}
+          <a href={`/api/workroom/print/${o.id}`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
+            Print
+          </a>
+          {o.printedAt ? <span> · printed {new Date(o.printedAt).toLocaleString("en-US", { timeZone: site.timeZone, month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</span> : ""}
         </span>
       </header>
 
@@ -1077,7 +1214,7 @@ function OrderCard({
              and the buttons must quote what will actually be charged. */
           deliveryCents={
             o.fulfillment === "delivery" &&
-            !o.lines.some((l) => l.name.startsWith("Delivery (")) &&
+            !o.lines.some(isDeliveryLine) &&
             site.deliveryFees[o.zip] !== undefined
               ? Math.round(site.deliveryFees[o.zip] * 100)
               : 0
@@ -1114,7 +1251,7 @@ type StemPrice = { name: string; sellStem: number | null };
 /** A stored line back into the form's shape, for editing. The Delivery
     line is not an item; it becomes the fee field. */
 const fromLines = (o: Order): DraftLine[] => {
-  const items = o.lines.filter((l) => !l.name.startsWith("Delivery ("));
+  const items = o.lines.filter((l) => !isDeliveryLine(l));
   if (items.length === 0) return [blankLine()];
   return items.map((l) => ({
     slug: l.slug ?? "",
@@ -1199,7 +1336,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       zip sheet. Derived, not an effect: a typed fee survives retyping a zip
       to fix a digit, and a never-touched field tracks the zip as it changes. */
   const [feeOverride, setFeeOverride] = useState<string | null>(() => {
-    const dl = editing?.lines.find((l) => l.name.startsWith("Delivery ("));
+    const dl = editing?.lines.find(isDeliveryLine);
     return dl ? String(dl.each) : null;
   });
   const [date, setDate] = useState(editing?.date ?? todayISO());

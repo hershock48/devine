@@ -81,6 +81,74 @@ export async function isWorkroomOwner(): Promise<boolean> {
   return jar.get(COOKIE)?.value === owner;
 }
 
+/**
+ * THE ONE PIN THROTTLE, for the login form and the PIN-as-header paths
+ * alike: a four digit PIN is 10,000 guesses, and a review measured 30
+ * unthrottled attempts landing in 43ms. Ten wrong tries per address per ten
+ * minutes, counted in one place, on globalThis so a dev reload does not
+ * forget. Per instance and in memory, which on serverless means a spread
+ * attacker gets more than ten; still worth having, because it turns a
+ * fifteen second sweep into something slow and noisy.
+ */
+export const PIN_WINDOW_MS = 10 * 60 * 1000;
+export const PIN_MAX_FAILURES = 10;
+type Bucket = { failures: number[] };
+function buckets(): Map<string, Bucket> {
+  const g = globalThis as typeof globalThis & { __devineLoginBuckets?: Map<string, Bucket> };
+  if (!g.__devineLoginBuckets) g.__devineLoginBuckets = new Map();
+  return g.__devineLoginBuckets;
+}
+export function clientKey(req: Request): string {
+  const fwd = req.headers.get("x-forwarded-for");
+  return (fwd ? fwd.split(",")[0] : req.headers.get("x-real-ip"))?.trim() || "unknown";
+}
+/**
+ * Two scopes, one rule each: the FORM (people at the counter) and the
+ * HEADER (scripts: the catalog sync, the print helper). Separate buckets,
+ * because a helper left with a wrong PIN would otherwise lock every phone
+ * behind the shop's one public address out of the login form, and a
+ * helper polling correctly every 30 seconds would otherwise wipe the
+ * form's failure count twice a minute.
+ */
+export function pinThrottle(req: Request, scope: "form" | "header") {
+  const key = `${scope}:${clientKey(req)}`;
+  const now = Date.now();
+  const bucket = buckets().get(key) ?? { failures: [] };
+  bucket.failures = bucket.failures.filter((t) => now - t < PIN_WINDOW_MS);
+  return {
+    tooMany: () => bucket.failures.length >= PIN_MAX_FAILURES,
+    fail: () => {
+      bucket.failures.push(now);
+      buckets().set(key, bucket);
+    },
+    clear: () => buckets().delete(key),
+  };
+}
+
+/**
+ * The staff PIN as a request header, for scripts: the catalog sync by curl
+ * and the print helper on the counter PC. Same throttle as the form.
+ */
+export function headerPinOk(req: Request): boolean {
+  const pin = workroomPin();
+  const given = req.headers.get("x-workroom-pin");
+  if (!pin || !given) return false;
+  const t = pinThrottle(req, "header");
+  if (t.tooMany()) return false;
+  // No clear on success: the helper polling correctly every 30 seconds
+  // would otherwise wipe this bucket twice a minute and leave the header
+  // unthrottled from its address. Failures age out of the window instead.
+  if (given === pin) return true;
+  t.fail();
+  return false;
+}
+
+/** The gate for a route a script may call: the workroom cookie (a
+    browser) or the staff PIN as a header (the helper, curl). */
+export async function isWorkroomAuthedOrHeader(req: Request): Promise<boolean> {
+  return (await isWorkroomAuthed()) || headerPinOk(req);
+}
+
 export async function setWorkroomCookie(pin: string): Promise<void> {
   const jar = await cookies();
   jar.set(COOKIE, pin, {

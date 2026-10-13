@@ -110,6 +110,9 @@ export type WorkroomOrder = {
   /** Initials of whoever made it, asked for at the Made tap (same meeting:
       "to see who made it"). Free text, short, uppercased on the way in. */
   madeBy?: string;
+  /** When the counter's print helper printed it (web orders). Server-side
+      so a restart or a second machine never prints it twice. */
+  printedAt?: number;
 };
 
 export type StemEvent = {
@@ -482,6 +485,11 @@ type Store = {
       key, not a migration. Keeps the status column in step when status is
       among the fields. */
   patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom">>): Promise<void>;
+  /** THE PRINT CLAIM: stamp printedAt on those of these orders not yet
+      stamped, and say which ones were taken. The one write that decides
+      who prints: two phones, or a phone and the helper, asking for the
+      same orders in the same second get them once between them. */
+  claimForPrint(ids: string[], at: number): Promise<string[]>;
   /** The whole row, rewritten: editing an order that is on hold or not yet
       made (2026-10-12). The route decides what may be edited; the store
       just writes what it is handed, id and all. */
@@ -631,6 +639,17 @@ const memoryStore: Store = {
   },
   async replaceOrder(o) {
     bag().orders.set(o.id, o);
+  },
+  async claimForPrint(ids, at) {
+    const took: string[] = [];
+    for (const id of ids) {
+      const o = bag().orders.get(id);
+      if (o && !o.printedAt) {
+        o.printedAt = at;
+        took.push(id);
+      }
+    }
+    return took;
   },
   async setOrderPayment(id, p) {
     const o = bag().orders.get(id);
@@ -931,6 +950,19 @@ const postgresStore: Store = {
   async replaceOrder(o) {
     const pool = await pgPool();
     await pool.query(`UPDATE workroom_orders SET status = $2, data = $3 WHERE id = $1`, [o.id, o.status, JSON.stringify(o)]);
+  },
+  async claimForPrint(ids, at) {
+    if (ids.length === 0) return [];
+    const pool = await pgPool();
+    // One statement, so two callers racing for the same rows cannot both
+    // win: the row is stamped only if it has no stamp, and RETURNING says
+    // which ones this caller stamped.
+    const r = await pool.query(
+      `UPDATE workroom_orders SET data = data || jsonb_build_object('printedAt', $2::bigint)
+       WHERE id = ANY($1::text[]) AND (data->>'printedAt') IS NULL RETURNING id`,
+      [ids, at],
+    );
+    return r.rows.map((row) => String(row.id));
   },
   async setOrderPayment(id, p) {
     const pool = await pgPool();
