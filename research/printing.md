@@ -59,11 +59,15 @@ only setup is the two printer entries below.
 
 `tools/print-helper.ps1` runs on the counter PC. Every 30 seconds it asks
 `/api/workroom/print/queue` for website orders from the last three days that
-have not printed, downloads each as a PDF, prints it silently with SumatraPDF
-to **Order forms** or **Plain paper** by the order's type, and marks it printed
-on the server. Printed state lives on the order, so a restart, a second PC, or
-a reload never prints one twice. Phone orders written up at the counter are not
-auto-printed (the person is standing there); Print on the card is one tap.
+have not printed, fetches each through the same door the banner's buttons use
+(which marks the order printed as the PDF leaves the site), and prints it
+silently with SumatraPDF to **Order forms** or **Plain paper** by the order's
+type. The mark is one conditional write on the server, so a phone and the PC
+asking for the same order in the same second get it once between them; a
+restart or a reload never prints one twice. If the printer refuses a job after
+the mark, the helper's window says so loudly and the card's own Print link
+reprints it. Phone orders written up at the counter are not auto-printed (the
+person is standing there); Print on the card is one tap.
 
 The board shows "printed 7:02 AM" on a card once the helper has done it.
 

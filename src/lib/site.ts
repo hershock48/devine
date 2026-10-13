@@ -14,6 +14,10 @@
 export const site = {
   name: "DeVine's Flowers & Botanicals",
   shortName: "DeVine's",
+  /** The shop's clock. Servers run in UTC; every stamp a person reads
+      (a slip's "Printed", the board's "printed 7:02 AM", today's season)
+      is in this zone. */
+  timeZone: "America/Detroit",
   /**
    * The capital V is theirs and it is load-bearing. Their current site spells the
    * name four different ways across eight pages and only two of them keep it. The

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { headerPinOk, isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomAuthedOrHeader } from "@/lib/workroom/auth";
 import { getStore, type WorkroomOrder } from "@/lib/workroom/store";
 import { printLayoutFor, printPaperFor, waitingToPrint } from "@/lib/workroom/derive";
 import { renderBatchPdf } from "@/lib/workroom/print-pdf";
@@ -23,6 +23,14 @@ import { renderBatchPdf } from "@/lib/workroom/print-pdf";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Opened in a tab by a button, so a refusal is a sentence, not JSON. */
+const gone = (msg: string) =>
+  new NextResponse(
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Nothing to print</title>` +
+      `<body style="font:16px/1.5 system-ui;padding:2rem;max-width:40rem"><p>${msg}</p><p><a href="/workroom">Back to the board</a></p>`,
+    { status: 404, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
+  );
+
 async function unprinted() {
   const now = Date.now();
   return (await getStore().listOrders(3))
@@ -31,7 +39,7 @@ async function unprinted() {
 }
 
 export async function GET(req: Request) {
-  if (!(await isWorkroomAuthed()) && !headerPinOk(req)) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  if (!(await isWorkroomAuthedOrHeader(req))) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const store = getStore();
   const url = new URL(req.url);
   const paper = url.searchParams.get("paper");
@@ -43,19 +51,22 @@ export async function GET(req: Request) {
     // own Print link is the reprint). Without ids (the address typed by
     // hand): whatever is waiting for that paper right now.
     const wanted = new Set((url.searchParams.get("ids") ?? "").split(",").filter(Boolean));
-    const batch: WorkroomOrder[] = (await unprinted()).filter((o) => printPaperFor(o) === paper && (wanted.size === 0 || wanted.has(o.id)));
+    const candidates = (await unprinted()).filter((o) => printPaperFor(o) === paper && (wanted.size === 0 || wanted.has(o.id)));
+    // Claimed BEFORE rendering, in the store's one conditional write, so
+    // two requests racing for the same orders print them once between
+    // them. The tab opening IS the print; the card's own Print link is the
+    // reprint if the dialog was cancelled.
+    const printedAt = Date.now();
+    const claimed = new Set(await store.claimForPrint(candidates.map((o) => o.id), printedAt));
+    const batch: WorkroomOrder[] = candidates.filter((o) => claimed.has(o.id));
     if (batch.length === 0) {
-      return NextResponse.json(
-        { error: wanted.size ? "Those were already printed. A card's own Print link reprints one." : "Nothing waiting for that paper." },
-        { status: 404 },
+      return gone(
+        wanted.size
+          ? "Those were already printed, perhaps from another phone a moment ago. Each order's own Print link on the board reprints it."
+          : "Nothing is waiting for that paper.",
       );
     }
-    const printedAt = Date.now();
     const pdf = await renderBatchPdf(batch.map((order) => ({ order, layout: printLayoutFor(order) })), printedAt);
-    // Marked as the document leaves, in one write: the tab opening IS the
-    // print; the card's own Print link is the reprint if the dialog was
-    // cancelled.
-    await store.markOrdersPrinted(batch.map((o) => o.id), printedAt);
     return new NextResponse(Buffer.from(pdf), {
       headers: {
         "Content-Type": "application/pdf",
@@ -82,13 +93,13 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!(await isWorkroomAuthed()) && !headerPinOk(req)) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  if (!(await isWorkroomAuthedOrHeader(req))) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as { id?: unknown; ids?: unknown };
   const ids = [
     ...(typeof p.id === "string" && p.id ? [p.id] : []),
     ...(Array.isArray(p.ids) ? p.ids.filter((x): x is string => typeof x === "string" && !!x) : []),
   ].slice(0, 200);
   if (ids.length === 0) return NextResponse.json({ error: "Malformed." }, { status: 400 });
-  const marked = await getStore().markOrdersPrinted(ids, Date.now());
+  const marked = (await getStore().claimForPrint(ids, Date.now())).length;
   return NextResponse.json({ ok: true, marked });
 }

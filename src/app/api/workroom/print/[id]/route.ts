@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { headerPinOk, isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomAuthedOrHeader } from "@/lib/workroom/auth";
 import { getStore } from "@/lib/workroom/store";
 import { printLayoutFor, type PrintLayout } from "@/lib/workroom/derive";
 import { renderOrderPdf } from "@/lib/workroom/print-pdf";
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isWorkroomAuthed()) && !headerPinOk(req)) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  if (!(await isWorkroomAuthedOrHeader(req))) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const { id } = await params;
   const order = await getStore().getOrder(id);
   if (!order) return NextResponse.json({ error: "No such order." }, { status: 404 });

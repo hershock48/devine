@@ -156,7 +156,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       see; the card's own Print link is the reprint if the dialog was
       cancelled. */
   async function printPaper(paper: "forms" | "plain", only?: string) {
-    const ids = toPrint.filter((t) => t.paper === paper && (!only || t.id === only)).map((t) => t.id);
+    const ids = toPrint.filter((t) => printPaperFor(t) === paper && (!only || t.id === only)).map((t) => t.id);
     if (ids.length === 0) return;
     setPrintError("");
     // No "noopener" in the features string: that makes window.open answer
@@ -290,21 +290,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
   const searching = find.trim().length > 0;
   const today = todayISO();
-  const toPrint = useMemo<ToPrint[]>(() => {
+  const toPrint = useMemo(() => {
     const now = Date.now();
-    return orders
-      .filter((o) => waitingToPrint(o, now))
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .map((o) => ({
-        id: o.id,
-        number: o.number,
-        name: o.name,
-        recipient: o.recipient,
-        date: o.date,
-        fulfillment: o.fulfillment,
-        paper: printPaperFor(o),
-        createdAt: o.createdAt,
-      }));
+    return orders.filter((o) => waitingToPrint(o, now)).sort((a, b) => a.createdAt - b.createdAt);
   }, [orders]);
   const buckets = useMemo(() => {
     const q = find.trim().toLowerCase();
@@ -384,7 +372,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       <MemoryWarning backend={backend} />
 
       {toPrint.length > 0 && (
-        <PrintBanner items={toPrint} onPrint={printPaper} onPrintOne={(t) => printPaper(t.paper, t.id)} onMark={markPrinted} error={printError} />
+        <PrintBanner items={toPrint} onPrint={printPaper} onPrintOne={(t) => printPaper(printPaperFor(t), t.id)} onMark={markPrinted} error={printError} />
       )}
 
       {squareFlag && (
@@ -745,17 +733,6 @@ function Moves({
   );
 }
 
-type ToPrint = {
-  id: string;
-  number: string;
-  name: string;
-  recipient: string;
-  date: string;
-  fulfillment: "delivery" | "pickup";
-  paper: "forms" | "plain";
-  createdAt: number;
-};
-
 /**
  * THE MORNING BANNER. What IRIS did by printing overnight, this does by
  * refusing to be ignored: every website order nobody has printed, listed
@@ -771,15 +748,15 @@ function PrintBanner({
   onMark,
   error,
 }: {
-  items: ToPrint[];
+  items: Order[];
   onPrint: (paper: "forms" | "plain") => Promise<void>;
-  onPrintOne: (t: ToPrint) => Promise<void>;
+  onPrintOne: (o: Order) => Promise<void>;
   onMark: (ids: string[]) => Promise<void>;
   error?: string;
 }) {
   const [busy, setBusy] = useState<"" | "forms" | "plain" | "mark" | "one">("");
-  const forms = items.filter((t) => t.paper === "forms");
-  const plain = items.filter((t) => t.paper === "plain");
+  const forms = items.filter((t) => printPaperFor(t) === "forms");
+  const plain = items.filter((t) => printPaperFor(t) === "plain");
   const run = async (what: "forms" | "plain" | "mark" | "one", fn: () => Promise<void>) => {
     setBusy(what);
     try {
@@ -803,7 +780,7 @@ function PrintBanner({
             <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>{t.number}</span>
             <span style={{ fontWeight: 600 }}>{t.fulfillment === "delivery" && t.recipient ? `${t.recipient} (from ${t.name})` : t.name}</span>
             <span className="muted">
-              {t.fulfillment} · {t.date} · {t.paper === "forms" ? "order form, bottom tray" : "plain paper, top tray"}
+              {t.fulfillment} · {t.date} · {printPaperFor(t) === "forms" ? "order form, bottom tray" : "plain paper, top tray"}
             </span>
             <button type="button" disabled={busy !== ""} onClick={() => run("one", () => onPrintOne(t))} style={{ ...textButton, fontSize: 13.5 }}>
               just this one
@@ -1052,7 +1029,7 @@ function OrderCard({
           <a href={`/api/workroom/print/${o.id}`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
             Print
           </a>
-          {o.printedAt ? <span> · printed {new Date(o.printedAt).toLocaleString("en-US", { timeZone: "America/Detroit", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</span> : ""}
+          {o.printedAt ? <span> · printed {new Date(o.printedAt).toLocaleString("en-US", { timeZone: site.timeZone, month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</span> : ""}
         </span>
       </header>
 

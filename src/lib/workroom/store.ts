@@ -484,10 +484,12 @@ type Store = {
       came from). The jsonb-blob decision pays off here: a new field is a
       key, not a migration. Keeps the status column in step when status is
       among the fields. */
-  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom" | "printedAt">>): Promise<void>;
-  /** Stamp printedAt on many at once (the morning banner's batch). Returns
-      how many rows existed. */
-  markOrdersPrinted(ids: string[], at: number): Promise<number>;
+  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom">>): Promise<void>;
+  /** THE PRINT CLAIM: stamp printedAt on those of these orders not yet
+      stamped, and say which ones were taken. The one write that decides
+      who prints: two phones, or a phone and the helper, asking for the
+      same orders in the same second get them once between them. */
+  claimForPrint(ids: string[], at: number): Promise<string[]>;
   /** The whole row, rewritten: editing an order that is on hold or not yet
       made (2026-10-12). The route decides what may be edited; the store
       just writes what it is handed, id and all. */
@@ -638,16 +640,16 @@ const memoryStore: Store = {
   async replaceOrder(o) {
     bag().orders.set(o.id, o);
   },
-  async markOrdersPrinted(ids, at) {
-    let n = 0;
+  async claimForPrint(ids, at) {
+    const took: string[] = [];
     for (const id of ids) {
       const o = bag().orders.get(id);
-      if (o) {
+      if (o && !o.printedAt) {
         o.printedAt = at;
-        n += 1;
+        took.push(id);
       }
     }
-    return n;
+    return took;
   },
   async setOrderPayment(id, p) {
     const o = bag().orders.get(id);
@@ -792,7 +794,7 @@ function connectionString(): string | undefined {
 }
 
 type PgPool = {
-  query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[]; rowCount?: number | null }>;
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
 };
 
 async function pgPool(): Promise<PgPool> {
@@ -949,14 +951,18 @@ const postgresStore: Store = {
     const pool = await pgPool();
     await pool.query(`UPDATE workroom_orders SET status = $2, data = $3 WHERE id = $1`, [o.id, o.status, JSON.stringify(o)]);
   },
-  async markOrdersPrinted(ids, at) {
-    if (ids.length === 0) return 0;
+  async claimForPrint(ids, at) {
+    if (ids.length === 0) return [];
     const pool = await pgPool();
+    // One statement, so two callers racing for the same rows cannot both
+    // win: the row is stamped only if it has no stamp, and RETURNING says
+    // which ones this caller stamped.
     const r = await pool.query(
-      `UPDATE workroom_orders SET data = data || jsonb_build_object('printedAt', $2::bigint) WHERE id = ANY($1::text[])`,
+      `UPDATE workroom_orders SET data = data || jsonb_build_object('printedAt', $2::bigint)
+       WHERE id = ANY($1::text[]) AND (data->>'printedAt') IS NULL RETURNING id`,
       [ids, at],
     );
-    return r.rowCount ?? 0;
+    return r.rows.map((row) => String(row.id));
   },
   async setOrderPayment(id, p) {
     const pool = await pgPool();

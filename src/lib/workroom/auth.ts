@@ -135,12 +135,18 @@ export function headerPinOk(req: Request): boolean {
   if (!pin || !given) return false;
   const t = pinThrottle(req, "header");
   if (t.tooMany()) return false;
-  if (given === pin) {
-    t.clear();
-    return true;
-  }
+  // No clear on success: the helper polling correctly every 30 seconds
+  // would otherwise wipe this bucket twice a minute and leave the header
+  // unthrottled from its address. Failures age out of the window instead.
+  if (given === pin) return true;
   t.fail();
   return false;
+}
+
+/** The gate for a route a script may call: the workroom cookie (a
+    browser) or the staff PIN as a header (the helper, curl). */
+export async function isWorkroomAuthedOrHeader(req: Request): Promise<boolean> {
+  return (await isWorkroomAuthed()) || headerPinOk(req);
 }
 
 export async function setWorkroomCookie(pin: string): Promise<void> {

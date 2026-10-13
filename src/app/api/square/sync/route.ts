@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { headerPinOk, isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomAuthedOrHeader } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { syncCatalogToSquare } from "@/lib/square/sync";
 import { getStore } from "@/lib/workroom/store";
@@ -17,13 +17,8 @@ import { getStore } from "@/lib/workroom/store";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-
-async function authed(req: Request): Promise<boolean> {
-  return (await isWorkroomAuthed()) || headerPinOk(req);
-}
-
 export async function GET(req: Request) {
-  if (!(await authed(req))) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  if (!(await isWorkroomAuthedOrHeader(req))) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const cfg = await resolveSquare();
   const store = getStore();
   const sales = await store.listSquareSales(7).catch(() => []);
@@ -52,7 +47,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!(await authed(req))) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  if (!(await isWorkroomAuthedOrHeader(req))) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const cfg = await resolveSquare();
   if (!cfg) {
     return NextResponse.json(

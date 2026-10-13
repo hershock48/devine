@@ -111,7 +111,7 @@ const longDate = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString
 const weekdayOf = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" });
 /** The shop's clock. Serverless runs in UTC; a slip stamped 2:14 AM for a
     10:14 PM order would be read as a mistake at the counter. */
-const SHOP_TZ = "America/Detroit";
+const SHOP_TZ = site.timeZone;
 const stamp = (ms: number) => new Date(ms).toLocaleString("en-US", { timeZone: SHOP_TZ, month: "numeric", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 
 type Pen = {
@@ -298,6 +298,9 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     c.line(`[ Order ${o.number} ]`, 10);
     c.line(`${deliver ? "Delivery" : "Pickup"}: ${day}`, 12.5, pen.bold);
     c.line(weekday.toUpperCase(), 11, pen.bold);
+    // A long address can push the date under the floor; say so rather
+    // than hand the driver a card with no date on it.
+    c.more();
   }
 
   // top-right: the card message, centered, above the small pre-printed mark
