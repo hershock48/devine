@@ -124,6 +124,7 @@ export default function CartView() {
   const [email, setEmail] = useState("");
   const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">("delivery");
   const [recipient, setRecipient] = useState("");
+  const [recipientPhone, setRecipientPhone] = useState("");
   const [street, setStreet] = useState("");
   const [town, setTown] = useState("");
   const [zip, setZip] = useState("");
@@ -331,11 +332,12 @@ export default function CartView() {
     const dPhone = dom("phone", phone);
     const dEmail = dom("email", email);
     const dRecipient = dom("recipient", recipient);
+    const dRecipientPhone = dom("recipientPhone", recipientPhone);
     const dStreet = dom("street", street);
     const dTown = dom("town", town);
     const dZip = dom("zip", zip);
     setName(dName); setPhone(dPhone); setEmail(dEmail);
-    setRecipient(dRecipient); setStreet(dStreet); setTown(dTown); setZip(dZip);
+    setRecipient(dRecipient); setRecipientPhone(dRecipientPhone); setStreet(dStreet); setTown(dTown); setZip(dZip);
 
     // Tokenize first when paying by card: no token, no POST, and the
     // message names what to fix. The card number itself never leaves
@@ -384,6 +386,7 @@ export default function CartView() {
       lines: items.map((i) => ({ slug: i.product.slug, qty: i.qty })),
       name: dName, phone: dPhone, email: dEmail, fulfillment,
       recipient: delivering ? dRecipient : "",
+      recipientPhone: delivering ? dRecipientPhone : "",
       street: delivering ? dStreet : "",
       town: delivering ? dTown : "",
       zip: delivering ? dZip.trim() : "",
@@ -703,6 +706,13 @@ export default function CartView() {
                           <span className="muted" style={{ fontWeight: 400 }}>(if not you)</span>
                         </span>
                         <input name="recipient" value={recipient} onChange={(e) => setRecipient(e.target.value)} style={field} />
+                      </label>
+                      <label>
+                        <span style={labelText}>
+                          Recipient&rsquo;s phone{" "}
+                          <span className="muted" style={{ fontWeight: 400 }}>(optional, for the driver)</span>
+                        </span>
+                        <input name="recipientPhone" value={recipientPhone} onChange={(e) => setRecipientPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="off" style={field} />
                       </label>
                       <label>
                         <span style={labelText}>Street address</span>

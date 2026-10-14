@@ -412,6 +412,8 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
       if (o.company) c.line(o.company, 10.5, pen.bold);
       c.line("Pickup at the shop", 10.5, pen.bold);
     }
+    // The recipient's own number first (the driver's), then the buyer's.
+    if (deliver && o.recipientPhone) c.line(`Recipient: ${o.recipientPhone}`, 10, pen.reg);
     if (o.phone) c.line(o.phone, 10, pen.reg);
     c.gap(6);
     c.line(`[ Order ${o.number} ]`, 10);
@@ -469,6 +471,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     const right = new Cursor(pen, b.x + colW + 12, c.y, colW, c.floor);
     right.heading("Recipient");
     right.line(o.recipient || o.name, 10.5, pen.bold);
+    if (deliver && o.recipientPhone) right.line(`Phone: ${o.recipientPhone}`, 9.5);
     if (deliver) for (const w of where) right.line(w, 9.5);
     else {
       if (o.company) right.line(o.company, 9.5);
@@ -495,6 +498,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     c.line(`${deliver ? "DELIVERY" : "PICKUP"}: ${day} | ${weekday}`, 11, pen.bold);
     c.gap(6);
     c.line(o.recipient || o.name, 10.5, pen.bold);
+    if (deliver && o.recipientPhone) c.line(`Phone: ${o.recipientPhone}`, 9.5);
     if (deliver) for (const w of where) c.line(w, 9.5);
     else {
       if (o.company) c.line(o.company, 9.5);
@@ -560,6 +564,7 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
   const right = new Cursor(pen, M + colW + 24, c.y, colW, c.floor);
   right.heading(pickup ? "Their address, for the file" : "Deliver to");
   if (!pickup) right.line(o.recipient || o.name, 11, pen.bold);
+  if (!pickup && o.recipientPhone) right.line(o.recipientPhone, 10.5);
   if (where.length) for (const w of where) right.line(w, 10.5);
   else right.line(pickup ? "none given" : "No address yet", 10.5, pen.reg, { color: grey });
   c.y = Math.min(left.y, right.y);
@@ -621,6 +626,7 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
     const sr = new Cursor(pen, M + colW + 24, s.y, colW, M + 26);
     sr.heading("Recipient");
     sr.line(o.recipient || o.name, 10.5, pen.bold);
+    if (!pickup && o.recipientPhone) sr.line(o.recipientPhone, 10);
     if (where.length) sr.line(where[0], 10);
     s.y = Math.min(sl.y, sr.y);
     s.gap(16);

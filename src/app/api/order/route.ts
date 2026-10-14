@@ -251,6 +251,7 @@ function toWorkroomOrder(o: PricedOrder, id: string, status: WorkroomOrder["stat
     email: o.email,
     fulfillment: o.fulfillment,
     recipient: o.recipient,
+    recipientPhone: o.recipientPhone,
     street: o.street,
     town: o.town,
     zip: o.zip,

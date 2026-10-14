@@ -91,6 +91,9 @@ export type WorkroomOrder = {
   email: string;
   fulfillment: "delivery" | "pickup";
   recipient: string;
+  /** The recipient's own phone, for the driver and for a "nobody home"
+      call (Kevin, 2026-10-14). Optional; delivery orders only. */
+  recipientPhone?: string;
   /** The business, school, church or funeral home at the delivery address
       (Kevin, 2026-10-14: "an optional company name line above the
       address"). Printed above the street; the driver reads it first. */
@@ -445,6 +448,7 @@ export type OrderContact = {
   createdAt: number;
   fulfillment: "delivery" | "pickup";
   recipient: string;
+  recipientPhone?: string;
   company?: string;
   street: string;
   town: string;
@@ -710,6 +714,7 @@ const memoryStore: Store = {
         createdAt: o.createdAt,
         fulfillment: o.fulfillment,
         recipient: o.recipient,
+        recipientPhone: o.recipientPhone ?? "",
         company: o.company ?? "",
         street: o.street,
         town: o.town,
@@ -1046,6 +1051,7 @@ const postgresStore: Store = {
       `SELECT data->>'name' AS name, data->>'phone' AS phone, data->>'email' AS email,
               data->>'fulfillment' AS fulfillment, data->>'recipient' AS recipient,
               COALESCE(data->>'company', '') AS company,
+              COALESCE(data->>'recipientPhone', '') AS recipient_phone,
               data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, created_at
        FROM workroom_orders WHERE status <> 'canceled' ORDER BY created_at DESC LIMIT 5000`,
     );
@@ -1057,6 +1063,7 @@ const postgresStore: Store = {
       fulfillment: row.fulfillment === "pickup" ? ("pickup" as const) : ("delivery" as const),
       recipient: (row.recipient as string) ?? "",
       company: (row.company as string) ?? "",
+      recipientPhone: (row.recipient_phone as string) ?? "",
       street: (row.street as string) ?? "",
       town: (row.town as string) ?? "",
       zip: (row.zip as string) ?? "",
