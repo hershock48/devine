@@ -17,14 +17,14 @@ export function GET(req: Request) {
 
   // Back to the page the link was clicked on, same origin only, else the demo
   // home. The footer link cannot know its own page server side; the referer does.
-  let to = "/demo";
+  let to = "/";
   const ref = req.headers.get("referer");
   if (ref) {
     try {
       const r = new URL(ref);
       if (r.origin === url.origin) to = r.pathname + r.search;
     } catch {
-      /* an unparseable referer just falls back to /demo */
+      /* an unparseable referer just falls back to the home page */
     }
   }
 
@@ -32,7 +32,7 @@ export function GET(req: Request) {
   // Resolved, then checked: a referer path like "//host/x" would resolve
   // to another origin, and goes home instead.
   const dest = new URL(to, url.origin);
-  const res = NextResponse.redirect(dest.origin === url.origin ? dest : new URL("/demo", url.origin), 303);
+  const res = NextResponse.redirect(dest.origin === url.origin ? dest : new URL("/", url.origin), 303);
   if (set === "today") {
     res.cookies.delete(SEASON_COOKIE);
   } else if (isPreviewSlug(set)) {

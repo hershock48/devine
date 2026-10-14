@@ -1,14 +1,17 @@
 /**
  * ROUTING PREFIX.
  *
- * The concept build lives under /demo because the root of this host serves the
- * proposal. Every internal link goes through href() so that the day DeVine's signs,
- * moving the site to the root is one edit here plus moving the folder, rather than a
- * hunt through every component for a hardcoded "/demo".
+ * Empty since launch day (2026-10-14): the shop lives at the root of
+ * devinesflowersandbotanicals.com. It lived under /demo while the root of the
+ * pitch host served the proposal, and every internal link went through href()
+ * so that this move was one edit here plus moving the folder. The old /demo
+ * addresses still work: next.config.ts rewrites them to the root on the pitch
+ * host (the proposal's own links say /demo) and redirects them on the shop's
+ * domain.
  */
-export const BASE = "/demo";
+export const BASE = "";
 
-export const href = (path = "") => `${BASE}${path}`;
+export const href = (path = "") => `${BASE}${path}` || "/";
 
 /**
  * Their own nav, kept in their own order and mostly in their own words. Two changes,

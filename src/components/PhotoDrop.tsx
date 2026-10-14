@@ -212,7 +212,7 @@ export default function PhotoDrop({
                         description and price is not. New tab so a mid-batch
                         check never navigates away from the list. */}
                     <span className="ph-name">
-                      <a href={`/demo/product/${item.slug}`} target="_blank" rel="noopener">
+                      <a href={`/product/${item.slug}`} target="_blank" rel="noopener">
                         {item.name}
                       </a>
                     </span>
