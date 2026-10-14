@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, clock12, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -47,6 +47,7 @@ type Order = {
   town: string;
   zip: string;
   date: string;
+  neededBy?: string;
   occasion: string;
   cardMessage: string;
   notes: string;
@@ -330,6 +331,8 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     // because a florist's whole question is "what has to exist by when".
     const byDate = (a: Order, b: Order) =>
       a.date.localeCompare(b.date) ||
+      // Within a day, the one needed earliest first; no time sorts last.
+      (a.neededBy || "99:99").localeCompare(b.neededBy || "99:99") ||
       (a.fulfillment === b.fulfillment ? 0 : a.fulfillment === "delivery" ? -1 : 1) ||
       a.createdAt - b.createdAt;
     // "Done but unpaid" is flowers out the door and money not collected: a
@@ -530,7 +533,7 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
               <span aria-hidden="true" style={{ color: "var(--muted)", fontSize: 11 }}>&#9656;</span>
               <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)", whiteSpace: "nowrap" }}>{o.number}</span>
               <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.name}</span>
-              <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{o.date}</span>
+              <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{o.date}{o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}</span>
               <span style={{ whiteSpace: "nowrap" }}>{o.status === "canceled" ? "canceled" : "done"}</span>
               <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{moneyWord(o)}</span>
             </summary>
@@ -1125,7 +1128,7 @@ function OrderCard({
       )}
 
       <p style={{ margin: "6px 0", fontSize: 14.5 }}>
-        <strong>{o.date}</strong>
+        <strong>{o.date}{o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}</strong>
         {" · "}
         {/* The one fact that changes the whole afternoon gets weight, not a
             lowercase word lost mid-line: DELIVER means a van and a deadline. */}
@@ -1417,6 +1420,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
     return dl ? String(dl.each) : null;
   });
   const [date, setDate] = useState(editing?.date ?? todayISO());
+  const [neededBy, setNeededBy] = useState(editing?.neededBy ?? "");
   const [occasion, setOccasion] = useState(editing?.occasion ?? "");
   const [cardMessage, setCardMessage] = useState(editing?.cardMessage ?? "");
   const [notes, setNotes] = useState(editing?.notes ?? "");
@@ -1505,7 +1509,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       takenBy: takenBy.trim().toUpperCase(),
       account,
       taxExempt,
-      name, phone, email, fulfillment, date, occasion, cardMessage, notes,
+      name, phone, email, fulfillment, date, neededBy, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
       company: company.trim(),
       // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
@@ -1954,6 +1958,13 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
         <label>
           <span style={labelText}>{delivering ? "Delivery date" : "Pickup date"}</span>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required style={field} />
+        </label>
+        {/* "Needed by" (Kevin, 2026-10-14): a service at two, a party at
+            six. Optional; the board sorts the day by it and the ticket
+            prints it. */}
+        <label>
+          <span style={labelText}>Needed by (optional)</span>
+          <input type="time" value={neededBy} onChange={(e) => setNeededBy(e.target.value)} step={300} style={field} />
         </label>
         <label>
           <span style={labelText}>Occasion</span>

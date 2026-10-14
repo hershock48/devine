@@ -98,6 +98,10 @@ export type WorkroomOrder = {
   street: string;
   town: string;
   zip: string;
+  /** HH:MM, 24-hour, when it is needed by on that date (Kevin, 2026-10-14:
+      "an optional time needed by next to the date"). Empty when nobody
+      said. The board sorts a day's orders by it; the ticket prints it. */
+  neededBy?: string;
   /** yyyy-mm-dd, the requested date. The board buckets on this, not createdAt:
       a wedding ordered in June belongs on September's board. */
   date: string;

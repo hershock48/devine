@@ -1,4 +1,6 @@
 import "server-only";
+import fontkit from "@pdf-lib/fontkit";
+import { CARD_FONT_BASE64 } from "./card-font";
 import {
   PDFDocument,
   StandardFonts,
@@ -15,7 +17,7 @@ import {
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { isDeliveryLine, isTaxLine, type PrintLayout } from "./derive";
+import { clock12, isDeliveryLine, isTaxLine, type PrintLayout } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -204,6 +206,8 @@ type Pen = {
   page: Surface;
   reg: PDFFont;
   bold: PDFFont;
+  /** Cormorant Garamond italic, for the card message alone. */
+  card: PDFFont;
   serif: PDFFont;
 };
 
@@ -358,8 +362,16 @@ function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
 }
 
 async function pens(doc: PDFDocument): Promise<Omit<Pen, "page">> {
-  const [reg, bold, serif] = await Promise.all([doc.embedFont(StandardFonts.Helvetica), doc.embedFont(StandardFonts.HelveticaBold), doc.embedFont(StandardFonts.TimesRoman)]);
-  return { reg, bold, serif };
+  doc.registerFontkit(fontkit);
+  const [reg, bold, serif, card] = await Promise.all([
+    doc.embedFont(StandardFonts.Helvetica),
+    doc.embedFont(StandardFonts.HelveticaBold),
+    doc.embedFont(StandardFonts.TimesRoman),
+    // The card message's own face (card-font.ts); subset so a ticket
+    // carries only the glyphs it prints.
+    doc.embedFont(Buffer.from(CARD_FONT_BASE64, "base64"), { subset: true }),
+  ]);
+  return { reg, bold, serif, card };
 }
 
 /* ------------------------------ the sheet ------------------------------ */
@@ -374,7 +386,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     bottom: ROW_BOTTOM[row] + PANEL_INSET,
   });
   const day = longDate(o.date);
-  const weekday = weekdayOf(o.date);
+  const weekday = `${weekdayOf(o.date)}${o.neededBy ? ` | by ${clock12(o.neededBy)}` : ""}`;
   const where = whereLines(o);
   const deliver = o.fulfillment === "delivery";
 
@@ -405,20 +417,22 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     const areaTop = MESSAGE_TOP;
     const areaBottom = MESSAGE_BOTTOM;
     const areaH = areaTop - areaBottom;
-    let size = 13;
-    let lines = wrap(pen.serif, size, o.cardMessage || "", b.w - 10);
-    while (lines.length * size * 1.4 > areaH && size > 8) {
+    // Cormorant runs small for its point size, so it starts larger than
+    // the Times it replaced and floors higher.
+    let size = 16;
+    let lines = wrap(pen.card, size, o.cardMessage || "", b.w - 10);
+    while (lines.length * size * 1.35 > areaH && size > 10) {
       size -= 1;
-      lines = wrap(pen.serif, size, o.cardMessage || "", b.w - 10);
+      lines = wrap(pen.card, size, o.cardMessage || "", b.w - 10);
     }
-    const maxLines = Math.max(1, Math.floor(areaH / (size * 1.4)));
+    const maxLines = Math.max(1, Math.floor(areaH / (size * 1.35)));
     if (lines.length > maxLines) lines = [...lines.slice(0, maxLines - 1), "(... the rest is on the board)"];
     // Hung from the top of the band, like IRIS, not centered in it.
     let y = areaTop;
     for (const l of lines) {
-      y -= size * 1.4;
-      const tw = pen.serif.widthOfTextAtSize(l, size);
-      page.drawText(l, { x: b.x + (b.w - tw) / 2, y, size, font: pen.serif, color: ink });
+      y -= size * 1.35;
+      const tw = pen.card.widthOfTextAtSize(l, size);
+      page.drawText(l, { x: b.x + (b.w - tw) / 2, y, size, font: pen.card, color: ink });
     }
   }
 
@@ -518,7 +532,7 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
   const balance = o.payment ? 0 : o.status === "canceled" ? 0 : o.subtotal;
   c.row(pickup ? "PICKUP" : "DELIVERY", `Order ${o.number}`, 20, pen.bold);
   // What the counter reads first (IRIS put it top right too).
-  c.row(`${longDate(o.date)}, ${weekdayOf(o.date)}`, `Balance due: ${money(balance)}`, 13, pen.bold);
+  c.row(`${longDate(o.date)}, ${weekdayOf(o.date)}${o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}`, `Balance due: ${money(balance)}`, 13, pen.bold);
   c.line(o.source === "web" ? "Website order" : "Phone order", 10.5, pen.reg, { align: "right" });
   if (o.occasion && o.occasion !== "Everyday") c.line(o.occasion, 10.5);
   if (o.status === "hold") c.line("ON HOLD", 16, pen.bold);
@@ -541,8 +555,8 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
   c.line(paidWord(o, pickup), 12, pen.bold);
   c.heading("Card message");
   {
-    const size = 14;
-    let lines = wrap(pen.serif, size, o.cardMessage || "(none)", W - 24);
+    const size = 17;
+    let lines = wrap(pen.card, size, o.cardMessage || "(none)", W - 24);
     // The box takes what fits above the floor, leaving room for the stamp.
     const room = c.y - c.floor - 20 - 30;
     const maxLines = Math.floor(room / (size * 1.4));
@@ -561,7 +575,7 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
       let y = c.y - 10;
       for (const l of lines) {
         y -= size * 1.4;
-        page.drawText(l, { x: M + 12, y, size, font: pen.serif, color: ink });
+        page.drawText(l, { x: M + 12, y, size, font: pen.card, color: ink });
       }
       c.y -= h;
     }
@@ -584,7 +598,7 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
     }
     const s = new Cursor(pen, M, top - 6, W, M + 26);
     s.row(`Order ${o.number}`, pickup ? "PICKUP" : "DELIVERY", 13, pen.bold);
-    s.row(`${longDate(o.date)}, ${weekdayOf(o.date)}`, balance > 0 ? `Please collect ${money(balance)}` : o.payment ? "Paid in full" : "", 11, pen.bold);
+    s.row(`${longDate(o.date)}, ${weekdayOf(o.date)}${o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}`, balance > 0 ? `Please collect ${money(balance)}` : o.payment ? "Paid in full" : "", 11, pen.bold);
     s.gap(4);
     const sl = new Cursor(pen, M, s.y, colW, M + 26);
     sl.heading("Customer");
