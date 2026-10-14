@@ -47,7 +47,8 @@ Any order prints either way: `/api/workroom/print/<id>?layout=sheet` or
 
 When anyone signs into the board, a banner at the top lists every website
 order nobody has printed: name, delivery or pickup, and which paper it wants.
-Two buttons: **Print the N delivery forms** and **Print the N pickup tickets**.
+Two buttons: **Print the N order forms** (deliveries, and pickups with a card
+message) and **Print the N pickup tickets**.
 Each opens one PDF with a page per order; the print dialog comes up; pick the
 printer entry by name (Order forms or Plain paper); Print. The list clears once
 a document is opened, and the card's own Print link reprints any one. The
