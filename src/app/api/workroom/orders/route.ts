@@ -3,7 +3,7 @@ import { deliveryFeeFor, site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
-import { deliveryLineName, isDeliveryLine, normalizeVariety, withTaxLine } from "@/lib/workroom/derive";
+import { deliveryLineName, isDeliveryLine, isTaxLine, normalizeVariety, withTaxLine } from "@/lib/workroom/derive";
 import { INITIALS_ERROR } from "@/lib/workroom/initials";
 import { sendDeliveredEmail, sendRefundEmail, sendWorkroomReceipt } from "@/lib/intake";
 
@@ -252,34 +252,12 @@ export async function POST(req: Request) {
     receipt goes out and nothing is waiting to print. Paid right after,
     by the pay route, from the same panel.
   */
+  // An allowlist, not the body with holes punched in it: only the three
+  // things the panel asks for ride through, so a stated tax, a tax ID, a
+  // delivery fee or any field added later cannot slip onto a walk-in.
   const quick = raw.quick === true;
   const p: Record<string, unknown> = quick
-    ? {
-        ...raw,
-        deliveries: undefined,
-        // The tax is this route's own arithmetic; a stated amount is the
-        // quote pads' business, not a walk-in's.
-        tax: undefined,
-        hold: false,
-        batchId: "",
-        account: false,
-        name: "Walk-in",
-        business: "",
-        phone: "",
-        email: "",
-        fulfillment: "pickup",
-        date: shopToday(),
-        neededBy: "",
-        recipient: "",
-        recipientPhone: "",
-        company: "",
-        street: "",
-        town: "",
-        zip: "",
-        occasion: "",
-        cardMessage: "",
-        notes: "",
-      }
+    ? { quick: true, lines: raw.lines, taxExempt: raw.taxExempt, takenBy: raw.takenBy, name: "Walk-in", fulfillment: "pickup", date: shopToday() }
     : raw;
   const stops: Record<string, unknown>[] = Array.isArray(p.deliveries)
     ? p.deliveries.map((d) => (d && typeof d === "object" ? (d as Record<string, unknown>) : {}))
@@ -303,6 +281,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: stops.length > 1 ? `Order ${i + 1}: ${parsed.error}` : parsed.error }, { status: 400 });
     }
     parsedAll.push(parsed.fields);
+  }
+  // A $0 quick sale would be born done, never paid, and so invisible on
+  // the board (nothing owed, nothing finished). The panel refuses it in
+  // the same words; the route refuses it too.
+  if (quick && parsedAll[0].lines.some((l) => !isTaxLine(l) && !(l.each > 0))) {
+    return NextResponse.json({ error: "A quick sale needs a price on every item." }, { status: 400 });
   }
   const now = Date.now();
   const ids = parsedAll.map(() => newId("wr"));

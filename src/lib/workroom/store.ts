@@ -746,8 +746,10 @@ const memoryStore: Store = {
     return true;
   },
   async listOrderContacts() {
+    // A quick sale's "Walk-in" is nobody; it must never be offered as a
+    // customer.
     return [...bag().orders.values()]
-      .filter((o) => o.status !== "canceled")
+      .filter((o) => o.status !== "canceled" && !o.quick)
       .map((o) => ({
         name: o.name,
         phone: o.phone,
@@ -1115,7 +1117,7 @@ const postgresStore: Store = {
               COALESCE(data->>'recipientPhone', '') AS recipient_phone,
               COALESCE(data->>'account', 'false') AS account, COALESCE(data->>'taxExempt', 'false') AS tax_exempt, COALESCE(data->>'taxId', '') AS tax_id,
               data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, created_at
-       FROM workroom_orders WHERE status <> 'canceled' ORDER BY created_at DESC LIMIT 5000`,
+       FROM workroom_orders WHERE status <> 'canceled' AND COALESCE(data->>'quick', 'false') <> 'true' ORDER BY created_at DESC LIMIT 5000`,
     );
     return r.rows.map((row) => ({
       name: (row.name as string) ?? "",

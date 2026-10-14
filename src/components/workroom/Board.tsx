@@ -161,6 +161,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [notice, setNotice] = useState("");
   /** The Quick sale panel (Kevin, 2026-10-14), beside the write-up. */
   const [quick, setQuick] = useState(false);
+  /** The stem library, for the write-up and the quick sale alike, read
+      again each time either opens. */
+  const library = useStemLibrary(adding || !!editing || quick);
   const [showDone, setShowDone] = useState(false);
   /** The find box: a caller says "order DV-0901-4226" or "it's under
       Wanda" and the counter should not have to scan a busy board by eye.
@@ -506,12 +509,22 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </p>
       )}
 
-      {quick && <QuickSale onChanged={() => pull().catch(() => {})} />}
+      {/* One datalist for every flower field on the page, the write-up's
+          and the quick sale's: the library's names, so a typed name is a
+          resident's name and not a near miss. */}
+      <datalist id="wr-stem-library">
+        {library.map((v) => (
+          <option key={v.name} value={v.name} />
+        ))}
+      </datalist>
+
+      {quick && <QuickSale library={library} onChanged={() => pull().catch(() => {})} />}
 
       {(adding || editing) && (
         <PhoneOrderForm
           key={editing?.id ?? (addTo ? `add:${addTo.id}` : "new")}
           contacts={contacts}
+          library={library}
           editing={editing}
           addTo={addTo}
           onSaved={(placed) => {
@@ -1354,7 +1367,8 @@ function OrderCard({
       </ul>
 
       {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
-      {!o.payment && o.status !== "canceled" && <AccountToggle o={o} onDone={() => onPaid().catch(() => {})} />}
+      {/* Not on a quick sale: a walk-in has no account to bill. */}
+      {!o.payment && o.status !== "canceled" && !o.quick && <AccountToggle o={o} onDone={() => onPaid().catch(() => {})} />}
 
       {/* Labeled, because unlabeled they read as mystery text: an employee
           has to KNOW the italic line goes on the card and the other one is
@@ -1456,7 +1470,8 @@ function OrderCard({
       {/* "Another order, same card" (Kevin, 2026-10-14): the customer calls
           back with one more for the same card. Not on a canceled order;
           a held one is fine (the new one joins the group when it is
-          finished). */}
+          finished). Not on a quick sale either: "Walk-in" is nobody to
+          write another order up for. */}
       {next && (
         <Moves
           key={o.status}
@@ -1464,7 +1479,7 @@ function OrderCard({
           next={next}
           onMove={onMove}
           onEdit={onEdit && canEdit(o) ? () => onEdit(o) : undefined}
-          onAddTo={onAddTo && canEdit(o) ? () => onAddTo(o) : undefined}
+          onAddTo={onAddTo && canEdit(o) && !o.quick ? () => onAddTo(o) : undefined}
         />
       )}
       {/* A finished order has no next move, but it can still be edited
@@ -1476,7 +1491,7 @@ function OrderCard({
               Edit
             </button>
           )}
-          {onAddTo && (
+          {onAddTo && !o.quick && (
             <button type="button" onClick={() => onAddTo(o)} style={{ ...textButton, fontSize: 13.5 }}>
               Another order, same card
             </button>
@@ -1998,7 +2013,7 @@ function StopFields({
       {/* The items editor is shared with the Quick sale panel (2026-10-14);
           its minWidth: 0 chain keeps the product select from widening a
           390px phone. */}
-      <ItemsEditor lines={s.lines} setLines={setLines} library={library} aria={aria} listId="wr-stem-library" />
+      <ItemsEditor lines={s.lines} setLines={setLines} library={library} aria={aria} />
 
       <label>
         <span style={labelText}>Card message</span>
@@ -2035,6 +2050,28 @@ function StopFields({
 }
 
 /**
+ * THE STEM LIBRARY, names and per-stem retail, for pricing a piece by
+ * stems (Katy, 2026-10-06). Read when `active` turns true (the write-up
+ * or the quick sale opening), so a price added on the Inventory tab is
+ * seen the next time either opens; the route re-prices from the same
+ * library at write time, so these numbers only show what the counter is
+ * about to promise.
+ */
+function useStemLibrary(active: boolean): StemPrice[] {
+  const [library, setLibrary] = useState<StemPrice[]>([]);
+  useEffect(() => {
+    if (!active) return;
+    fetch("/api/workroom/varieties", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.varieties) setLibrary((d.varieties as StemPrice[]).map((v) => ({ name: v.name, sellStem: v.sellStem })));
+      })
+      .catch(() => {});
+  }, [active]);
+  return library;
+}
+
+/**
  * THE ITEMS OF AN ORDER, as the counter types them: a product from the
  * catalog or a custom item with a price, a quantity, and the by-stems
  * builder under the lines that can take it. One editor for the write-up
@@ -2046,7 +2083,6 @@ function ItemsEditor({
   setLines,
   library,
   aria = (t) => t,
-  listId,
 }: {
   lines: DraftLine[];
   setLines: (f: (cur: DraftLine[]) => DraftLine[]) => void;
@@ -2054,8 +2090,6 @@ function ItemsEditor({
   /** Field labels for a screen reader, made unique by the caller when
       several orders sit on one form. */
   aria?: (t: string) => string;
-  /** The datalist of the stem library's names the flower fields read. */
-  listId: string;
 }) {
   function setLine(i: number, p: Partial<DraftLine>) {
     setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...p } : l)));
@@ -2063,12 +2097,11 @@ function ItemsEditor({
   function setPart(i: number, j: number, p: Partial<DraftPart>) {
     setLines((cur) => cur.map((l, at) => (at === i ? { ...l, parts: l.parts.map((pt, k) => (k === j ? { ...pt, ...p } : pt)) } : l)));
   }
+  /* minWidth: 0 down this whole chain. The product select's intrinsic
+     width is its longest option, ~350px, and without these the form's
+     grid track inherits it and every row stretches past a 390px phone.
+     With them, the select shrinks and clips its text instead. */
   return (
-    <>
-    {/* minWidth: 0 down this whole chain. The product select's intrinsic
-        width is its longest option, ~350px, and without these the form's
-        grid track inherits it and every row stretches past a 390px phone.
-        With them, the select shrinks and clips its text instead. */}
     <div style={{ minWidth: 0 }}>
       {/* "Items", not "Lines": a session shipped order-ticket jargon and
           Kevin could not parse the validation error, which means her staff
@@ -2165,7 +2198,7 @@ function ItemsEditor({
                         <div key={j} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", minWidth: 0 }}>
                           <input
                             aria-label={aria(`Item ${i + 1} flower ${j + 1}`)}
-                            list={listId}
+                            list="wr-stem-library"
                             placeholder="Flower, from the stem library"
                             value={pt.variety}
                             onChange={(e) => setPart(i, j, { variety: e.target.value })}
@@ -2221,7 +2254,6 @@ function ItemsEditor({
         </button>
       </p>
     </div>
-    </>
   );
 }
 
@@ -2240,7 +2272,23 @@ function ItemsEditor({
  * nothing is lost and nothing is charged twice. It never sends a receipt
  * (no email) and never prints or waits to print (not a web order).
  */
-function QuickSale({ onChanged }: { onChanged: () => void }) {
+/** The sale on the board but not yet settled: what the panel keeps
+    between placing a quick sale and its payment landing whole. */
+type PlacedSale = {
+  id: string;
+  number: string;
+  subtotal: number;
+  /** "card" opens card entry straight off; "idle" shows the pay buttons
+      again after a payment that did not take. */
+  start: "idle" | "card";
+  /** Why it is not paid yet, in words, or "" while the card is being keyed. */
+  why: string;
+  /** A payment that went through but did not finish the sale: a part
+      payment (the rest is still due), or a charge the board missed. */
+  paid?: { method: "card" | "cash" | "manual"; cents: number; boardMissed: boolean };
+};
+
+function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: () => void }) {
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
   const [taxExempt, setTaxExempt] = useState(false);
   /** Who rang it up: kept between sales, because the same person is at
@@ -2248,28 +2296,22 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
   const [takenBy, setTakenBy] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<"" | "cash" | "card" | "manual">("");
-  /** The sale on the board but not yet paid, with the way it is being
-      paid: "card" opens card entry straight off; "idle" shows the pay
-      buttons again after a cash or by-hand mark that did not take. */
-  const [placed, setPlaced] = useState<{ id: string; number: string; subtotal: number; start: "idle" | "card"; why: string } | null>(null);
+  const [placed, setPlaced] = useState<PlacedSale | null>(null);
   /** The last sale's one line, over the cleared panel. */
   const [done, setDone] = useState("");
-  const [library, setLibrary] = useState<StemPrice[]>([]);
-  useEffect(() => {
-    fetch("/api/workroom/varieties", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.varieties) setLibrary((d.varieties as StemPrice[]).map((v) => ({ name: v.name, sellStem: v.sellStem })));
-      })
-      .catch(() => {});
-  }, []);
 
-  // The same arithmetic as the write-up's, for a pickup with no fee:
-  // items at the rule the route applies, tax on them unless exempt.
-  const items = Math.round(lines.reduce((sum, l) => sum + lineEachIn(library, l) * l.qty, 0) * 100) / 100;
-  const tax = taxFor(lines.map((l) => ({ name: l.custom.trim() || "item", qty: l.qty, each: lineEachIn(library, l) })), taxExempt);
-  const total = Math.round((items + tax) * 100) / 100;
-  const anyItem = lines.some((l) => l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)));
+  // The write-up's own arithmetic (stopMath), on a pickup stop with no
+  // fee: items at the rule the route applies, tax on them unless exempt.
+  // The same stop is what ring() sends, so the figure shown is the figure
+  // charged.
+  const stop = useMemo(() => blankStop({ fulfillment: "pickup", lines }), [lines]);
+  const m = stopMath(stop, library, taxExempt);
+  /** The lines with anything typed in them. Each must price above zero
+      (a catalog product, a typed price, or a build the library prices):
+      a $0 quick sale would be born done and never paid, and so vanish
+      from the board. The route refuses the same thing in the same words. */
+  const started = lines.filter((l) => l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)));
+  const unpriced = started.some((l) => !(lineEachIn(library, l) > 0));
 
   function clear() {
     setLines([blankLine()]);
@@ -2277,11 +2319,20 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
     setPlaced(null);
     setError("");
   }
-  const finish = (method?: "card" | "cash" | "manual", cents?: number) => {
-    const word = method === "manual" ? "paid another way" : method ?? "paid";
-    setDone(`Done: ${money((cents ?? Math.round(total * 100)) / 100)} ${word}.`);
-    clear();
+  /** PayControls answered: paid whole, paid in part, or charged while the
+      board missed it. Only the first is "Done"; the other two keep the
+      sale in the panel, with its pay buttons and the warning, so the
+      rest is taken or the mark is made before the next customer. */
+  const finish = (method?: "card" | "cash" | "manual", cents?: number, outcome?: { settled: boolean; boardMissed: boolean }) => {
     onChanged();
+    const paidCents = cents ?? Math.round(m.total * 100);
+    if (method && outcome && (!outcome.settled || outcome.boardMissed)) {
+      setPlaced((cur) => cur && { ...cur, start: "idle", why: "", paid: { method, cents: paidCents, boardMissed: outcome.boardMissed } });
+      return;
+    }
+    const word = method === "manual" ? "paid another way" : method ?? "paid";
+    setDone(`Done: ${money(paidCents / 100)} ${word}.`);
+    clear();
   };
 
   /** Ring it up: the order goes on the board (done, unpaid), then is paid
@@ -2295,8 +2346,12 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
       setError(`"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`);
       return;
     }
-    if (!anyItem) {
+    if (started.length === 0) {
       setError("Add at least one item first.");
+      return;
+    }
+    if (unpriced) {
+      setError("A quick sale needs a price on every item.");
       return;
     }
     if (!isInitials(takenBy)) {
@@ -2304,10 +2359,14 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
       return;
     }
     setBusy(method);
+    /** The order once it is on the board, so a dropped connection after
+        that point keeps paying THIS one instead of writing a second. */
+    let o: { id: string; number: string; subtotal: number } | null = null;
     try {
-      // The write-up's own payload reading for the lines, on a pickup
-      // stop; the route ignores everything but the items on a quick sale.
-      const { lines: payload } = stopPayload(blankStop({ fulfillment: "pickup", lines }), library);
+      // The write-up's own payload reading for the lines, on the stop the
+      // figures were shown for; the route reads only the items, the
+      // tax-exempt box and the initials on a quick sale.
+      const { lines: payload } = stopPayload(stop, library);
       const r = await fetch("/api/workroom/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2318,7 +2377,7 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
         setError(d?.error || "That did not save. Look it over and try again.");
         return;
       }
-      const o = d.order;
+      o = d.order;
       onChanged();
       if (method === "card") {
         setPlaced({ id: o.id, number: o.number, subtotal: o.subtotal, start: "card", why: "" });
@@ -2331,12 +2390,17 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
       });
       const pd = (await pr.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
       if (!pr.ok || !pd?.ok) {
-        setPlaced({ id: o.id, number: o.number, subtotal: o.subtotal, start: "idle", why: pd?.error || "The payment did not go through." });
+        setPlaced({ id: o.id, number: o.number, subtotal: o.subtotal, start: "idle", why: `${pd?.error || "The payment did not go through."} Take the payment here or from its card; nothing was charged.` });
         return;
       }
-      finish(method, Math.round(o.subtotal * 100));
+      finish(method, Math.round(o.subtotal * 100), { settled: true, boardMissed: false });
     } catch {
-      setError("The connection dropped. Check the board before trying again: the sale may already be on it.");
+      if (o) {
+        // On the board already; the retry pays this one, never a second.
+        setPlaced({ id: o.id, number: o.number, subtotal: o.subtotal, start: "idle", why: "the connection dropped as it was being paid. Reload the board in a moment: if it still shows as not paid, take the payment here or from its card." });
+      } else {
+        setError("The connection dropped. Check the board before trying again: the sale may already be on it.");
+      }
     } finally {
       setBusy("");
     }
@@ -2354,12 +2418,30 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
            its money corner, the same one its card has, so the card can be
            keyed or the cash recorded without leaving the panel. */
         <div style={{ display: "grid", gap: 8 }}>
-          <p role="status" style={{ margin: 0, fontSize: 15, fontWeight: 600, color: placed.why ? "var(--rose-ink)" : "var(--ink)" }}>
-            {placed.why
-              ? `${placed.number} is on the board under Walk-in, but it is not marked paid: ${placed.why} Take the payment here or from its card; nothing was charged.`
-              : `${placed.number} is on the board under Walk-in. Take the card for ${money(placed.subtotal)}.`}
+          <p role="status" style={{ margin: 0, fontSize: 15, fontWeight: 600, color: placed.why || placed.paid ? "var(--rose-ink)" : "var(--ink)" }}>
+            {placed.paid?.boardMissed
+              ? `The card WAS CHARGED ${money(placed.paid.cents / 100)} for ${placed.number}, but the board did not save it. Do NOT charge again. Give Square's notice a minute; if ${placed.number} still shows as not paid under Walk-in, mark it "Paid another way" for ${money(placed.paid.cents / 100)}.`
+              : placed.paid
+                ? `${money(placed.paid.cents / 100)} taken by ${placed.paid.method === "manual" ? "another way" : placed.paid.method}; ${money((Math.round(placed.subtotal * 100) - placed.paid.cents) / 100)} still due on ${placed.number} under Walk-in. Take the rest here.`
+                : placed.why
+                  ? `${placed.number} is on the board under Walk-in, but it is not marked paid: ${placed.why}`
+                  : `${placed.number} is on the board under Walk-in. Take the card for ${money(placed.subtotal)}.`}
           </p>
-          <PayControls orderId={placed.id} subtotal={placed.subtotal} start={placed.start} onPaid={finish} />
+          {/* The card's own money corner, for this one order: a walk-in
+              pays in full, so no part-payment link. After a part payment
+              all the same (the flag is read defensively), the balance is
+              what the buttons charge, as on the card. */}
+          <PayControls
+            key={placed.paid?.cents ?? 0}
+            orderId={placed.id}
+            subtotal={placed.subtotal}
+            start={placed.start}
+            partPay={false}
+            payment={placed.paid && !placed.paid.boardMissed ? { at: 0, method: placed.paid.method, totalCents: placed.paid.cents, feeCents: 0 } : undefined}
+            balanceCents={placed.paid && !placed.paid.boardMissed ? Math.round(placed.subtotal * 100) - placed.paid.cents : undefined}
+            collectedCents={placed.paid && !placed.paid.boardMissed ? placed.paid.cents : undefined}
+            onPaid={finish}
+          />
           <p style={{ margin: 0 }}>
             <button type="button" onClick={clear} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
               Leave it on the board, next customer
@@ -2368,12 +2450,7 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
         </div>
       ) : (
         <>
-          <ItemsEditor lines={lines} setLines={setLines} library={library} listId="wr-stem-library-quick" />
-          <datalist id="wr-stem-library-quick">
-            {library.map((v) => (
-              <option key={v.name} value={v.name} />
-            ))}
-          </datalist>
+          <ItemsEditor lines={lines} setLines={setLines} library={library} />
           <div style={{ display: "flex", gap: 22, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0" }}>
               <input type="checkbox" checked={taxExempt} onChange={(e) => setTaxExempt(e.target.checked)} style={radio} />
@@ -2385,14 +2462,14 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
             </label>
           </div>
           <p style={{ margin: 0, fontSize: 15 }}>
-            Items {money(items)}
-            {taxExempt ? " · tax exempt" : ` + sales tax ${money(tax)}`}
+            Items {money(m.items)}
+            {taxExempt ? " · tax exempt" : ` + sales tax ${money(m.tax)}`}
             {" = "}
-            <strong>{money(total)}</strong>
+            <strong>{money(m.total)}</strong>
           </p>
           <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
             <button type="button" className="btn btn--solid" disabled={busy !== ""} onClick={() => ring("cash")}>
-              {busy === "cash" ? "Recording…" : `Record ${money(total)} cash`}
+              {busy === "cash" ? "Recording…" : `Record ${money(m.total)} cash`}
             </button>
             <button type="button" className="btn" disabled={busy !== ""} onClick={() => ring("card")}>
               {busy === "card" ? "Saving…" : "Take card"}
@@ -2421,12 +2498,18 @@ function QuickSale({ onChanged }: { onChanged: () => void }) {
  */
 function PhoneOrderForm({
   contacts,
+  library,
   onSaved,
   onRefresh,
   editing = null,
   addTo = null,
 }: {
   contacts: Contact[];
+  /** The stem library's names and per-stem prices (the board's
+      useStemLibrary), for building a piece by stems (Katy, 2026-10-06).
+      The route re-prices from the same library at write time, so these
+      numbers only show what the counter is about to promise. */
+  library: StemPrice[];
   /** The write-up is on the board (or the edit is saved); `placed` is what
       went on, for the board's one-line confirmation. */
   onSaved: (placed?: { number: string; name: string }[]) => void;
@@ -2506,20 +2589,6 @@ function PhoneOrderForm({
   const patchStop = (key: number, p: Partial<Stop>) => setStops((cur) => cur.map((s) => (s.key === key ? { ...s, ...p } : s)));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"" | "board" | "hold">("");
-  /** The stem library's names and per-stem prices, for building a piece
-      by stems (Katy, 2026-10-06). Loaded once per form open; the route
-      re-prices from the same library at write time, so these numbers only
-      show what the counter is about to promise. */
-  const [library, setLibrary] = useState<StemPrice[]>([]);
-  useEffect(() => {
-    fetch("/api/workroom/varieties", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.varieties) setLibrary((d.varieties as StemPrice[]).map((v) => ({ name: v.name, sellStem: v.sellStem })));
-      })
-      .catch(() => {});
-  }, []);
-
   /** Another order on the same call: what carries over from the last one
       typed (see carryOver), everything else blank, the cursor in it. */
   function addStop() {
@@ -2834,14 +2903,6 @@ function PhoneOrderForm({
           onRemove={many ? () => removeStop(s, i + 1) : undefined}
         />
       ))}
-      {/* One datalist for every flower field: the library's names, so a
-          typed name is a resident's name and not a near miss. */}
-      <datalist id="wr-stem-library">
-        {library.map((v) => (
-          <option key={v.name} value={v.name} />
-        ))}
-      </datalist>
-
       {/* ANOTHER ORDER ON THE SAME CALL (Kevin, 2026-10-14). In the form,
           under the last order, where the eye lands when the caller says
           "and one more": not a button that appears only after saving,

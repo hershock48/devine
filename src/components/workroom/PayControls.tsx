@@ -40,6 +40,7 @@ export default function PayControls({
   paidInParts = false,
   batch,
   start = "idle",
+  partPay = true,
   onPaid,
 }: {
   orderId: string;
@@ -66,9 +67,15 @@ export default function PayControls({
   /** Open straight into card entry (the Quick sale panel's Take card,
       2026-10-14: the card is already in hand, so no second tap). */
   start?: "idle" | "card";
-  /** Paid: which way, and how many cents, so a caller can say "Done:
-      $12.72 cash" without a second read of the order. */
-  onPaid: (method?: "card" | "cash" | "manual", cents?: number) => void;
+  /** False hides "Pay part of it now": a walk-in pays in full. */
+  partPay?: boolean;
+  /** Paid: which way, how many cents, and what that leaves. `settled` is
+      whether this payment covered everything due; `boardMissed` is the
+      charge that went through while the board write failed (said in red
+      here too). A caller that clears itself on "paid" must read both:
+      a part payment is not a finished sale, and a missed board write is
+      a card that must NOT be taken again. */
+  onPaid: (method?: "card" | "cash" | "manual", cents?: number, outcome?: { settled: boolean; boardMissed: boolean }) => void;
 }) {
   /** "one" or "all": which the buttons charge when a batch is offered. */
   const [scope, setScope] = useState<"one" | "all">("all");
@@ -257,7 +264,7 @@ export default function PayControls({
               : "CHARGED, but the board did not save it. Do NOT charge again. Reload in a minute; the payment will appear.",
         );
       }
-      onPaid(method, charge);
+      onPaid(method, charge, { settled: charge >= amount, boardMissed: !!d.boardMissed });
     } catch (err) {
       setError(err instanceof Error ? err.message : "The payment did not go through.");
     } finally {
@@ -290,7 +297,7 @@ export default function PayControls({
   ) : null;
   if (payment && balanceCents <= 0) return paidLine;
 
-  const partBlock = (
+  const partBlock = !partPay ? null : (
     <div style={{ margin: "0 0 10px", fontSize: 14 }}>
       {!part ? (
         <button type="button" disabled={busy || unsure} onClick={openPart} style={{ ...textButton, fontSize: 14 }}>
