@@ -157,6 +157,12 @@ export type WorkroomOrder = {
   /** When the counter's print helper printed it (web orders). Server-side
       so a restart or a second machine never prints it twice. */
   printedAt?: number;
+  /** A QUICK SALE (Kevin, 2026-10-14: "someone walks in and just
+      purchases something small"): rung up from the board's Quick sale
+      panel with items and initials only. Written as a done pickup for
+      "Walk-in" dated today, then paid on the spot; the flag is so the
+      board and the finished list can call it what it is. */
+  quick?: boolean;
 };
 
 export type StemEvent = {
@@ -740,8 +746,10 @@ const memoryStore: Store = {
     return true;
   },
   async listOrderContacts() {
+    // A quick sale's "Walk-in" is nobody; it must never be offered as a
+    // customer.
     return [...bag().orders.values()]
-      .filter((o) => o.status !== "canceled")
+      .filter((o) => o.status !== "canceled" && !o.quick)
       .map((o) => ({
         name: o.name,
         phone: o.phone,
@@ -1109,7 +1117,7 @@ const postgresStore: Store = {
               COALESCE(data->>'recipientPhone', '') AS recipient_phone,
               COALESCE(data->>'account', 'false') AS account, COALESCE(data->>'taxExempt', 'false') AS tax_exempt, COALESCE(data->>'taxId', '') AS tax_id,
               data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, created_at
-       FROM workroom_orders WHERE status <> 'canceled' ORDER BY created_at DESC LIMIT 5000`,
+       FROM workroom_orders WHERE status <> 'canceled' AND COALESCE(data->>'quick', 'false') <> 'true' ORDER BY created_at DESC LIMIT 5000`,
     );
     return r.rows.map((row) => ({
       name: (row.name as string) ?? "",

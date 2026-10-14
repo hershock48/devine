@@ -67,6 +67,8 @@ type Order = {
   taxExempt?: boolean;
   taxId?: string;
   printedAt?: number;
+  /** Rung up from the Quick sale panel: a done pickup for "Walk-in". */
+  quick?: boolean;
 };
 
 /** Editable while nothing has been made and no money has moved (the PUT
@@ -157,6 +159,11 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [addTo, setAddTo] = useState<Order | null>(null);
   /** One line after a write-up lands: what went on, by number. */
   const [notice, setNotice] = useState("");
+  /** The Quick sale panel (Kevin, 2026-10-14), beside the write-up. */
+  const [quick, setQuick] = useState(false);
+  /** The stem library, for the write-up and the quick sale alike, read
+      again each time either opens. */
+  const library = useStemLibrary(adding || !!editing || quick);
   const [showDone, setShowDone] = useState(false);
   /** The find box: a caller says "order DV-0901-4226" or "it's under
       Wanda" and the counter should not have to scan a busy board by eye.
@@ -476,6 +483,11 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         >
           {adding || editing ? "Close the form" : "Write up an order"}
         </button>
+        {/* QUICK SALE (Kevin, 2026-10-14): a walk-in buying something small
+            is rung up and paid in one panel, items and initials only. */}
+        <button className="btn" type="button" onClick={() => setQuick((v) => !v)}>
+          {quick ? "Close quick sale" : "Quick sale"}
+        </button>
         <input
           type="search"
           aria-label="Find an order"
@@ -497,10 +509,22 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </p>
       )}
 
+      {/* One datalist for every flower field on the page, the write-up's
+          and the quick sale's: the library's names, so a typed name is a
+          resident's name and not a near miss. */}
+      <datalist id="wr-stem-library">
+        {library.map((v) => (
+          <option key={v.name} value={v.name} />
+        ))}
+      </datalist>
+
+      {quick && <QuickSale library={library} onChanged={() => pull().catch(() => {})} />}
+
       {(adding || editing) && (
         <PhoneOrderForm
           key={editing?.id ?? (addTo ? `add:${addTo.id}` : "new")}
           contacts={contacts}
+          library={library}
           editing={editing}
           addTo={addTo}
           onSaved={(placed) => {
@@ -603,7 +627,9 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
             >
               <span aria-hidden="true" style={{ color: "var(--muted)", fontSize: 11 }}>&#9656;</span>
               <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)", whiteSpace: "nowrap" }}>{o.number}</span>
-              <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.business ? `${o.business} · ${o.name}` : o.name}</span>
+              {/* A quick sale says so in the name's place: "Walk-in" alone
+                  would read as a customer nobody asked the name of. */}
+              <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.quick ? "Quick sale" : o.business ? `${o.business} · ${o.name}` : o.name}</span>
               <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{o.date}{o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}</span>
               <span style={{ whiteSpace: "nowrap" }}>{o.status === "canceled" ? "canceled" : "done"}</span>
               <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{moneyWord(o)}</span>
@@ -622,7 +648,7 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
                 </li>
               </ul>
               <p className="muted" style={{ margin: 0 }}>
-                {o.source} order &middot; {o.fulfillment}
+                {o.quick ? "quick sale, walk-in" : `${o.source} order`} &middot; {o.fulfillment}
                 {o.fulfillment === "delivery" && (o.street || o.recipient)
                   ? ` to ${[o.recipient, o.company, o.street, o.town].filter(Boolean).join(", ")}`
                   : o.company ? ` · ${o.company}` : ""}
@@ -1187,16 +1213,22 @@ function OrderCard({
           >
             {o.fulfillment === "delivery" ? "Delivery" : "Pickup"}
           </span>
-          {o.number} · {o.source}
-          {" · "}
+          {o.number} · {o.quick ? "quick sale" : o.source}
           {/* The order as a PDF on its paper (2026-10-12): the six-panel
               form for a delivery, plain paper for a pickup. Opens in a tab;
               the viewer's print button picks the tray by printer name. The
               counter's print helper prints web orders by itself; this is
-              for everything else and for a second copy. */}
-          <a href={`/api/workroom/print/${o.id}`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
-            Print
-          </a>
+              for everything else and for a second copy. Not for a quick
+              sale: it walked out the door already, there is nothing to
+              make from a ticket. */}
+          {!o.quick && (
+            <>
+              {" · "}
+              <a href={`/api/workroom/print/${o.id}`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
+                Print
+              </a>
+            </>
+          )}
         </span>
       </header>
       {/* The printed stamp on its own line (Kevin, 2026-10-13): in the
@@ -1335,7 +1367,8 @@ function OrderCard({
       </ul>
 
       {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
-      {!o.payment && o.status !== "canceled" && <AccountToggle o={o} onDone={() => onPaid().catch(() => {})} />}
+      {/* Not on a quick sale: a walk-in has no account to bill. */}
+      {!o.payment && o.status !== "canceled" && !o.quick && <AccountToggle o={o} onDone={() => onPaid().catch(() => {})} />}
 
       {/* Labeled, because unlabeled they read as mystery text: an employee
           has to KNOW the italic line goes on the card and the other one is
@@ -1437,7 +1470,8 @@ function OrderCard({
       {/* "Another order, same card" (Kevin, 2026-10-14): the customer calls
           back with one more for the same card. Not on a canceled order;
           a held one is fine (the new one joins the group when it is
-          finished). */}
+          finished). Not on a quick sale either: "Walk-in" is nobody to
+          write another order up for. */}
       {next && (
         <Moves
           key={o.status}
@@ -1445,7 +1479,7 @@ function OrderCard({
           next={next}
           onMove={onMove}
           onEdit={onEdit && canEdit(o) ? () => onEdit(o) : undefined}
-          onAddTo={onAddTo && canEdit(o) ? () => onAddTo(o) : undefined}
+          onAddTo={onAddTo && canEdit(o) && !o.quick ? () => onAddTo(o) : undefined}
         />
       )}
       {/* A finished order has no next move, but it can still be edited
@@ -1457,7 +1491,7 @@ function OrderCard({
               Edit
             </button>
           )}
-          {onAddTo && (
+          {onAddTo && !o.quick && (
             <button type="button" onClick={() => onAddTo(o)} style={{ ...textButton, fontSize: 13.5 }}>
               Another order, same card
             </button>
@@ -1750,14 +1784,7 @@ function StopFields({
 
   const many = count > 1;
   const delivering = m.delivering;
-  const lines = s.lines;
   const setLines = (f: (cur: DraftLine[]) => DraftLine[]) => patch({ lines: f(s.lines) });
-  function setLine(i: number, p: Partial<DraftLine>) {
-    setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...p } : l)));
-  }
-  function setPart(i: number, j: number, p: Partial<DraftPart>) {
-    setLines((cur) => cur.map((l, at) => (at === i ? { ...l, parts: l.parts.map((pt, k) => (k === j ? { ...pt, ...p } : pt)) } : l)));
-  }
   // Field labels for a screen reader stay unique across several orders.
   const aria = (t: string) => (many ? `Order ${index} ${t.charAt(0).toLowerCase()}${t.slice(1)}` : t);
 
@@ -1983,162 +2010,10 @@ function StopFields({
         </label>
       </div>
 
-      {/* minWidth: 0 down this whole chain. The product select's intrinsic
-          width is its longest option, ~350px, and without these the form's
-          grid track inherits it and every row stretches past a 390px phone.
-          With them, the select shrinks and clips its text instead. */}
-      <div style={{ minWidth: 0 }}>
-        {/* "Items", not "Lines": a session shipped order-ticket jargon and
-            Kevin could not parse the validation error, which means her staff
-            cannot either. The code keeps calling them lines; the shop never
-            sees the code. */}
-        <span style={labelText}>Items</span>
-        <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-          {lines.map((l, i) => {
-            const p = productBySlug(l.slug);
-            const building = l.byStems && canBuild(l);
-            const built = building ? builtPriceIn(library, l) : null;
-            return (
-              /* Flex with wrap, not a fixed grid: four cells at their minimums
-                 are ~440px, and a 390px phone needs the row to fold instead of
-                 shoving the page sideways. */
-              <div key={i} style={{ display: "grid", gap: 8, minWidth: 0 }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
-                <select
-                  aria-label={aria(`Item ${i + 1} product`)}
-                  value={l.slug}
-                  onChange={(e) => setLine(i, { slug: e.target.value })}
-                  style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
-                >
-                  <option value="">Custom item…</option>
-                  {sortedProducts.map((sp) => (
-                    <option key={sp.slug} value={sp.slug}>
-                      {sp.name} ({money(sp.price)})
-                    </option>
-                  ))}
-                </select>
-                {l.slug ? (
-                  <span style={{ alignSelf: "center", fontSize: 14.5, flex: "1 1 auto" }} className="muted">
-                    {built ? `${money(built.each)} each, by stems` : `${p ? money(p.price) : ""} each`}
-                  </span>
-                ) : (
-                  <input
-                    aria-label={aria(`Item ${i + 1} custom item`)}
-                    placeholder="What it is"
-                    value={l.custom}
-                    onChange={(e) => setLine(i, { custom: e.target.value })}
-                    style={{ ...field, flex: "1 1 140px", minWidth: 0, width: "auto" }}
-                  />
-                )}
-                {!l.slug && !building && (
-                  <input
-                    aria-label={aria(`Item ${i + 1} price`)}
-                    placeholder="$"
-                    inputMode="decimal"
-                    value={l.each}
-                    onChange={(e) => setLine(i, { each: e.target.value })}
-                    style={{ ...field, flex: "0 1 90px", minWidth: 0, width: "auto" }}
-                  />
-                )}
-                {!l.slug && building && built && (
-                  <span style={{ alignSelf: "center", fontSize: 14.5, flex: "0 1 auto" }} className="muted">
-                    {money(built.each)} each, by stems
-                  </span>
-                )}
-                <input
-                  aria-label={aria(`Item ${i + 1} quantity`)}
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={l.qty}
-                  onChange={(e) => setLine(i, { qty: Number(e.target.value) || 1 })}
-                  style={{ ...field, flex: "0 0 72px", minWidth: 0, width: "auto" }}
-                />
-              </div>
-
-              {/* BUILT BY STEMS (Katy, 2026-10-06: "select rose x 3 and that
-                  = the price... this exists in wedding! just needs to be
-                  under designers choice"). The wedding builder's arithmetic
-                  at the counter: pick a flower from her stem library, say
-                  how many, and the piece prices itself at her per-stem
-                  retail. Wendalyn is $75 and they want to spend $100: build
-                  the $100 here instead of guessing what fits. */}
-              {canBuild(l) && (
-                <div style={{ paddingLeft: 4, display: "grid", gap: 6 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--muted)" }}>
-                    <input
-                      type="checkbox"
-                      checked={l.byStems}
-                      onChange={(e) => setLine(i, { byStems: e.target.checked })}
-                      style={{ width: 18, height: 18, accentColor: "var(--green)" }}
-                    />
-                    Price it by stems
-                  </label>
-                  {building && (
-                    <>
-                      {l.parts.map((pt, j) => {
-                        const price = pt.variety.trim() ? stemPriceIn(library, pt.variety) : undefined;
-                        const stems = Math.round(Number(pt.stems) || 0);
-                        return (
-                          <div key={j} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", minWidth: 0 }}>
-                            <input
-                              aria-label={aria(`Item ${i + 1} flower ${j + 1}`)}
-                              list="wr-stem-library"
-                              placeholder="Flower, from the stem library"
-                              value={pt.variety}
-                              onChange={(e) => setPart(i, j, { variety: e.target.value })}
-                              style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
-                            />
-                            <span className="muted" style={{ fontSize: 14 }}>×</span>
-                            <input
-                              aria-label={aria(`Item ${i + 1} flower ${j + 1} stems`)}
-                              type="number"
-                              min={0}
-                              max={999}
-                              placeholder="stems"
-                              value={pt.stems}
-                              onChange={(e) => setPart(i, j, { stems: e.target.value })}
-                              style={{ ...field, flex: "0 0 84px", minWidth: 0, width: "auto" }}
-                            />
-                            <span style={{ fontSize: 14, minWidth: 110 }} className={price === undefined && pt.variety.trim() ? "" : "muted"}>
-                              {!pt.variety.trim()
-                                ? ""
-                                : price === undefined
-                                  ? <strong style={{ color: "var(--rose-ink)" }}>no stem price in the library</strong>
-                                  : `${money(price)} a stem${stems > 0 ? ` = ${money(price * stems)}` : ""}`}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => setLine(i, { parts: [...l.parts, { variety: "", stems: "" }] })} style={{ ...textButton, fontSize: 13.5 }}>
-                          Another flower
-                        </button>
-                        {built && built.each > 0 && (
-                          <strong style={{ fontSize: 14.5 }}>
-                            {money(built.each)} each{l.qty > 1 ? ` · ${money(built.each * l.qty)} for ${l.qty}` : ""}
-                          </strong>
-                        )}
-                        {built && built.unpriced.length > 0 && (
-                          <span style={{ fontSize: 13.5, color: "var(--rose-ink)" }}>
-                            Add a per-stem price for {built.unpriced.join(", ")} on the Inventory tab, or it will not save.
-                          </span>
-                        )}
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-              </div>
-            );
-          })}
-        </div>
-        <p style={{ margin: "8px 0 0" }}>
-          <button type="button" onClick={() => setLines((cur) => [...cur, blankLine()])} style={textButton}>
-            Another item
-          </button>
-        </p>
-      </div>
+      {/* The items editor is shared with the Quick sale panel (2026-10-14);
+          its minWidth: 0 chain keeps the product select from widening a
+          390px phone. */}
+      <ItemsEditor lines={s.lines} setLines={setLines} library={library} aria={aria} />
 
       <label>
         <span style={labelText}>Card message</span>
@@ -2175,6 +2050,446 @@ function StopFields({
 }
 
 /**
+ * THE STEM LIBRARY, names and per-stem retail, for pricing a piece by
+ * stems (Katy, 2026-10-06). Read when `active` turns true (the write-up
+ * or the quick sale opening), so a price added on the Inventory tab is
+ * seen the next time either opens; the route re-prices from the same
+ * library at write time, so these numbers only show what the counter is
+ * about to promise.
+ */
+function useStemLibrary(active: boolean): StemPrice[] {
+  const [library, setLibrary] = useState<StemPrice[]>([]);
+  useEffect(() => {
+    if (!active) return;
+    fetch("/api/workroom/varieties", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.varieties) setLibrary((d.varieties as StemPrice[]).map((v) => ({ name: v.name, sellStem: v.sellStem })));
+      })
+      .catch(() => {});
+  }, [active]);
+  return library;
+}
+
+/**
+ * THE ITEMS OF AN ORDER, as the counter types them: a product from the
+ * catalog or a custom item with a price, a quantity, and the by-stems
+ * builder under the lines that can take it. One editor for the write-up
+ * (each order on it) and the Quick sale panel (2026-10-14), so a product
+ * rings up by exactly the same rules whichever way it is sold.
+ */
+function ItemsEditor({
+  lines,
+  setLines,
+  library,
+  aria = (t) => t,
+}: {
+  lines: DraftLine[];
+  setLines: (f: (cur: DraftLine[]) => DraftLine[]) => void;
+  library: StemPrice[];
+  /** Field labels for a screen reader, made unique by the caller when
+      several orders sit on one form. */
+  aria?: (t: string) => string;
+}) {
+  function setLine(i: number, p: Partial<DraftLine>) {
+    setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...p } : l)));
+  }
+  function setPart(i: number, j: number, p: Partial<DraftPart>) {
+    setLines((cur) => cur.map((l, at) => (at === i ? { ...l, parts: l.parts.map((pt, k) => (k === j ? { ...pt, ...p } : pt)) } : l)));
+  }
+  /* minWidth: 0 down this whole chain. The product select's intrinsic
+     width is its longest option, ~350px, and without these the form's
+     grid track inherits it and every row stretches past a 390px phone.
+     With them, the select shrinks and clips its text instead. */
+  return (
+    <div style={{ minWidth: 0 }}>
+      {/* "Items", not "Lines": a session shipped order-ticket jargon and
+          Kevin could not parse the validation error, which means her staff
+          cannot either. The code keeps calling them lines; the shop never
+          sees the code. */}
+      <span style={labelText}>Items</span>
+      <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+        {lines.map((l, i) => {
+          const p = productBySlug(l.slug);
+          const building = l.byStems && canBuild(l);
+          const built = building ? builtPriceIn(library, l) : null;
+          return (
+            /* Flex with wrap, not a fixed grid: four cells at their minimums
+               are ~440px, and a 390px phone needs the row to fold instead of
+               shoving the page sideways. */
+            <div key={i} style={{ display: "grid", gap: 8, minWidth: 0 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
+              <select
+                aria-label={aria(`Item ${i + 1} product`)}
+                value={l.slug}
+                onChange={(e) => setLine(i, { slug: e.target.value })}
+                style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
+              >
+                <option value="">Custom item…</option>
+                {sortedProducts.map((sp) => (
+                  <option key={sp.slug} value={sp.slug}>
+                    {sp.name} ({money(sp.price)})
+                  </option>
+                ))}
+              </select>
+              {l.slug ? (
+                <span style={{ alignSelf: "center", fontSize: 14.5, flex: "1 1 auto" }} className="muted">
+                  {built ? `${money(built.each)} each, by stems` : `${p ? money(p.price) : ""} each`}
+                </span>
+              ) : (
+                <input
+                  aria-label={aria(`Item ${i + 1} custom item`)}
+                  placeholder="What it is"
+                  value={l.custom}
+                  onChange={(e) => setLine(i, { custom: e.target.value })}
+                  style={{ ...field, flex: "1 1 140px", minWidth: 0, width: "auto" }}
+                />
+              )}
+              {!l.slug && !building && (
+                <input
+                  aria-label={aria(`Item ${i + 1} price`)}
+                  placeholder="$"
+                  inputMode="decimal"
+                  value={l.each}
+                  onChange={(e) => setLine(i, { each: e.target.value })}
+                  style={{ ...field, flex: "0 1 90px", minWidth: 0, width: "auto" }}
+                />
+              )}
+              {!l.slug && building && built && (
+                <span style={{ alignSelf: "center", fontSize: 14.5, flex: "0 1 auto" }} className="muted">
+                  {money(built.each)} each, by stems
+                </span>
+              )}
+              <input
+                aria-label={aria(`Item ${i + 1} quantity`)}
+                type="number"
+                min={1}
+                max={99}
+                value={l.qty}
+                onChange={(e) => setLine(i, { qty: Number(e.target.value) || 1 })}
+                style={{ ...field, flex: "0 0 72px", minWidth: 0, width: "auto" }}
+              />
+            </div>
+
+            {/* BUILT BY STEMS (Katy, 2026-10-06: "select rose x 3 and that
+                = the price... this exists in wedding! just needs to be
+                under designers choice"). The wedding builder's arithmetic
+                at the counter: pick a flower from her stem library, say
+                how many, and the piece prices itself at her per-stem
+                retail. Wendalyn is $75 and they want to spend $100: build
+                the $100 here instead of guessing what fits. */}
+            {canBuild(l) && (
+              <div style={{ paddingLeft: 4, display: "grid", gap: 6 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--muted)" }}>
+                  <input
+                    type="checkbox"
+                    checked={l.byStems}
+                    onChange={(e) => setLine(i, { byStems: e.target.checked })}
+                    style={{ width: 18, height: 18, accentColor: "var(--green)" }}
+                  />
+                  Price it by stems
+                </label>
+                {building && (
+                  <>
+                    {l.parts.map((pt, j) => {
+                      const price = pt.variety.trim() ? stemPriceIn(library, pt.variety) : undefined;
+                      const stems = Math.round(Number(pt.stems) || 0);
+                      return (
+                        <div key={j} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", minWidth: 0 }}>
+                          <input
+                            aria-label={aria(`Item ${i + 1} flower ${j + 1}`)}
+                            list="wr-stem-library"
+                            placeholder="Flower, from the stem library"
+                            value={pt.variety}
+                            onChange={(e) => setPart(i, j, { variety: e.target.value })}
+                            style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
+                          />
+                          <span className="muted" style={{ fontSize: 14 }}>×</span>
+                          <input
+                            aria-label={aria(`Item ${i + 1} flower ${j + 1} stems`)}
+                            type="number"
+                            min={0}
+                            max={999}
+                            placeholder="stems"
+                            value={pt.stems}
+                            onChange={(e) => setPart(i, j, { stems: e.target.value })}
+                            style={{ ...field, flex: "0 0 84px", minWidth: 0, width: "auto" }}
+                          />
+                          <span style={{ fontSize: 14, minWidth: 110 }} className={price === undefined && pt.variety.trim() ? "" : "muted"}>
+                            {!pt.variety.trim()
+                              ? ""
+                              : price === undefined
+                                ? <strong style={{ color: "var(--rose-ink)" }}>no stem price in the library</strong>
+                                : `${money(price)} a stem${stems > 0 ? ` = ${money(price * stems)}` : ""}`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
+                      <button type="button" onClick={() => setLine(i, { parts: [...l.parts, { variety: "", stems: "" }] })} style={{ ...textButton, fontSize: 13.5 }}>
+                        Another flower
+                      </button>
+                      {built && built.each > 0 && (
+                        <strong style={{ fontSize: 14.5 }}>
+                          {money(built.each)} each{l.qty > 1 ? ` · ${money(built.each * l.qty)} for ${l.qty}` : ""}
+                        </strong>
+                      )}
+                      {built && built.unpriced.length > 0 && (
+                        <span style={{ fontSize: 13.5, color: "var(--rose-ink)" }}>
+                          Add a per-stem price for {built.unpriced.join(", ")} on the Inventory tab, or it will not save.
+                        </span>
+                      )}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ margin: "8px 0 0" }}>
+        <button type="button" onClick={() => setLines((cur) => [...cur, blankLine()])} style={textButton}>
+          Another item
+        </button>
+      </p>
+    </div>
+  );
+}
+
+/**
+ * QUICK SALE (Kevin, 2026-10-14: "when someone walks in and just
+ * purchases something small it just goes through and we don't have to
+ * ask them a million questions"). Items, the total with tax, initials,
+ * and three ways to settle: that is the whole panel. No name, phone,
+ * email, date, recipient, address or card message. The route writes it
+ * as a done pickup for "Walk-in" dated today; this panel then pays it by
+ * the same pay route and the same card entry an order card uses, and
+ * says "Done: $12.72 cash" and clears for the next customer.
+ *
+ * IF THE PAYMENT STEP FAILS the sale is still on the board, unpaid,
+ * under Walk-in, with its pay buttons right here (and on its card), so
+ * nothing is lost and nothing is charged twice. It never sends a receipt
+ * (no email) and never prints or waits to print (not a web order).
+ */
+/** The sale on the board but not yet settled: what the panel keeps
+    between placing a quick sale and its payment landing whole. */
+type PlacedSale = {
+  id: string;
+  number: string;
+  subtotal: number;
+  /** "card" opens card entry straight off; "idle" shows the pay buttons
+      again after a payment that did not take. */
+  start: "idle" | "card";
+  /** Why it is not paid yet, in words, or "" while the card is being keyed. */
+  why: string;
+  /** A payment that went through but did not finish the sale: a part
+      payment (the rest is still due), or a charge the board missed. */
+  paid?: { method: "card" | "cash" | "manual"; cents: number; boardMissed: boolean };
+};
+
+function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: () => void }) {
+  const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
+  const [taxExempt, setTaxExempt] = useState(false);
+  /** Who rang it up: kept between sales, because the same person is at
+      the counter all morning and retyping it is a question too. */
+  const [takenBy, setTakenBy] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<"" | "cash" | "card" | "manual">("");
+  const [placed, setPlaced] = useState<PlacedSale | null>(null);
+  /** The last sale's one line, over the cleared panel. */
+  const [done, setDone] = useState("");
+
+  // The write-up's own arithmetic (stopMath), on a pickup stop with no
+  // fee: items at the rule the route applies, tax on them unless exempt.
+  // The same stop is what ring() sends, so the figure shown is the figure
+  // charged.
+  const stop = useMemo(() => blankStop({ fulfillment: "pickup", lines }), [lines]);
+  const m = stopMath(stop, library, taxExempt);
+  /** The lines with anything typed in them. Each must price above zero
+      (a catalog product, a typed price, or a build the library prices):
+      a $0 quick sale would be born done and never paid, and so vanish
+      from the board. The route refuses the same thing in the same words. */
+  const started = lines.filter((l) => l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)));
+  const unpriced = started.some((l) => !(lineEachIn(library, l) > 0));
+
+  function clear() {
+    setLines([blankLine()]);
+    setTaxExempt(false);
+    setPlaced(null);
+    setError("");
+  }
+  /** PayControls answered: paid whole, paid in part, or charged while the
+      board missed it. Only the first is "Done"; the other two keep the
+      sale in the panel, with its pay buttons and the warning, so the
+      rest is taken or the mark is made before the next customer. */
+  const finish = (method?: "card" | "cash" | "manual", cents?: number, outcome?: { settled: boolean; boardMissed: boolean }) => {
+    onChanged();
+    const paidCents = cents ?? Math.round(m.total * 100);
+    if (method && outcome && (!outcome.settled || outcome.boardMissed)) {
+      setPlaced((cur) => cur && { ...cur, start: "idle", why: "", paid: { method, cents: paidCents, boardMissed: outcome.boardMissed } });
+      return;
+    }
+    const word = method === "manual" ? "paid another way" : method ?? "paid";
+    setDone(`Done: ${money(paidCents / 100)} ${word}.`);
+    clear();
+  };
+
+  /** Ring it up: the order goes on the board (done, unpaid), then is paid
+      the chosen way. Cash and the by-hand mark go straight to the pay
+      route; a card opens card entry on the sale just placed. */
+  async function ring(method: "cash" | "card" | "manual") {
+    setError("");
+    setDone("");
+    const halfBuilt = lines.find((l) => l.byStems && canBuild(l) && (l.slug || l.custom.trim()) && !l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0));
+    if (halfBuilt) {
+      setError(`"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`);
+      return;
+    }
+    if (started.length === 0) {
+      setError("Add at least one item first.");
+      return;
+    }
+    if (unpriced) {
+      setError("A quick sale needs a price on every item.");
+      return;
+    }
+    if (!isInitials(takenBy)) {
+      setError(INITIALS_ERROR);
+      return;
+    }
+    setBusy(method);
+    /** The order once it is on the board, so a dropped connection after
+        that point keeps paying THIS one instead of writing a second. */
+    let o: { id: string; number: string; subtotal: number } | null = null;
+    try {
+      // The write-up's own payload reading for the lines, on the stop the
+      // figures were shown for; the route reads only the items, the
+      // tax-exempt box and the initials on a quick sale.
+      const { lines: payload } = stopPayload(stop, library);
+      const r = await fetch("/api/workroom/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quick: true, lines: payload, taxExempt, takenBy: takenBy.trim().toUpperCase() }),
+      });
+      const d = (await r.json().catch(() => null)) as { error?: string; order?: { id: string; number: string; subtotal: number } } | null;
+      if (!r.ok || !d?.order) {
+        setError(d?.error || "That did not save. Look it over and try again.");
+        return;
+      }
+      o = d.order;
+      onChanged();
+      if (method === "card") {
+        setPlaced({ id: o.id, number: o.number, subtotal: o.subtotal, start: "card", why: "" });
+        return;
+      }
+      const pr = await fetch("/api/workroom/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: o.id, method }),
+      });
+      const pd = (await pr.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!pr.ok || !pd?.ok) {
+        setPlaced({ id: o.id, number: o.number, subtotal: o.subtotal, start: "idle", why: `${pd?.error || "The payment did not go through."} Take the payment here or from its card; nothing was charged.` });
+        return;
+      }
+      finish(method, Math.round(o.subtotal * 100), { settled: true, boardMissed: false });
+    } catch {
+      if (o) {
+        // On the board already; the retry pays this one, never a second.
+        setPlaced({ id: o.id, number: o.number, subtotal: o.subtotal, start: "idle", why: "the connection dropped as it was being paid. Reload the board in a moment: if it still shows as not paid, take the payment here or from its card." });
+      } else {
+        setError("The connection dropped. Check the board before trying again: the sale may already be on it.");
+      }
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <div className="panel" style={{ maxWidth: 640, marginBottom: 30, display: "grid", gap: 14 }}>
+      {done && (
+        <p role="status" style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--green)" }}>
+          {done}
+        </p>
+      )}
+      {placed ? (
+        /* ON THE BOARD, NOT PAID: the sale is safe under Walk-in; this is
+           its money corner, the same one its card has, so the card can be
+           keyed or the cash recorded without leaving the panel. */
+        <div style={{ display: "grid", gap: 8 }}>
+          <p role="status" style={{ margin: 0, fontSize: 15, fontWeight: 600, color: placed.why || placed.paid ? "var(--rose-ink)" : "var(--ink)" }}>
+            {placed.paid?.boardMissed
+              ? `The card WAS CHARGED ${money(placed.paid.cents / 100)} for ${placed.number}, but the board did not save it. Do NOT charge again. Give Square's notice a minute; if ${placed.number} still shows as not paid under Walk-in, mark it "Paid another way" for ${money(placed.paid.cents / 100)}.`
+              : placed.paid
+                ? `${money(placed.paid.cents / 100)} taken by ${placed.paid.method === "manual" ? "another way" : placed.paid.method}; ${money((Math.round(placed.subtotal * 100) - placed.paid.cents) / 100)} still due on ${placed.number} under Walk-in. Take the rest here.`
+                : placed.why
+                  ? `${placed.number} is on the board under Walk-in, but it is not marked paid: ${placed.why}`
+                  : `${placed.number} is on the board under Walk-in. Take the card for ${money(placed.subtotal)}.`}
+          </p>
+          {/* The card's own money corner, for this one order: a walk-in
+              pays in full, so no part-payment link. After a part payment
+              all the same (the flag is read defensively), the balance is
+              what the buttons charge, as on the card. */}
+          <PayControls
+            key={placed.paid?.cents ?? 0}
+            orderId={placed.id}
+            subtotal={placed.subtotal}
+            start={placed.start}
+            partPay={false}
+            payment={placed.paid && !placed.paid.boardMissed ? { at: 0, method: placed.paid.method, totalCents: placed.paid.cents, feeCents: 0 } : undefined}
+            balanceCents={placed.paid && !placed.paid.boardMissed ? Math.round(placed.subtotal * 100) - placed.paid.cents : undefined}
+            collectedCents={placed.paid && !placed.paid.boardMissed ? placed.paid.cents : undefined}
+            onPaid={finish}
+          />
+          <p style={{ margin: 0 }}>
+            <button type="button" onClick={clear} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+              Leave it on the board, next customer
+            </button>
+          </p>
+        </div>
+      ) : (
+        <>
+          <ItemsEditor lines={lines} setLines={setLines} library={library} />
+          <div style={{ display: "flex", gap: 22, flexWrap: "wrap", alignItems: "center" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0" }}>
+              <input type="checkbox" checked={taxExempt} onChange={(e) => setTaxExempt(e.target.checked)} style={radio} />
+              Tax exempt (no sales tax)
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15 }}>
+              Your initials
+              <InitialsInput value={takenBy} onChange={setTakenBy} label="Rung up by, your initials" />
+            </label>
+          </div>
+          <p style={{ margin: 0, fontSize: 15 }}>
+            Items {money(m.items)}
+            {taxExempt ? " · tax exempt" : ` + sales tax ${money(m.tax)}`}
+            {" = "}
+            <strong>{money(m.total)}</strong>
+          </p>
+          <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn btn--solid" disabled={busy !== ""} onClick={() => ring("cash")}>
+              {busy === "cash" ? "Recording…" : `Record ${money(m.total)} cash`}
+            </button>
+            <button type="button" className="btn" disabled={busy !== ""} onClick={() => ring("card")}>
+              {busy === "card" ? "Saving…" : "Take card"}
+            </button>
+            <button type="button" disabled={busy !== ""} onClick={() => ring("manual")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+              {busy === "manual" ? "Marking…" : "Paid another way"}
+            </button>
+          </p>
+        </>
+      )}
+      {error && (
+        <p role="alert" style={{ margin: 0, fontSize: 14.5, fontWeight: 600, color: "var(--rose-ink)" }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
  * The counter's order pad. Catalog lines price themselves from the catalog
  * (same rule as the web checkout); custom lines take a typed price, because
  * half of what a florist sells — a casket spray, a one-off vase — has no
@@ -2183,12 +2498,18 @@ function StopFields({
  */
 function PhoneOrderForm({
   contacts,
+  library,
   onSaved,
   onRefresh,
   editing = null,
   addTo = null,
 }: {
   contacts: Contact[];
+  /** The stem library's names and per-stem prices (the board's
+      useStemLibrary), for building a piece by stems (Katy, 2026-10-06).
+      The route re-prices from the same library at write time, so these
+      numbers only show what the counter is about to promise. */
+  library: StemPrice[];
   /** The write-up is on the board (or the edit is saved); `placed` is what
       went on, for the board's one-line confirmation. */
   onSaved: (placed?: { number: string; name: string }[]) => void;
@@ -2268,20 +2589,6 @@ function PhoneOrderForm({
   const patchStop = (key: number, p: Partial<Stop>) => setStops((cur) => cur.map((s) => (s.key === key ? { ...s, ...p } : s)));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"" | "board" | "hold">("");
-  /** The stem library's names and per-stem prices, for building a piece
-      by stems (Katy, 2026-10-06). Loaded once per form open; the route
-      re-prices from the same library at write time, so these numbers only
-      show what the counter is about to promise. */
-  const [library, setLibrary] = useState<StemPrice[]>([]);
-  useEffect(() => {
-    fetch("/api/workroom/varieties", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.varieties) setLibrary((d.varieties as StemPrice[]).map((v) => ({ name: v.name, sellStem: v.sellStem })));
-      })
-      .catch(() => {});
-  }, []);
-
   /** Another order on the same call: what carries over from the last one
       typed (see carryOver), everything else blank, the cursor in it. */
   function addStop() {
@@ -2596,14 +2903,6 @@ function PhoneOrderForm({
           onRemove={many ? () => removeStop(s, i + 1) : undefined}
         />
       ))}
-      {/* One datalist for every flower field: the library's names, so a
-          typed name is a resident's name and not a near miss. */}
-      <datalist id="wr-stem-library">
-        {library.map((v) => (
-          <option key={v.name} value={v.name} />
-        ))}
-      </datalist>
-
       {/* ANOTHER ORDER ON THE SAME CALL (Kevin, 2026-10-14). In the form,
           under the last order, where the eye lands when the caller says
           "and one more": not a button that appears only after saving,
