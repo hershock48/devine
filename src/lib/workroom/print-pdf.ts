@@ -355,7 +355,7 @@ function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
   }
   if (o.taxExempt && c.fits(size)) {
     c.y -= size * 1.25;
-    pen.page.drawText("TAX EXEMPT - no sales tax", { x: c.x, y: c.y, size: size - 1, font: pen.bold, color: grey });
+    pen.page.drawText(`TAX EXEMPT - no sales tax${o.taxId ? ` - ID ${o.taxId}` : ""}`, { x: c.x, y: c.y, size: size - 1, font: pen.bold, color: grey });
   }
   c.rule(0.6);
   c.row("TOTAL", money(o.subtotal), size, pen.bold);

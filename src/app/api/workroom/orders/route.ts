@@ -153,6 +153,7 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
       takenBy,
       account,
       taxExempt,
+      taxId: taxExempt ? str(p.taxId, 40) : "",
       name,
       phone: str(p.phone, 40),
       email: str(p.email, 160),
