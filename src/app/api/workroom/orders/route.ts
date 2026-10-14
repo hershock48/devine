@@ -158,6 +158,7 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
       email: str(p.email, 160),
       fulfillment,
       recipient: str(p.recipient, 120),
+      company: str(p.company, 120),
       street: str(p.street, 160),
       town: str(p.town, 80),
       zip,

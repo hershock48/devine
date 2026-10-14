@@ -281,7 +281,7 @@ class Cursor {
 }
 
 function whereLines(o: WorkroomOrder): string[] {
-  return [o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean);
+  return [o.company ?? "", o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean);
 }
 const items = (o: WorkroomOrder) => o.lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l));
 const deliveryLine = (o: WorkroomOrder) => o.lines.find(isDeliveryLine);

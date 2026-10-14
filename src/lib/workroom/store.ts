@@ -91,6 +91,10 @@ export type WorkroomOrder = {
   email: string;
   fulfillment: "delivery" | "pickup";
   recipient: string;
+  /** The business, school, church or funeral home at the delivery address
+      (Kevin, 2026-10-14: "an optional company name line above the
+      address"). Printed above the street; the driver reads it first. */
+  company?: string;
   street: string;
   town: string;
   zip: string;
@@ -432,6 +436,7 @@ export type OrderContact = {
   createdAt: number;
   fulfillment: "delivery" | "pickup";
   recipient: string;
+  company?: string;
   street: string;
   town: string;
   zip: string;
@@ -696,6 +701,7 @@ const memoryStore: Store = {
         createdAt: o.createdAt,
         fulfillment: o.fulfillment,
         recipient: o.recipient,
+        company: o.company ?? "",
         street: o.street,
         town: o.town,
         zip: o.zip,
@@ -1030,6 +1036,7 @@ const postgresStore: Store = {
     const r = await pool.query(
       `SELECT data->>'name' AS name, data->>'phone' AS phone, data->>'email' AS email,
               data->>'fulfillment' AS fulfillment, data->>'recipient' AS recipient,
+              COALESCE(data->>'company', '') AS company,
               data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, created_at
        FROM workroom_orders WHERE status <> 'canceled' ORDER BY created_at DESC LIMIT 5000`,
     );
