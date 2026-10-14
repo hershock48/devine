@@ -103,10 +103,16 @@ function asksFor(s: Awaited<ReturnType<typeof readStatus>>): Ask[] {
     {
       what: (
         <>
-          Start the monthly, from <a href="/agreement">the agreement</a>.
+          <a href={agreement.payMonthlyUrl}>Start the monthly</a>: one card form, and done.
         </>
       ),
-      why: "The last thing on the list. The site is live and the build is paid; the monthly is what keeps it up, backed up and yours to change, and the agreement page is where it starts.",
+      why: (
+        <>
+          The last thing on the list. The site is live and the build is paid; the monthly keeps it up, backed up and
+          yours to change. The link opens one secure card form for the monthly in <a href="/agreement">the agreement</a>;
+          this light turns green on its own once it is in.
+        </>
+      ),
       done: s.monthly,
     },
     {
