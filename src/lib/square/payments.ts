@@ -1,7 +1,7 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
-import { square } from "./client";
+import { createHash, randomUUID } from "node:crypto";
+import { square, SquareError } from "./client";
 import type { ResolvedSquare } from "./oauth";
 
 /**
@@ -31,6 +31,32 @@ import type { ResolvedSquare } from "./oauth";
 
 /** Cents. 99 is the portfolio-standard platform fee; SQUARE_APP_FEE_CENTS
     overrides, and 0 disables. */
+/** THE WEBSITE'S FEE, in one place: the 99 cents ride only when they can
+    reach the platform, through her OAuth grant. On the env-token path
+    (sandbox, local dev) the cart shows no fee and the charge carries none,
+    so the shop never holds Glazed's cents by accident. The checkout's
+    config route and the order route both read this. */
+export const webFeeCents = (cfg: { viaOAuth: boolean }): number => (cfg.viaOAuth ? appFeeCents() : 0);
+
+/** Square's "this key was already used" answer, for callers that must
+    tell a retried charge from a failed one. */
+export const isIdempotencyReuse = (err: unknown): boolean => err instanceof Error && /IDEMPOTENCY_KEY_REUSED/.test(err.message);
+
+/**
+ * The payment call was SENT and no answer came back (the connection to
+ * Square dropped, a timeout). Square may have charged the card. A caller
+ * must never translate this into "the card was not charged": the honest
+ * word is "unsure", and the retry, carrying the same idempotency key, is
+ * how the truth comes out (a second charge is refused as a key reuse).
+ */
+export class PaymentUnsureError extends Error {
+  constructor(cause: unknown) {
+    super(`No answer from Square after the payment was sent: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "PaymentUnsureError";
+  }
+}
+export const isPaymentUnsure = (err: unknown): boolean => err instanceof PaymentUnsureError;
+
 export function appFeeCents(): number {
   const raw = process.env.SQUARE_APP_FEE_CENTS?.trim();
   if (raw === undefined || raw === "") return 99;
@@ -125,8 +151,18 @@ export async function chargeBoardOrder(
         so every payment path states its fee story. Pass cents 0 to charge
         exactly the lines. */
     cardFee: { name: string; cents: number; appFeeCents: number };
+    /** Optional. One key per (order, attempt): two requests carrying the
+        same key (a double tap, a retried POST) get one Square payment
+        between them instead of two. Derived by the caller from what makes
+        the attempt unique: the card token, or "cash". */
+    idempotencyKey?: string;
   },
 ) {
+  // Square allows 45 characters; a card token alone is longer. The
+  // caller's key is hashed so the whole of it counts and the per-call
+  // suffix survives: the Orders call and the Payments call never share a key.
+  const idem = (part: string) =>
+    opts.idempotencyKey ? `${createHash("sha256").update(opts.idempotencyKey).digest("hex").slice(0, 40)}:${part}` : randomUUID();
   const subtotalCents = opts.lines.reduce((sum, l) => sum + cents(l.each) * l.qty, 0);
   if (subtotalCents <= 0) throw new Error("This order has no priced lines to charge.");
 
@@ -152,7 +188,7 @@ export async function chargeBoardOrder(
   }
 
   const created = await square<CreateOrderResponse>(cfg, "POST", "/v2/orders", {
-    idempotency_key: randomUUID(),
+    idempotency_key: idem("o"),
     order: {
       location_id: cfg.locationId,
       reference_id: opts.workroomOrderId,
@@ -171,7 +207,7 @@ export async function chargeBoardOrder(
   }
 
   const body: Record<string, unknown> = {
-    idempotency_key: randomUUID(),
+    idempotency_key: idem("p"),
     order_id: squareOrderId,
     location_id: cfg.locationId,
     amount_money: { amount: totalCents, currency: "USD" },
@@ -189,10 +225,19 @@ export async function chargeBoardOrder(
     body.cash_details = { buyer_supplied_money: { amount: totalCents, currency: "USD" } };
   }
 
-  const res = await square<PaymentResponse>(cfg, "POST", "/v2/payments", body);
+  let res: PaymentResponse;
+  try {
+    res = await square<PaymentResponse>(cfg, "POST", "/v2/payments", body);
+  } catch (err) {
+    // Square answered (a decline, a refused key): a definite no, rethrown
+    // as is. Anything else is the wire failing after the request left.
+    if (err instanceof SquareError) throw err;
+    throw new PaymentUnsureError(err);
+  }
   if (!res.payment?.id) throw new Error("Square did not return a payment.");
   return {
     paymentId: res.payment.id,
+    orderId: squareOrderId,
     status: res.payment.status ?? "",
     receiptUrl: res.payment.receipt_url ?? "",
     totalCents,

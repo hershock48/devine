@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomOwner } from "@/lib/workroom/auth";
 import { authorizeUrl, revokeAndClear, squareApp } from "@/lib/square/oauth";
 import { getStore } from "@/lib/workroom/store";
 
@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  if (!(await isWorkroomOwner())) return NextResponse.json({ error: "The owner's PIN opens this." }, { status: 403 });
   const app = squareApp();
   if (!app) {
     return NextResponse.json(
@@ -36,7 +36,7 @@ export async function GET() {
 }
 
 export async function DELETE() {
-  if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
+  if (!(await isWorkroomOwner())) return NextResponse.json({ error: "The owner's PIN opens this." }, { status: 403 });
   const app = squareApp();
   if (!app) return NextResponse.json({ error: "The Glazed Square app is not configured." }, { status: 503 });
   await revokeAndClear(app);

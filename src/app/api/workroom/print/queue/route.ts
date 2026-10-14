@@ -52,21 +52,40 @@ export async function GET(req: Request) {
     // hand): whatever is waiting for that paper right now.
     const wanted = new Set((url.searchParams.get("ids") ?? "").split(",").filter(Boolean));
     const candidates = (await unprinted()).filter((o) => printPaperFor(o) === paper && (wanted.size === 0 || wanted.has(o.id)));
-    // Claimed BEFORE rendering, in the store's one conditional write, so
-    // two requests racing for the same orders print them once between
-    // them. The tab opening IS the print; the card's own Print link is the
-    // reprint if the dialog was cancelled.
-    const printedAt = Date.now();
-    const claimed = new Set(await store.claimForPrint(candidates.map((o) => o.id), printedAt));
-    const batch: WorkroomOrder[] = candidates.filter((o) => claimed.has(o.id));
-    if (batch.length === 0) {
-      return gone(
+    const already = () =>
+      gone(
         wanted.size
           ? "Those were already printed, perhaps from another phone a moment ago. Each order's own Print link on the board reprints it."
           : "Nothing is waiting for that paper.",
       );
+    if (candidates.length === 0) return already();
+    // Rendered FIRST, claimed second: a render that fails marks nothing,
+    // so no order can vanish from every queue without paper coming out.
+    // The claim is still the store's one conditional write, so two
+    // requests racing for the same orders print them once between them;
+    // the loser is told, and if the two overlapped only partly, the
+    // winner's document is redrawn with just the orders it won. The tab
+    // opening IS the print; the card's own Print link is the reprint if
+    // the dialog was cancelled.
+    const printedAt = Date.now();
+    const draw = (orders: WorkroomOrder[]) => renderBatchPdf(orders.map((order) => ({ order, layout: printLayoutFor(order) })), printedAt);
+    let batch: WorkroomOrder[] = candidates;
+    let pdf = await draw(batch);
+    const claimed = new Set(await store.claimForPrint(batch.map((o) => o.id), printedAt));
+    if (claimed.size === 0) return already();
+    if (claimed.size !== batch.length) {
+      // Only the orders this request won. If the redraw itself fails, the
+      // first document goes out as drawn: a page the other phone also
+      // printed is a spare sheet; a claimed order with no sheet is a
+      // lost order.
+      const won = batch.filter((o) => claimed.has(o.id));
+      try {
+        pdf = await draw(won);
+        batch = won;
+      } catch (err) {
+        console.error("[devine] print queue: redraw after a partial claim failed; sending the full document", err);
+      }
     }
-    const pdf = await renderBatchPdf(batch.map((order) => ({ order, layout: printLayoutFor(order) })), printedAt);
     return new NextResponse(Buffer.from(pdf), {
       headers: {
         "Content-Type": "application/pdf",

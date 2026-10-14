@@ -120,30 +120,42 @@ export async function syncCatalogToSquare(cfg: SquareConfig): Promise<SyncReport
         continue;
       }
       updated++;
+      // An upsert REPLACES item_data, so everything the shop set on this
+      // item in her register (a tax, a category, an image, a second
+      // variation) must ride along or it is gone. The item is sent back
+      // as Square gave it, with only our name, description and our one
+      // variation's price touched. The two description fields are the
+      // same text in Square's old and new spelling; the new one is sent.
+      const existingData = (item.item_data ?? {}) as Record<string, unknown>;
+      const { description: _oldDescription, description_html: _oldHtml, ...keep } = existingData;
+      void _oldDescription;
+      void _oldHtml;
       upserts.push({
         type: "ITEM",
         id: item.id,
         version: item.version,
         present_at_all_locations: true,
         item_data: {
+          ...keep,
           name: want.name,
-          description: want.description,
-          variations: [
-            {
-              type: "ITEM_VARIATION",
-              id: variation.id,
-              version: variation.version,
-              item_variation_data: {
-                item_id: item.id,
-                // Keep whatever variation name the register shows; ours is
-                // only set on creation.
-                name: variation.item_variation_data?.name ?? "Regular",
-                sku: p.slug,
-                pricing_type: "FIXED_PRICING",
-                price_money: { amount: want.priceCents, currency: "USD" },
-              },
-            },
-          ],
+          description_plaintext: want.description,
+          variations: (item.item_data?.variations ?? []).map((v) =>
+            v.id !== variation.id
+              ? v
+              : {
+                  ...v,
+                  item_variation_data: {
+                    ...v.item_variation_data,
+                    item_id: item.id,
+                    // Keep whatever variation name the register shows; ours
+                    // is only set on creation.
+                    name: v.item_variation_data?.name ?? "Regular",
+                    sku: p.slug,
+                    pricing_type: "FIXED_PRICING",
+                    price_money: { amount: want.priceCents, currency: "USD" },
+                  },
+                },
+          ),
         },
       });
     } else {

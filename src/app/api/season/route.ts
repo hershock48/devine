@@ -29,7 +29,10 @@ export function GET(req: Request) {
   }
 
   // 303: this is a GET acting like a form submit, and the redirect must be a GET.
-  const res = NextResponse.redirect(new URL(to, url.origin), 303);
+  // Resolved, then checked: a referer path like "//host/x" would resolve
+  // to another origin, and goes home instead.
+  const dest = new URL(to, url.origin);
+  const res = NextResponse.redirect(dest.origin === url.origin ? dest : new URL("/demo", url.origin), 303);
   if (set === "today") {
     res.cookies.delete(SEASON_COOKIE);
   } else if (isPreviewSlug(set)) {

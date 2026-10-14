@@ -11,6 +11,15 @@
  * owner before launch. Each one is on the README checklist.
  */
 
+/** Her laminated IRIS zip sheet (the note on deliveryFees below). */
+const DELIVERY_FEES: Record<string, number> = {
+  "48813": 32, "49011": 25, "49014": 20, "49015": 20, "49016": 20,
+  "49017": 20, "49021": 24, "49029": 24, "49033": 16.95, "49034": 32,
+  "49036": 32, "49037": 25, "49051": 25, "49068": 8.95, "49076": 20,
+  "49092": 20, "49094": 24, "49201": 32, "49202": 32, "49203": 32,
+  "49224": 20, "49245": 24, "49252": 32, "49284": 24,
+};
+
 export const site = {
   name: "DeVine's Flowers & Botanicals",
   shortName: "DeVine's",
@@ -70,11 +79,10 @@ export const site = {
     "Union City", "Coldwater", "Athens", "Jackson", "Springport",
   ],
 
-  deliveryZips: [
-    "48813", "49011", "49014", "49015", "49016", "49017", "49021", "49029",
-    "49033", "49034", "49036", "49037", "49051", "49068", "49076", "49092",
-    "49094", "49201", "49202", "49203", "49224", "49245", "49252", "49284",
-  ],
+  /** The zips we deliver to: exactly the ones on the fee sheet below, so
+      the two can never drift (checkout prices by the sheet; the board,
+      ZipCheck and the ticket judge "on the list" by this). */
+  deliveryZips: Object.keys(DELIVERY_FEES),
 
   /**
    * DELIVERY FEES AND MINIMUMS, confirmed by the owner 2026-09-01: her
@@ -88,13 +96,7 @@ export const site = {
    * The question sits on her list. The same-day CUTOFF remains genuinely
    * unanswered and stays a placeholder.
    */
-  deliveryFees: {
-    "48813": 32, "49011": 25, "49014": 20, "49015": 20, "49016": 20,
-    "49017": 20, "49021": 24, "49029": 24, "49033": 16.95, "49034": 32,
-    "49036": 32, "49037": 25, "49051": 25, "49068": 8.95, "49076": 20,
-    "49092": 20, "49094": 24, "49201": 32, "49202": 32, "49203": 32,
-    "49224": 20, "49245": 24, "49252": 32, "49284": 24,
-  } as Record<string, number>,
+  deliveryFees: DELIVERY_FEES,
   marshallZip: "49068",
   /** Flowers subtotal a delivery order starts at (see the note above). */
   deliveryMinimums: { marshall: 45, outside: 55 },
@@ -168,5 +170,11 @@ export const DAYS_CLOSED = site.hours.filter((h) => h.open === null).map((h) => 
 export function formatHours(h: (typeof site.hours)[number]): string {
   return h.open && h.close ? `${h.open} to ${h.close}` : "Closed";
 }
+
+/** The zip sheet, looked up safely: a typed "toString" or "constructor"
+    must read as "not on the sheet", not as an inherited function. Every
+    fee lookup on the server and the client goes through here. */
+export const deliveryFeeFor = (zip: string): number | undefined =>
+  Object.prototype.hasOwnProperty.call(site.deliveryFees, zip) ? (site.deliveryFees as Record<string, number>)[zip] : undefined;
 
 export const addressOneLine = `${site.address.street}, ${site.address.city}, ${site.address.state} ${site.address.zip}`;

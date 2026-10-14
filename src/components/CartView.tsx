@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/components/Cart";
 import ProductImage from "@/components/ProductImage";
 import { bySlug, money, products } from "@/lib/catalog";
-import { site } from "@/lib/site";
+import { deliveryFeeFor, site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
 import { loadSquareSdk, type BillingContact, type SquareCard } from "@/lib/square/web-sdk";
@@ -67,7 +67,20 @@ type Outcome =
   | { state: "sending" }
   | { state: "sent"; number: string; paid?: { totalCents: number; feeCents: number; receiptUrl?: string } }
   | { state: "invalid"; message: string }
+  /** A card payment was sent and no answer came back: it may have gone
+      through. The form stays, the attempt id stays, and a retry is safe. */
+  | { state: "unsure"; message: string }
+  /** The server says this attempt already charged: the order is in. */
+  | { state: "already"; message: string }
   | { state: "unreached"; reason: "unconfigured" | "send-failed" };
+
+/** One id per card attempt, kept until the server gives a definite answer
+    (paid, declined, refused), so a retry after a lost answer cannot charge
+    twice: the server keys Square's idempotency on it. */
+const newAttemptId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 
 type CardConfig = { cards: boolean; applicationId?: string; locationId?: string; env?: string; feeCents?: number };
 
@@ -97,6 +110,7 @@ export default function CartView() {
   const { items, subtotal, setQty, remove, count, clear, add, lines } = useCart();
   const [checkingOut, setCheckingOut] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ state: "idle" });
+  const attemptRef = useRef<string>("");
 
   /*
     THE CARD MESSAGE IS WRITTEN HERE, NOT ON THE PHONE. Someone ordering funeral
@@ -184,7 +198,7 @@ export default function CartView() {
 
   const delivering0 = fulfillment === "delivery";
   const zipTrim = zip.trim();
-  const deliveryFee = delivering0 ? site.deliveryFees[zipTrim] : undefined;
+  const deliveryFee = delivering0 ? deliveryFeeFor(zipTrim) : undefined;
   const deliveryMin = delivering0
     ? zipTrim === site.marshallZip
       ? site.deliveryMinimums.marshall
@@ -294,8 +308,10 @@ export default function CartView() {
   const cardTotalCents = baseCents + convenienceCents;
 
   // Client date, not build date: a statically frozen "today" once sold birds for
-  // the wrong year (glaze.md failure log). This runs per visit, in the browser.
-  const today = new Date().toISOString().slice(0, 10);
+  // the wrong year (glaze.md failure log). This runs per visit, in the browser,
+  // on the SHOP'S calendar: the board's "today" is Marshall's, and an evening
+  // order read in UTC was a day ahead of it.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: site.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
   const delivering = fulfillment === "delivery";
 
@@ -331,7 +347,7 @@ export default function CartView() {
         ? { street: dStreet, town: dTown, state: site.address.state, zip: dZip.trim() }
         : { street: dom("billStreet", billStreet), town: dom("billTown", billTown), state: dom("billState", billState).trim().toUpperCase().slice(0, 2), zip: dom("billZip", billZip).trim() }
       : undefined;
-    let cardPayload: { sourceId: string } | undefined;
+    let cardPayload: { sourceId: string; attempt: string } | undefined;
     if (payMethod === "card") {
       try {
         if (!cardRef.current) throw new Error("The card field is not ready yet.");
@@ -357,7 +373,8 @@ export default function CartView() {
           sellerKeyedIn: false,
         });
         if (t.status !== "OK" || !t.token) throw new Error(t.errors?.[0]?.message || "The card did not go through. Check the number.");
-        cardPayload = { sourceId: t.token };
+        if (!attemptRef.current) attemptRef.current = newAttemptId();
+        cardPayload = { sourceId: t.token, attempt: attemptRef.current };
       } catch (err) {
         setOutcome({ state: "invalid", message: err instanceof Error ? err.message : "The card did not go through." });
         return;
@@ -383,16 +400,36 @@ export default function CartView() {
       });
       const body = await res.json().catch(() => null);
       if (res.ok && body?.ok) {
+        attemptRef.current = "";
         setOutcome({ state: "sent", number: body.number, paid: body.paid });
         clear();
-      } else if (res.status === 400 || res.status === 402) {
+      } else if (res.status === 400 || res.status === 402 || res.status === 503) {
+        // A definite no: nothing was charged, the server says why. The
+        // next try is a new attempt.
+        attemptRef.current = "";
         setOutcome({ state: "invalid", message: body?.error || "Something in the order needs another look." });
+      } else if (res.status === 409 && cardPayload) {
+        // This attempt already charged (a doubled send, or the retry after
+        // a lost answer). The order is in; nothing to redo.
+        setOutcome({ state: "already", message: body?.error || `That payment already went through; your receipt is on its way. If it does not arrive, call the shop at ${site.phone}.` });
+      } else if (cardPayload) {
+        // Sent, unanswered. The attempt id is kept so a retry cannot be a
+        // second charge, and the words say "may have", not "did not".
+        setOutcome({
+          state: "unsure",
+          message: body?.error || `We did not hear back after sending your payment, so your card may or may not have been charged. You can try once more: if the first payment went through, we will say so and not charge again. Or call the shop at ${site.phone}.`,
+        });
       } else {
         setOutcome({ state: "unreached", reason: body?.reason === "unconfigured" ? "unconfigured" : "send-failed" });
       }
     } catch {
-      // The fetch itself failed: offline, or the site is down. Same honesty.
-      setOutcome({ state: "unreached", reason: "send-failed" });
+      // The fetch itself failed: offline, or the site is down. Same honesty,
+      // and for a card the same "unsure" (the request may have arrived).
+      if (cardPayload) {
+        setOutcome({ state: "unsure", message: `The connection dropped after your payment was sent, so your card may or may not have been charged. You can try once more: if the first payment went through, we will say so and not charge again. Or call the shop at ${site.phone}.` });
+      } else {
+        setOutcome({ state: "unreached", reason: "send-failed" });
+      }
     }
   }
 
@@ -912,6 +949,16 @@ export default function CartView() {
                 <div aria-live="polite">
                   {outcome.state === "invalid" && (
                     <p style={{ color: "var(--rose-ink)", fontWeight: 600, marginTop: 10 }}>{outcome.message}</p>
+                  )}
+                  {outcome.state === "unsure" && (
+                    <div className="notice" role="status" style={{ marginTop: 14 }}>
+                      <p style={{ margin: 0 }}><strong>{outcome.message}</strong></p>
+                    </div>
+                  )}
+                  {outcome.state === "already" && (
+                    <div className="notice" role="status" style={{ marginTop: 14 }}>
+                      <p style={{ margin: 0 }}><strong>{outcome.message}</strong></p>
+                    </div>
                   )}
                   {outcome.state === "unreached" && (
                     <div className="notice" role="status" style={{ marginTop: 14 }}>

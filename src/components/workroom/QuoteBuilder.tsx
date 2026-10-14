@@ -216,10 +216,22 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
     }
     // Tax rides to the board as its own line, or the board's subtotal would
     // disagree with the total the couple just agreed to (the funeral pad
-    // learned the same lesson with its delivery line).
-    if (pricing.tax > 0) lines.push({ name: `Sales tax (${pricing.taxPct}%)`, each: pricing.tax, qty: 1 });
-    if (pricing.delivery > 0) lines.push({ name: "Delivery", each: pricing.delivery, qty: 1 });
+    // learned the same lesson with its delivery line). The quote's total is
+    // computed on unrounded piece prices and the board's on rounded ones,
+    // so the tax line carries the cents between them: the board's subtotal
+    // IS the quoted total, to the penny. Delivery goes as the route's own
+    // delivery line (deliveryFee below), which the board recognises.
     if (pricing.setup > 0) lines.push({ name: "Setup & installation", each: pricing.setup, qty: 1 });
+    const onBoard = lines.reduce((s, l) => s + Math.round(l.each * l.qty * 100), 0);
+    const rest = Math.round(pricing.total * 100) - onBoard - Math.round(pricing.delivery * 100);
+    if (pricing.tax > 0 && rest > 0) lines.push({ name: `Sales tax (${pricing.taxPct}%)`, each: rest / 100, qty: 1 });
+    else if (rest > 0) lines.push({ name: "Rounding", each: rest / 100, qty: 1 });
+    else if (rest < 0) {
+      // The route clamps a negative line to $0, so a shortfall is taken
+      // off one single-quantity line instead of sent as its own row.
+      const at = lines.findIndex((l) => l.qty === 1 && Math.round(l.each * 100) + rest > 0);
+      if (at >= 0) lines[at] = { ...lines[at], each: (Math.round(lines[at].each * 100) + rest) / 100 };
+    }
     setPlacing(true);
     const r = await fetch("/api/workroom/orders", {
       method: "POST",
@@ -237,6 +249,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
         cardMessage: "",
         notes: draft.notes,
         lines,
+        deliveryFee: pricing.delivery,
       }),
     });
     const d = (await r.json().catch(() => null)) as { ok?: boolean; order?: { number: string }; error?: string } | null;

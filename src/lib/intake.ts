@@ -2,7 +2,7 @@ import "server-only";
 
 import nodemailer from "nodemailer";
 import { bySlug, money } from "@/lib/catalog";
-import { site, addressOneLine } from "@/lib/site";
+import { site, addressOneLine, deliveryFeeFor } from "@/lib/site";
 import { occasions as OCCASIONS } from "@/lib/occasions";
 import { block, esc, logoAttachment, longDay, orderTable, phoneLink, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
@@ -174,9 +174,11 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
  * with different names on them survive one anyway.
  */
 function orderNumber(): string {
-  const now = new Date();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
+  // The shop's clock, not the server's: a 9 pm order on the 14th is a
+  // 1014 number, whatever UTC says.
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: site.timeZone, month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const mm = parts.find((p) => p.type === "month")?.value ?? "00";
+  const dd = parts.find((p) => p.type === "day")?.value ?? "00";
   const rand = String(Math.floor(Math.random() * 10000)).padStart(4, "0");
   return `DV-${mm}${dd}-${rand}`;
 }
@@ -282,7 +284,7 @@ function customerCopyHtml(o: PricedOrder, paid?: PaidOnline): string {
   } else if (o.fulfillment === "delivery") {
     // The same arithmetic the cart showed: the zip's fee and the total
     // due on the call, or a plain word that delivery is priced on the call.
-    const fee = site.deliveryFees[o.zip];
+    const fee = deliveryFeeFor(o.zip);
     if (fee !== undefined) {
       rows.push({ label: `Delivery (${o.zip})`, value: money(fee) });
       rows.push({ label: "Total due when we call", value: money(Math.round((o.subtotal + fee) * 100) / 100), strong: true });

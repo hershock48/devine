@@ -74,7 +74,7 @@ export async function POST(req: Request) {
 
   const store = getStore();
   const id = str(p.id, 40);
-  const existing = id ? (await store.listWeeklyOrders(200)).find((o) => o.id === id) : undefined;
+  const existing = id ? (await store.getWeeklyOrder(id)) ?? undefined : undefined;
   if (id && !existing) return NextResponse.json({ error: "No such order." }, { status: 404 });
   if (existing?.status === "received") {
     // The record of what the truck brought is a ledger source now. Editing
@@ -109,7 +109,7 @@ export async function PUT(req: Request) {
   if (!id || p?.action !== "receive") return NextResponse.json({ error: "Malformed." }, { status: 400 });
 
   const store = getStore();
-  const order = (await store.listWeeklyOrders(200)).find((o) => o.id === id);
+  const order = await store.getWeeklyOrder(id);
   if (!order) return NextResponse.json({ error: "No such order." }, { status: 404 });
   if (order.status === "received") {
     return NextResponse.json({ error: "Already received. The purchases are logged." }, { status: 409 });
@@ -180,7 +180,7 @@ export async function DELETE(req: Request) {
   const p = (await req.json().catch(() => ({}))) as { id?: unknown };
   const id = str(p.id, 40);
   if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
-  const order = (await getStore().listWeeklyOrders(200)).find((o) => o.id === id);
+  const order = await getStore().getWeeklyOrder(id);
   if (order?.status === "received") {
     // Deleting a received order would orphan its logged purchases from the
     // paper trail while leaving them in the cooler ledger. Keep the record.

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { site } from "@/lib/site";
-import { isDeliveryLine } from "@/lib/workroom/derive";
+import { deliveryFeeFor } from "@/lib/site";
+import { deliveryLineName, isDeliveryLine } from "@/lib/workroom/derive";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
-import { chargeBoardOrder } from "@/lib/square/payments";
+import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure } from "@/lib/square/payments";
 import { getStore, type OrderPayment, type WorkroomLine } from "@/lib/workroom/store";
 
 /**
@@ -36,6 +36,9 @@ export async function POST(req: Request) {
   const id = typeof p.id === "string" ? p.id : "";
   const method = p.method === "card" || p.method === "cash" || p.method === "manual" ? p.method : null;
   const sourceId = typeof p.sourceId === "string" ? p.sourceId : undefined;
+  // The pane's id for this card attempt; kept across a retry whose
+  // answer was lost, so the retry cannot be a second charge (below).
+  const attempt = typeof p.attempt === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(p.attempt) ? p.attempt : "";
 
   if (!id || !method) return NextResponse.json({ error: "Order id and method are required." }, { status: 400 });
   if (method === "card" && !sourceId) return NextResponse.json({ error: "No card token arrived." }, { status: 400 });
@@ -61,10 +64,10 @@ export async function POST(req: Request) {
     business, the way it always was.
   */
   const hasDeliveryLine = order.lines.some(isDeliveryLine);
-  const zipFee = order.fulfillment === "delivery" && !hasDeliveryLine ? site.deliveryFees[order.zip] : undefined;
+  const zipFee = order.fulfillment === "delivery" && !hasDeliveryLine ? deliveryFeeFor(order.zip) : undefined;
   const lines: WorkroomLine[] =
     zipFee !== undefined
-      ? [...order.lines, { slug: null, name: `Delivery (${order.zip})`, qty: 1, each: zipFee }]
+      ? [...order.lines, { slug: null, name: deliveryLineName(order.zip), qty: 1, each: zipFee }]
       : order.lines;
   const subtotal = zipFee !== undefined ? Math.round((order.subtotal + zipFee) * 100) / 100 : order.subtotal;
 
@@ -92,30 +95,67 @@ export async function POST(req: Request) {
     );
   }
 
+  /* No fee at the board since the 2026-10-06 meeting: the shop's 3% card
+     fee is retired (site.ts), and the 99 cent platform fee rides website
+     orders only. Card and cash both charge exactly the lines. */
+  let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
   try {
-    /* No fee at the board since the 2026-10-06 meeting: the shop's 3% card
-       fee is retired (site.ts), and the 99 cent platform fee rides website
-       orders only. Card and cash both charge exactly the lines. */
-    const charged = await chargeBoardOrder(cfg, {
+    charged = await chargeBoardOrder(cfg, {
       workroomOrderId: order.id,
       orderNumber: order.number,
       lines: lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
       method,
       sourceId,
       cardFee: { name: "", cents: 0, appFeeCents: 0 },
+      // One payment per (order, attempt): a double tap, or a retry after
+      // a lost answer, carries the same attempt id with a fresh token and
+      // is refused by Square as a key reuse (409 below). Cash is keyed on
+      // the order alone; a cash ticket is paid once.
+      idempotencyKey: `${order.id}:${method === "card" ? attempt || sourceId : "cash"}`,
     });
-    const payment: OrderPayment = {
-      at: Date.now(),
-      method,
-      squarePaymentId: charged.paymentId,
-      totalCents: charged.totalCents,
-      feeCents: charged.feeCents,
-    };
-    if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
-    await store.setOrderPayment(order.id, payment);
-    return NextResponse.json({ ok: true, payment, receiptUrl: charged.receiptUrl });
   } catch (err) {
     console.error(`[devine] pay ${order.number} (${method}) failed:`, err);
-    return NextResponse.json({ error: String(err instanceof Error ? err.message : err).slice(0, 300) }, { status: 502 });
+    if (isIdempotencyReuse(err)) {
+      return NextResponse.json({ error: "That charge already went through. Reload the board before doing anything else." }, { status: 409 });
+    }
+    if (isPaymentUnsure(err)) {
+      return NextResponse.json(
+        { unsure: true, error: "No answer came back from Square, so the card MAY have been charged. Do not take the card again elsewhere. Tap Charge once more here: if the first charge went through, it will say so and not charge twice." },
+        { status: 502 },
+      );
+    }
+    // Square said no (a decline, a bad token): a definite not-charged.
+    return NextResponse.json({ error: String(err instanceof Error ? err.message : err).slice(0, 300) }, { status: 402 });
   }
+  // MONEY HAS MOVED. From here nothing may answer "it did not go through":
+  // a store blip after a successful charge is logged CRITICAL and the
+  // answer is still ok with the payment, because an error here reads as
+  // "try again" at the counter, and a second tap would charge twice. The
+  // Square payment carries the order id either way; the board can be
+  // reconciled from it.
+  const payment: OrderPayment = {
+    at: Date.now(),
+    method,
+    squarePaymentId: charged.paymentId,
+    totalCents: charged.totalCents,
+    feeCents: charged.feeCents,
+  };
+  // Three tries at the board, a breath apart: a blip is usually over by
+  // the second. If it still misses, the answer says so (boardMissed), the
+  // pane shows it in red instead of a clean PAID, and the webhook for this
+  // very payment marks the order within seconds anyway.
+  let boardMissed = false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
+      await store.setOrderPayment(order.id, payment);
+      boardMissed = false;
+      break;
+    } catch (err) {
+      boardMissed = true;
+      console.error(`[devine] ${attempt === 3 ? "CRITICAL: " : ""}pay ${order.number}: Square payment ${charged.paymentId} succeeded but the board write failed (try ${attempt}):`, err);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
+  }
+  return NextResponse.json({ ok: true, payment, receiptUrl: charged.receiptUrl, boardMissed });
 }

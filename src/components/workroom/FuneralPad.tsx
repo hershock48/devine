@@ -340,8 +340,10 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
        used to also land in cardMessage, so the board card said card message:
        "daughter" - but a ribbon is not a card, and Kevin read it as exactly
        that confusion (2026-09-02). A funeral order carries no card message. */
+    // Priced pieces only, the print's rule: a named piece with no price
+    // went to the board as a $0 line and Take-card charged that short total.
     const lines = draft.pieces
-      .filter((p) => p.name.trim())
+      .filter((p) => p.name.trim() && (Number(p.price) || 0) > 0)
       .map((p) => ({
         name: [p.name, p.ribbon ? `ribbon: ${p.ribbon}` : "", p.from ? `from ${p.from}` : ""].filter(Boolean).join(" · "),
         each: Number(p.price) || 0,
@@ -350,19 +352,24 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
     /* Checked BEFORE setPlacing: an early return after it left the button
        stuck on "Sending…" forever, reachable when every piece was unnamed. */
     if (lines.length === 0) {
-      setPlaceError("Name the pieces first; unnamed ones cannot go on the board.");
+      setPlaceError("Name and price the pieces first; an unnamed or unpriced piece cannot go on the board.");
+      return;
+    }
+    if (draft.pieces.some((p) => p.name.trim() && !((Number(p.price) || 0) > 0))) {
+      setPlaceError("A named piece has no price yet. Price it, or clear its name, before putting the order on the board.");
       return;
     }
     setPlacing(true);
     /*
-      Delivery rides along as a line. Without it the board's subtotal came out
-      $25 under the total the family was just shown and agreed to, which is
-      exactly the kind of quiet disagreement between two screens that makes
-      someone stop trusting both.
+      Delivery rides along as the route's own delivery line (sent as
+      deliveryFee, not as free text). Without a line the board's subtotal
+      came out $25 under the total the family was just shown and agreed to;
+      as free text the board did not recognise it, nagged "Delivery fee not
+      set", and an Adjust added a second delivery charge beside it. 0 is a
+      real answer and writes a $0 line, so nothing appends a zip fee later.
     */
     const deliveryCharge = Number(draft.delivery) || 0;
     if (pricing && pricing.tax > 0) lines.push({ name: `Sales tax (${pricing.taxPct}%)`, each: pricing.tax, qty: 1 });
-    if (deliveryCharge > 0) lines.push({ name: "Delivery to the service", each: deliveryCharge, qty: 1 });
     const setupCharge = Number(draft.setup) || 0;
     if (setupCharge > 0) lines.push({ name: "Setup at the service", each: setupCharge, qty: 1 });
     const notes = [
@@ -392,6 +399,7 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
         cardMessage: "",
         notes,
         lines,
+        deliveryFee: deliveryCharge,
       }),
     });
     const d = (await r.json().catch(() => null)) as { ok?: boolean; order?: { number: string }; error?: string } | null;

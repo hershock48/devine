@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { priceOrder, sendOrder, type PaidOnline, type PricedOrder } from "@/lib/intake";
-import { site } from "@/lib/site";
+import { deliveryFeeFor, site } from "@/lib/site";
 import { cardsEnabled } from "@/lib/square/cards";
-import { chargeBoardOrder, appFeeCents } from "@/lib/square/payments";
-import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/workroom/store";
+import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure, webFeeCents } from "@/lib/square/payments";
+import { getStore, newId, type OrderPayment, type SquareSale, type WorkroomOrder } from "@/lib/workroom/store";
+import { deliveryLineName } from "@/lib/workroom/derive";
 
 /**
  * POST /api/order. The only route on the site with a side effect.
@@ -52,10 +53,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: priced.error }, { status: 400 });
   }
 
-  const card = (raw as { card?: { sourceId?: unknown } }).card;
+  const card = (raw as { card?: { sourceId?: unknown; attempt?: unknown } }).card;
   const sourceId = typeof card?.sourceId === "string" ? card.sourceId : "";
+  // The browser's own id for this checkout attempt (see paidFlow). Shape
+  // checked, never trusted for anything but the idempotency key.
+  const attempt = typeof card?.attempt === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(card.attempt) ? card.attempt : "";
 
-  if (sourceId) return paidFlow(priced.order, sourceId);
+  if (sourceId) return paidFlow(priced.order, sourceId, attempt);
   // ONLINE ORDERS ARE PAID ONLINE (Kevin, 2026-10-13): while cards are
   // on, by the same test the cart's config uses, an unpaid order is
   // refused here too, not only hidden in the cart, so no request shape
@@ -75,7 +79,7 @@ export async function POST(req: Request) {
       is the order; a board miss is a log line, never a failed checkout.
     */
     try {
-      await getStore().createOrder(toWorkroomOrder(priced.order, "new", null));
+      await getStore().createOrder(toWorkroomOrder(priced.order, newId("wr"), "new", null));
     } catch (err) {
       console.error(`[devine] order ${priced.order.number} not written to the board:`, err);
     }
@@ -87,7 +91,7 @@ export async function POST(req: Request) {
   );
 }
 
-async function paidFlow(order: PricedOrder, sourceId: string) {
+async function paidFlow(order: PricedOrder, sourceId: string, attempt: string) {
   const cards = await cardsEnabled();
   if (!cards.on) {
     return NextResponse.json({ ok: false, error: "Card payment is not available online right now; the card was not charged. Please call the shop to order." }, { status: 503 });
@@ -103,7 +107,7 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
   */
   let deliveryFee = 0;
   if (order.fulfillment === "delivery") {
-    const fee = site.deliveryFees[order.zip];
+    const fee = deliveryFeeFor(order.zip);
     if (fee === undefined) {
       return NextResponse.json(
         { ok: false, error: `We don't deliver to ${order.zip} through the website, so the card was not charged. Give us a call at ${site.phone} and let's see what we can do, or choose pickup.` },
@@ -116,14 +120,15 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
   const id = newId("wr");
   const chargeLines = [
     ...order.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
-    ...(deliveryFee > 0 ? [{ name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }] : []),
+    ...(deliveryFee > 0 ? [{ name: deliveryLineName(order.zip), qty: 1, each: deliveryFee }] : []),
   ];
   /* The website's fee line is the 99 cent platform fee alone since the
      2026-10-06 meeting (the shop's 3% card fee is retired; see site.ts).
      It rides to the Glazed account as app_fee_money. The browser shows the
      same number (CartView, from /api/checkout/config) and Square's
      order-total check would catch any drift between the two. */
-  const convenienceCents = appFeeCents();
+  // One rule for the fee, shared with the checkout's config route.
+  const convenienceCents = webFeeCents(cfg);
   let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
   try {
     charged = await chargeBoardOrder(cfg, {
@@ -132,10 +137,38 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
       lines: chargeLines,
       method: "card",
       sourceId,
-      cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: appFeeCents() },
+      cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: convenienceCents },
+      // ONE KEY PER ATTEMPT, NOT PER TOKEN. The browser keeps one attempt
+      // id for as long as it is unsure whether a payment went through
+      // (its response was lost), and every card token is single-use, so
+      // a retry arrives with a new token and the same attempt. Keyed on
+      // the attempt plus what is being bought, the retry of a charge that
+      // did go through is refused by Square as a key reuse and answered
+      // 409 below; a changed cart is a different purchase and charges.
+      // A browser that sends no attempt falls back to the token itself,
+      // which still folds a doubled POST into one payment.
+      idempotencyKey: attempt
+        ? `web:${attempt}:${JSON.stringify(chargeLines)}:${convenienceCents}`
+        : `web:${sourceId}`,
     });
   } catch (err) {
     console.error(`[devine] online payment for ${order.number} failed:`, err);
+    if (isIdempotencyReuse(err)) {
+      // The same attempt arrived twice; the first one charged. Say so,
+      // rather than "not charged", which would invite a third.
+      return NextResponse.json(
+        { ok: false, error: `That payment already went through; your receipt is on its way. If it does not arrive, call the shop at ${site.phone}.` },
+        { status: 409 },
+      );
+    }
+    if (isPaymentUnsure(err)) {
+      // Sent, unanswered. Not "not charged": the browser keeps its attempt
+      // id and the retry settles it either way.
+      return NextResponse.json(
+        { ok: false, unsure: true, error: `We did not hear back from the card processor, so your card may or may not have been charged. You can try once more: if the first payment went through, we will say so and not charge again. Or call the shop at ${site.phone}.` },
+        { status: 502 },
+      );
+    }
     return NextResponse.json(
       { ok: false, error: `The card was not charged. Check the number and try again, or call the shop at ${site.phone}.` },
       { status: 402 },
@@ -163,14 +196,35 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
     // The board ticket carries the delivery line too, and its subtotal is
     // the whole order value (flowers + delivery), so the ticket's rows and
     // its Subtotal agree with what the card was charged.
-    const wr = { ...toWorkroomOrder(order, "confirmed", payment), id };
+    const wr = toWorkroomOrder(order, id, "confirmed", payment);
     if (deliveryFee > 0) {
-      wr.lines = [...wr.lines, { slug: null, name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }];
+      wr.lines = [...wr.lines, { slug: null, name: deliveryLineName(order.zip), qty: 1, each: deliveryFee }];
       wr.subtotal = Math.round((wr.subtotal + deliveryFee) * 100) / 100;
     }
     await getStore().createOrder(wr);
   } catch (err) {
     console.error(`[devine] CRITICAL: paid order ${order.number} (payment ${charged.paymentId}) not written to the board:`, err);
+  }
+  try {
+    // The sale, linked, written here too, and on its own: Square's webhook
+    // can fire before the board row above exists, and a sale stored
+    // unlinked in that gap would count as a walk-out in the stem numbers
+    // forever (Square does not redeliver on a 200). This write wins either
+    // order of arrival, and a failed board write above does not skip it.
+    const sale: SquareSale = {
+      id: charged.paymentId,
+      workroomOrderId: id,
+      orderId: charged.orderId,
+      locationId: cfg.locationId,
+      source: "CARD",
+      totalCents: charged.totalCents,
+      paidAt: new Date().toISOString(),
+      lines: [],
+      createdAt: Date.now(),
+    };
+    await getStore().upsertSquareSale(sale);
+  } catch (err) {
+    console.error(`[devine] paid order ${order.number}: sale ${charged.paymentId} not written; the webhook's copy will stand`, err);
   }
   try {
     await sendOrder(order, paid);
@@ -185,9 +239,9 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
   });
 }
 
-function toWorkroomOrder(o: PricedOrder, status: WorkroomOrder["status"], payment: OrderPayment | null): WorkroomOrder {
+function toWorkroomOrder(o: PricedOrder, id: string, status: WorkroomOrder["status"], payment: OrderPayment | null): WorkroomOrder {
   return {
-    id: newId("wr"),
+    id,
     number: o.number,
     source: "web",
     status,
