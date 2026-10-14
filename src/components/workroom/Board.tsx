@@ -146,7 +146,8 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   /** WHAT CAME IN SINCE ANYONE PRINTED (Kevin, 2026-10-12): the website
       orders nobody has printed yet, on every sign-in and every refresh,
       until each is printed or marked. One PDF per paper, so the morning is
-      two clicks: the delivery forms, then the pickup tickets. Read off
+      two clicks: the order forms (deliveries, and pickups with a card
+      message), then the plain pickup tickets. Read off
       the orders the board already polls (same window, same rule as the
       queue route), so there is one clock and no second request. */
   const [printError, setPrintError] = useState("");
@@ -791,7 +792,7 @@ function PrintBanner({
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         {forms.length > 0 && (
           <button type="button" className="btn btn--solid" disabled={busy !== ""} onClick={() => run("forms", () => onPrint("forms"))}>
-            {busy === "forms" ? "Opening…" : `Print ${forms.length === 1 ? "the delivery form" : `the ${forms.length} delivery forms`}`}
+            {busy === "forms" ? "Opening…" : `Print ${forms.length === 1 ? "the order form" : `the ${forms.length} order forms`}`}
           </button>
         )}
         {plain.length > 0 && (
