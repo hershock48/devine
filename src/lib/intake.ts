@@ -3,7 +3,7 @@ import "server-only";
 import nodemailer from "nodemailer";
 import { bySlug, money } from "@/lib/catalog";
 import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
-import { isTaxLine, taxFor, taxLineName } from "@/lib/workroom/derive";
+import { clock12, isTaxLine, taxFor, taxLineName } from "@/lib/workroom/derive";
 import { occasions as OCCASIONS } from "@/lib/occasions";
 import { block, esc, logoAttachment, longDay, orderTable, phoneLink, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
@@ -383,6 +383,7 @@ export async function sendWorkroomReceipt(o: {
   name: string;
   email: string;
   date: string;
+  neededBy?: string;
   fulfillment: string;
   recipient: string;
   lines: { name: string; qty: number; each: number }[];
@@ -405,7 +406,7 @@ export async function sendWorkroomReceipt(o: {
     `Thanks, ${o.name}. Here is your ${site.shortName} order, written up by the shop.`,
     "",
     `Order ${o.number}`,
-    `${o.fulfillment === "delivery" ? "Delivery" : "Pickup"} on ${o.date}${o.recipient && o.recipient !== o.name ? `, for ${o.recipient}` : ""}`,
+    `${o.fulfillment === "delivery" ? "Delivery" : "Pickup"} on ${o.date}${o.neededBy ? ` by ${clock12(o.neededBy)}` : ""}${o.recipient && o.recipient !== o.name ? `, for ${o.recipient}` : ""}`,
     "",
     ...o.lines.filter((l) => !isTaxLine(l)).map((l) => `  ${l.qty} x ${l.name}  ${money(l.each * l.qty)}`),
     ...o.lines.filter(isTaxLine).map((l) => `  ${l.name}  ${money(l.each * l.qty)}`),

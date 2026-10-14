@@ -163,6 +163,7 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
       town: str(p.town, 80),
       zip,
       date,
+      neededBy: /^([01]\d|2[0-3]):[0-5]\d$/.test(str(p.neededBy, 5)) ? str(p.neededBy, 5) : "",
       occasion: str(p.occasion, 40),
       cardMessage: str(p.cardMessage, site.cardMessageMax),
       notes: str(p.notes, 600),

@@ -59,6 +59,13 @@ export const HISTORY_DAYS = 400;
 export const deliveryLineName = (zip: string) => `Delivery (${zip || "no zip"})`;
 export const isDeliveryLine = (l: { name: string }) => l.name.startsWith("Delivery (");
 export const isTaxLine = (l: { name: string }) => l.name.startsWith("Sales tax");
+/** "14:30" as "2:30 pm"; anything else as "". Shared by the board, the
+    ticket and the receipt, so the time reads the same everywhere. */
+export const clock12 = (hhmm: string): string => {
+  if (!/^\d{2}:\d{2}$/.test(hhmm)) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+};
 export const taxLineName = `Sales tax (${Math.round(site.taxRate * 100)}%)`;
 /** The quote pads' setup lines ("Setup & installation", "Setup at the
     service"): a service, untaxed on her sheet like delivery. */
