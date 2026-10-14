@@ -139,13 +139,18 @@ function statementText(a: Account): string {
   ].join("\n");
 }
 
-/** A mailto: link carrying the statement, or null when the statement is
-    too long for one: browsers and mail apps cut a mailto body at about
-    2KB and say nothing, so a long month gets the Copy button instead. */
-function mailtoStatement(a: Account): string | null {
-  const subject = `Statement from ${site.shortName}: ${money(a.owedCents / 100)} due`;
-  const href = `mailto:${encodeURIComponent(a.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(statementText(a))}`;
-  return href.length <= 1800 ? href : null;
+/** The rows the server emails (statement-mail.ts), the same ones the
+    text statement lists. */
+function statementRows(a: Account) {
+  return a.orders
+    .filter((o) => owedOn(o) > 0)
+    .sort((x, y) => x.createdAt - y.createdAt)
+    .map((o) => ({
+      date: o.date,
+      number: o.number,
+      items: itemsOf(o).map((l) => `${l.qty} x ${l.name}`).join(", ") + (o.recipient && o.recipient !== o.name ? ` (for ${o.recipient})` : ""),
+      owed: money(owedOn(o) / 100),
+    }));
 }
 
 export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) {
@@ -157,6 +162,8 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
   const [showSettled, setShowSettled] = useState(false);
   const [find, setFind] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  /** Per account: "sending", or the time it went, or an error line. */
+  const [sent, setSent] = useState<Record<string, { at?: string; error?: string; busy?: boolean }>>({});
   const [error, setError] = useState("");
 
   const pull = useCallback(async () => {
@@ -199,6 +206,26 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
   const settled = shown.filter((a) => a.owedCents === 0);
   const owedAll = accounts.reduce((s, a) => s + a.owedCents, 0);
   const owingAll = accounts.filter((a) => a.owedCents > 0).length;
+
+  /* EMAIL FROM THE SHOP, not from whatever mail app the PC has (Kevin,
+     2026-10-14: the mailto link opened Edge's and Outlook's pickers and
+     the shop lives in Gmail). The server sends it from the shop's own
+     mailbox, branded like the receipts, and says when it went. */
+  async function emailStatement(a: Account) {
+    setSent((s) => ({ ...s, [a.key]: { busy: true } }));
+    try {
+      const r = await fetch("/api/workroom/accounts/statement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: a.email, name: a.name, company: a.company, rows: statementRows(a), balance: money(a.owedCents / 100) }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "The statement did not send.");
+      setSent((s) => ({ ...s, [a.key]: { at: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) } }));
+    } catch (err) {
+      setSent((s) => ({ ...s, [a.key]: { error: err instanceof Error ? err.message : "The statement did not send." } }));
+    }
+  }
 
   async function copyStatement(a: Account) {
     try {
@@ -251,11 +278,12 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
           </button>
           {a.owedCents > 0 && (
             <>
-              {a.email && mailtoStatement(a) && (
-                <a href={mailtoStatement(a) ?? undefined} style={{ fontSize: 14 }}>
-                  Email a statement
-                </a>
+              {a.email && (
+                <button type="button" disabled={sent[a.key]?.busy} onClick={() => emailStatement(a)} style={{ ...textButton, fontSize: 14 }}>
+                  {sent[a.key]?.busy ? "Sending…" : sent[a.key]?.at ? `Statement sent ${sent[a.key].at} · send again` : `Email the statement to ${a.email}`}
+                </button>
               )}
+              {sent[a.key]?.error && <span style={{ color: "var(--rose-ink)", fontSize: 14 }}>{sent[a.key].error}</span>}
               <button type="button" onClick={() => copyStatement(a)} style={{ ...textButton, fontSize: 14 }}>
                 {copied === a.key ? "Statement copied" : "Copy a statement"}
               </button>
