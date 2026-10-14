@@ -114,7 +114,14 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
   const name = str(p.name, 120);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(str(p.date, 10)) ? str(p.date, 10) : "";
   if (!name || !date || lines.length === 0) {
-    return { error: "An order needs a name, a date, and at least one item (pick a product or type a custom one with a price)." };
+    // A quick sale has its name and date filled in by the route, so its
+    // only possible miss is the items.
+    return {
+      error:
+        p.quick === true
+          ? "A quick sale needs at least one item (pick a product or type a custom one with a price)."
+          : "An order needs a name, a date, and at least one item (pick a product or type a custom one with a price).",
+    };
   }
   /*
     THE DELIVERY FEE IS A LINE ON THE TICKET, set while the order is rung up
@@ -215,6 +222,11 @@ async function freshNumber(date: string, taken: Set<string>): Promise<string> {
   }
 }
 
+/** Today on the shop's calendar (America/Detroit), yyyy-mm-dd, for the
+    quick sale's date: serverless runs in UTC, and a 9 pm sale on the 14th
+    is the 14th's sale. Same reading as the web checkout's. */
+const shopToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: site.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
 /**
  * ONE SALE, ONE OR MORE ORDERS (Kevin, 2026-10-14: "oaklawn hospital calls
  * and they want to place multiple orders, but use one card"). The form
@@ -228,8 +240,47 @@ async function freshNumber(date: string, taken: Set<string>): Promise<string> {
  */
 export async function POST(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
-  const p = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!p) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+  const raw = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!raw) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+  /*
+    A QUICK SALE (Kevin, 2026-10-14: "when someone walks in and just
+    purchases something small it just goes through and we don't have to
+    ask them a million questions"). The panel sends items, initials and
+    the tax-exempt box, nothing else; the route fills in the rest: a
+    pickup for "Walk-in", dated today, born DONE because it walked out
+    the door, one order and never a group. No phone and no email, so no
+    receipt goes out and nothing is waiting to print. Paid right after,
+    by the pay route, from the same panel.
+  */
+  const quick = raw.quick === true;
+  const p: Record<string, unknown> = quick
+    ? {
+        ...raw,
+        deliveries: undefined,
+        // The tax is this route's own arithmetic; a stated amount is the
+        // quote pads' business, not a walk-in's.
+        tax: undefined,
+        hold: false,
+        batchId: "",
+        account: false,
+        name: "Walk-in",
+        business: "",
+        phone: "",
+        email: "",
+        fulfillment: "pickup",
+        date: shopToday(),
+        neededBy: "",
+        recipient: "",
+        recipientPhone: "",
+        company: "",
+        street: "",
+        town: "",
+        zip: "",
+        occasion: "",
+        cardMessage: "",
+        notes: "",
+      }
+    : raw;
   const stops: Record<string, unknown>[] = Array.isArray(p.deliveries)
     ? p.deliveries.map((d) => (d && typeof d === "object" ? (d as Record<string, unknown>) : {}))
     : [p];
@@ -241,7 +292,7 @@ export async function POST(req: Request) {
   // The customer's own fields come from the body, never from an entry:
   // one sale is one customer, one way of paying, one receipt address.
   const shared: Record<string, unknown> = {};
-  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold"]) {
+  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold", "quick"]) {
     if (k in p) shared[k] = p[k];
   }
   const cache: PriceCache = { stemPrices: null };
@@ -271,8 +322,9 @@ export async function POST(req: Request) {
       // open, parked until someone finishes it. A group holds together,
       // and is then finished one card at a time, on whatever days the
       // questions close; each sends its own receipt as it is released.
-      status: p.hold === true ? "hold" : "confirmed",
+      status: p.hold === true ? "hold" : quick ? "done" : "confirmed",
       ...parsedAll[i],
+      ...(quick ? { quick: true } : {}),
       batchId,
       // A millisecond apart, so "order 2 of 3" is the second one typed,
       // on every reload (the store lists by creation time).

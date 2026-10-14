@@ -297,6 +297,13 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
   and coming-up sections, from the dashboard's order counts, from the pay route and
   from the webhook's order linking; it can only be entered from new or confirmed,
   unpaid. Releasing it (either button) sends the receipt a new phone order would.
+- **A quick sale is an ordinary done pickup with `quick: true`** (Kevin, 2026-10-14: a
+  walk-in buying something small). The board's Quick sale panel sends items, initials
+  and the tax-exempt box; the orders route fills in "Walk-in", pickup, today (shop
+  time), status done, source phone, then the panel pays it through the pay route like
+  any card. No email, so no receipt; not a web order, so never in the print queue. It
+  counts on the dashboard and in inventory by the same rules as any paid pickup; the
+  flag only changes what the card and the finished list call it.
 - **The two quoters share one data model and must stay at parity** (Kevin, 2026-10-12):
   any tool added to one belongs on the other, worded for its own thing. Deliberate
   exceptions: the funeral pad's owner-only build-math drawer, the wedding deposit

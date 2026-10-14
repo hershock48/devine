@@ -39,6 +39,7 @@ export default function PayControls({
   collectedCents = 0,
   paidInParts = false,
   batch,
+  start = "idle",
   onPaid,
 }: {
   orderId: string;
@@ -62,14 +63,19 @@ export default function PayControls({
       order's number and cents due, in the order the route deals a part
       payment out, so a lost board write can say which got what. */
   batch?: { ids: string[]; count: number; totalCents: number; name: string; owed: { number: string; cents: number }[] };
-  onPaid: () => void;
+  /** Open straight into card entry (the Quick sale panel's Take card,
+      2026-10-14: the card is already in hand, so no second tap). */
+  start?: "idle" | "card";
+  /** Paid: which way, and how many cents, so a caller can say "Done:
+      $12.72 cash" without a second read of the order. */
+  onPaid: (method?: "card" | "cash" | "manual", cents?: number) => void;
 }) {
   /** "one" or "all": which the buttons charge when a batch is offered. */
   const [scope, setScope] = useState<"one" | "all">("all");
   /** True after an unsure Square answer: the retry must send the same
       request, so the one/all choice is frozen until it is settled. */
   const [unsure, setUnsure] = useState(false);
-  const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual">("idle");
+  const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual">(start);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** True once Square's card field is attached and typeable. The charge
@@ -251,7 +257,7 @@ export default function PayControls({
               : "CHARGED, but the board did not save it. Do NOT charge again. Reload in a minute; the payment will appear.",
         );
       }
-      onPaid();
+      onPaid(method, charge);
     } catch (err) {
       setError(err instanceof Error ? err.message : "The payment did not go through.");
     } finally {
