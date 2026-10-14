@@ -79,7 +79,15 @@ async function readStatus() {
   const flags = new Set(
     (process.env.LAUNCH_FLAGS || "").split(",").map((f) => f.trim().toLowerCase()).filter(Boolean),
   );
-  return { signed, square, build, monthly, domain: flags.has("domain") };
+  // Flags set by hand in Vercel for what the rail cannot see: a build fee
+  // or a monthly paid outside it (a check at the counter, 2026-10-14).
+  return {
+    signed,
+    square,
+    build: flags.has("build") ? "lit" : build,
+    monthly: flags.has("monthly") || monthly,
+    domain: flags.has("domain"),
+  };
 }
 
 /** What only the shop can supply, ordered by what each item unblocks. The
