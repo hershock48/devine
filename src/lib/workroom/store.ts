@@ -157,6 +157,12 @@ export type WorkroomOrder = {
   /** When the counter's print helper printed it (web orders). Server-side
       so a restart or a second machine never prints it twice. */
   printedAt?: number;
+  /** A QUICK SALE (Kevin, 2026-10-14: "someone walks in and just
+      purchases something small"): rung up from the board's Quick sale
+      panel with items and initials only. Written as a done pickup for
+      "Walk-in" dated today, then paid on the spot; the flag is so the
+      board and the finished list can call it what it is. */
+  quick?: boolean;
 };
 
 export type StemEvent = {
