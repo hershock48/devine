@@ -174,6 +174,12 @@ export function formatHours(h: (typeof site.hours)[number]): string {
 /** The zip sheet, looked up safely: a typed "toString" or "constructor"
     must read as "not on the sheet", not as an inherited function. Every
     fee lookup on the server and the client goes through here. */
+/** The flowers-subtotal minimum for a delivery to this zip: Marshall's own
+    number for Marshall, the outside number for everywhere else. The website
+    enforces it; the workroom only says it (the counter can agree otherwise). */
+export const deliveryMinimumFor = (zip: string): number =>
+  zip === site.marshallZip ? site.deliveryMinimums.marshall : site.deliveryMinimums.outside;
+
 export const deliveryFeeFor = (zip: string): number | undefined =>
   Object.prototype.hasOwnProperty.call(site.deliveryFees, zip) ? (site.deliveryFees as Record<string, number>)[zip] : undefined;
 

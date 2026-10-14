@@ -489,7 +489,7 @@ type Store = {
       came from). The jsonb-blob decision pays off here: a new field is a
       key, not a migration. Keeps the status column in step when status is
       among the fields. */
-  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "canceledFrom">>): Promise<void>;
+  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "takenBy" | "canceledFrom">>): Promise<void>;
   /** THE PRINT CLAIM: stamp printedAt on those of these orders not yet
       stamped, and say which ones were taken. The one write that decides
       who prints: two phones, or a phone and the helper, asking for the

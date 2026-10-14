@@ -9,6 +9,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { isoDate, normalizeVariety } from "@/lib/workroom/derive";
+// The taker's-initials rule lives in lib/workroom/initials.ts (the route
+// reads it too); the input that applies it lives below.
+import { cleanInitials } from "@/lib/workroom/initials";
+export { INITIALS_ERROR, isInitials } from "@/lib/workroom/initials";
 
 export const field: React.CSSProperties = {
   width: "100%",
@@ -29,6 +33,35 @@ export const labelText: React.CSSProperties = {
 };
 
 export const money = (n: number) => `$${n.toFixed(2)}`;
+
+
+export function InitialsInput({
+  value,
+  onChange,
+  label = "Your initials",
+  placeholder = "KH",
+  describedBy,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  label?: string;
+  placeholder?: string;
+  describedBy?: string;
+}) {
+  return (
+    <input
+      aria-label={label}
+      aria-describedby={describedBy}
+      value={value}
+      onChange={(e) => onChange(cleanInitials(e.target.value))}
+      maxLength={3}
+      placeholder={placeholder}
+      autoCapitalize="characters"
+      autoComplete="off"
+      style={{ ...field, width: 96, textTransform: "uppercase", letterSpacing: "0.08em" }}
+    />
+  );
+}
 
 /**
  * The customer-identity key: last ten digits of whatever was typed. The

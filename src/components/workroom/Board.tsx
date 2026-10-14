@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
-import { deliveryFeeFor, site } from "@/lib/site";
-import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
+import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import { HISTORY_DAYS, isDeliveryLine, normalizeVariety, printPaperFor, waitingToPrint } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -61,6 +61,9 @@ type Order = {
 
 /** Editable while nothing has been made and no money has moved (the PUT
     route enforces the same line). */
+/** What a Made tap or a fix on the card may send beside the status. */
+type InitialsExtra = { madeBy?: string; takenBy?: string };
+
 const canEdit = (o: Order) => !o.payment && (o.status === "hold" || o.status === "new" || o.status === "confirmed");
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
@@ -220,11 +223,11 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     return () => clearInterval(t);
   }, [authed, pull]);
 
-  async function move(id: string, status: Order["status"], extra?: { madeBy?: string }) {
+  async function move(id: string, status: Order["status"], extra?: InitialsExtra) {
     await fetch("/api/workroom/orders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status, ...(extra?.madeBy ? { madeBy: extra.madeBy } : {}) }),
+      body: JSON.stringify({ id, status, ...(extra?.madeBy ? { madeBy: extra.madeBy } : {}), ...(extra?.takenBy ? { takenBy: extra.takenBy } : {}) }),
     });
     pull().catch(() => {});
   }
@@ -547,6 +550,7 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
                   : ""}
                 {o.phone ? ` · ${o.phone}` : ""}
                 {o.email ? ` · ${o.email}` : ""}
+                {o.takenBy ? ` · taken by ${o.takenBy}` : ""}
                 {o.madeBy ? ` · made by ${o.madeBy}` : ""}
               </p>
               {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
@@ -583,7 +587,7 @@ function Bucket({
   tone?: "late";
   orders: Order[];
   contacts: Contact[];
-  onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
+  onMove: (id: string, s: Order["status"], extra?: InitialsExtra) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
@@ -644,7 +648,7 @@ function Moves({
 }: {
   o: Order;
   next: { to: Order["status"]; label: string };
-  onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
+  onMove: (id: string, s: Order["status"], extra?: InitialsExtra) => void;
   /** Present while the order may still be edited (on hold, or not yet made). */
   onEdit?: () => void;
 }) {
@@ -817,33 +821,36 @@ function PrintBanner({
   );
 }
 
-/** "made by KD", with a fix: initials mistyped at the Made tap are
-    corrected here, through the same route, status unchanged. */
-function MadeBy({ o, onMove }: { o: Order; onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void }) {
+/** "taken by KH" and "made by KD", each with a fix: initials mistyped at
+    write-up or at the Made tap are corrected here, through the same route,
+    status unchanged. The taker's are two or three letters (the write-up
+    rule); the maker's keep their one-to-four. */
+function InitialsLine({ o, which, onMove }: { o: Order; which: "madeBy" | "takenBy"; onMove: (id: string, s: Order["status"], extra?: InitialsExtra) => void }) {
   const [editing, setEditing] = useState(false);
-  const [v, setV] = useState(o.madeBy ?? "");
+  const [v, setV] = useState(o[which] ?? "");
+  const word = which === "madeBy" ? "made by" : "taken by";
   if (!editing) {
     return (
       <p style={{ margin: "0 0 6px", fontSize: 13.5 }} className="muted">
-        made by {o.madeBy}
+        {word} {o[which]}
         {" · "}
-        <button type="button" onClick={() => { setV(o.madeBy ?? ""); setEditing(true); }} style={{ ...textButton, fontSize: 13 }}>
+        <button type="button" onClick={() => { setV(o[which] ?? ""); setEditing(true); }} style={{ ...textButton, fontSize: 13 }}>
           fix
         </button>
       </p>
     );
   }
-  const ok = /^[A-Za-z]{1,4}$/.test(v.trim());
+  const ok = which === "madeBy" ? /^[A-Za-z]{1,4}$/.test(v.trim()) : isInitials(v);
   return (
     <p style={{ margin: "0 0 6px", display: "flex", gap: 8, alignItems: "center", fontSize: 13.5 }}>
-      <span className="muted">made by</span>
+      <span className="muted">{word}</span>
       <input value={v} onChange={(e) => setV(e.target.value.toUpperCase())} maxLength={4} aria-label="Initials" autoFocus style={{ ...field, width: 72, textTransform: "uppercase" }} />
       <button
         type="button"
         className="btn"
         disabled={!ok}
         onClick={() => {
-          onMove(o.id, o.status, { madeBy: v.trim().toUpperCase() });
+          onMove(o.id, o.status, { [which]: v.trim().toUpperCase() });
           setEditing(false);
         }}
       >
@@ -986,7 +993,7 @@ function OrderCard({
 }: {
   o: Order;
   contacts: Contact[];
-  onMove: (id: string, s: Order["status"], extra?: { madeBy?: string }) => void;
+  onMove: (id: string, s: Order["status"], extra?: InitialsExtra) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
@@ -1021,7 +1028,7 @@ function OrderCard({
       <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
         <strong style={{ fontSize: 17 }}>{o.name}</strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
-          {o.number} · {o.source}{o.takenBy ? ` · taken by ${o.takenBy}` : ""}
+          {o.number} · {o.source}
           {" · "}
           {/* The order as a PDF on its paper (2026-10-12): the six-panel
               form for a delivery, plain paper for a pickup. Opens in a tab;
@@ -1074,7 +1081,8 @@ function OrderCard({
         {o.occasion && o.occasion !== "Everyday" ? ` · ${o.occasion}` : ""}
         {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
       </p>
-      {o.madeBy && <MadeBy o={o} onMove={onMove} />}
+      {o.takenBy && <InitialsLine o={o} which="takenBy" onMove={onMove} />}
+      {o.madeBy && <InitialsLine o={o} which="madeBy" onMove={onMove} />}
 
       {/* Built from the parts that exist: a phone order can be taken before
           the address is known, and "Smoke Test · ," is not an address. A named
@@ -1398,6 +1406,11 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   }
 
   const productBySlug = (slug: string): Product | undefined => sortedProducts.find((p) => p.slug === slug);
+  /** What one draft line costs each, by the rule the route will apply:
+      built by stems from the library, else the catalog price, else what
+      was typed. The warning and the items list read the same number. */
+  const lineEach = (l: DraftLine): number =>
+    l.byStems && canBuild(l) ? builtPrice(l).each : l.slug ? productBySlug(l.slug)?.price ?? 0 : Number(l.each) || 0;
 
   /** Save it. `hold` parks it (Katy, 2026-10-12: typed up with questions
       still open, not ready to make); otherwise it goes onto the board as
@@ -1413,8 +1426,8 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       setError(`"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`);
       return;
     }
-    if (!/^[A-Za-z]{2,3}$/.test(takenBy.trim())) {
-      setError("Your initials, two or three letters, before it goes on the board.");
+    if (!isInitials(takenBy)) {
+      setError(INITIALS_ERROR);
       return;
     }
     setSaving(hold ? "hold" : "board");
@@ -1474,12 +1487,15 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
      there to say yes; the counter is exactly the person who can. So the
      form says it, in the words the site would have used, and saves anyway.
      Items only, the fee excluded, the same reading the website enforces. */
-  const itemsTotal = lines.reduce((s, l) => {
-    const each = l.byStems && canBuild(l) ? builtPrice(l).each : l.slug ? productBySlug(l.slug)?.price ?? 0 : Number(l.each) || 0;
-    return s + each * l.qty;
-  }, 0);
-  const minimum = delivering && sheetFee !== undefined ? (zip.trim() === site.marshallZip ? site.deliveryMinimums.marshall : site.deliveryMinimums.outside) : 0;
-  const underMinimum = minimum > 0 && itemsTotal > 0 && itemsTotal < minimum;
+  const itemsTotal = lines.reduce((s, l) => s + lineEach(l) * l.qty, 0);
+  // A by-stems piece with a flower the library does not price would be
+  // summed short and could cry "under" at an order that is not; no warning
+  // until every piece can be priced.
+  const anyUnpriced = lines.some((l) => l.byStems && canBuild(l) && builtPrice(l).unpriced.length > 0);
+  // Any delivery zip, on the sheet or off it (a typed fee for an off-list
+  // zip is still a delivery, and the website would have refused it too).
+  const minimum = delivering && zip.trim().length >= 5 ? deliveryMinimumFor(zip.trim()) : 0;
+  const underMinimum = minimum > 0 && !anyUnpriced && itemsTotal > 0 && itemsTotal < minimum;
 
   return (
     <form onSubmit={submit} className="panel" style={{ maxWidth: 640, marginBottom: 30, display: "grid", gap: 14 }}>
@@ -2028,17 +2044,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
 
       <label style={{ maxWidth: 260 }}>
         <span style={labelText}>Taken by (your initials)</span>
-        <input
-          value={takenBy}
-          onChange={(e) => setTakenBy(e.target.value.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase())}
-          maxLength={3}
-          required
-          placeholder="KH"
-          autoCapitalize="characters"
-          autoComplete="off"
-          aria-describedby="wr-takenby-help"
-          style={{ ...field, width: 96, textTransform: "uppercase", letterSpacing: "0.08em" }}
-        />
+        <InitialsInput value={takenBy} onChange={setTakenBy} label="Taken by, your initials" describedBy="wr-takenby-help" />
         <span id="wr-takenby-help" style={{ display: "block", marginTop: 4, fontSize: 13, color: "var(--muted)" }}>
           Whoever took the order, so a question later knows who to ask. Two or three letters.
         </span>
