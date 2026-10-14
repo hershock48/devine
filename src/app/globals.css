@@ -46,6 +46,13 @@
   --paper-3: #ece4d5;
   --green: #37543c; /* living things only: stock state, the leaf rule */
   --rose-ink: #8a3f56; /* one warm accent, text-safe */
+  /* THE BOARD'S TWO WASHES (Kevin, 2026-10-14: "some sort of visual
+     element" for pickup against delivery). A delivery card sits on a warm
+     wash, a pickup card on a green one, each with its word in the header
+     so the colour is never the only signal. Both are a step off --paper-2
+     so the status accent on the left edge still reads. */
+  --wash-delivery: #f7ebe6;
+  --wash-pickup: #e9f0e7;
 
   /* ---- rhythm ---- */
   --u: 8px;
