@@ -26,13 +26,15 @@ export async function sendStatement(s: {
   const pass = process.env.SMTP_PASS;
   if (!host || !user || !pass) return { ok: false, error: "The shop's email is not set up on the server, so nothing was sent." };
   const who = [s.name, s.company].filter(Boolean).join(", ");
+  // "October 21, 2026", as the receipts say it, when the row's date is ISO.
+  const day = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : d);
   const asOf = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const text = [
     `${site.name}`,
     `Statement for ${who}`,
     `As of ${asOf}`,
     "",
-    ...s.rows.map((r) => `${r.date}  ${r.number}  ${r.items}  ${r.owed}`),
+    ...s.rows.map((r) => `${day(r.date)}  ${r.number}  ${r.items}  ${r.owed}`),
     "",
     `Balance due: ${s.balance}`,
     "",
@@ -41,7 +43,7 @@ export async function sendStatement(s: {
   const table = `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${s.rows
     .map(
       (r) =>
-        `<tr><td style="padding:8px 0;border-bottom:1px solid #e2dacc;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;white-space:nowrap;vertical-align:top;">${esc(r.date)}</td>` +
+        `<tr><td style="padding:8px 0;border-bottom:1px solid #e2dacc;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;white-space:nowrap;vertical-align:top;">${esc(day(r.date))}</td>` +
         `<td style="padding:8px 12px;border-bottom:1px solid #e2dacc;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;vertical-align:top;">${esc(r.number)}<br><span style="color:#6b6058;">${esc(r.items)}</span></td>` +
         `<td align="right" style="padding:8px 0;border-bottom:1px solid #e2dacc;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;white-space:nowrap;vertical-align:top;">${esc(r.owed)}</td></tr>`,
     )

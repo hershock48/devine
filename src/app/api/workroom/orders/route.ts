@@ -160,6 +160,7 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
   return {
     fields: {
       takenBy,
+      batchId: /^[A-Za-z0-9_-]{4,48}$/.test(str(p.batchId, 48)) ? str(p.batchId, 48) : "",
       account,
       taxExempt,
       taxId: taxExempt ? str(p.taxId, 40) : "",
