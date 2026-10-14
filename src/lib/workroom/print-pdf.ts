@@ -1,5 +1,17 @@
 import "server-only";
-import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import {
+  PDFDocument,
+  StandardFonts,
+  degrees,
+  rgb,
+  type PDFFont,
+  type PDFImage,
+  type PDFPage,
+  type PDFPageDrawImageOptions,
+  type PDFPageDrawLineOptions,
+  type PDFPageDrawRectangleOptions,
+  type PDFPageDrawTextOptions,
+} from "pdf-lib";
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
@@ -64,17 +76,22 @@ const MESSAGE_BOTTOM = 8.5 * IN - 2.75 * IN;
 /** The driver's stub starts a little further in than the other panels,
     as IRIS's does. */
 const STUB_INSET = 0.4 * IN;
-/** THE SHEET TRAVELS AS A PORTRAIT PAGE (Kevin's prints, 2026-10-13).
-    Printed from Edge as a landscape page, the form came out squeezed to
-    about two thirds of its width and pushed right, heights exact, twice,
-    with Edge and the driver both set to landscape. The form is still
-    drawn landscape, 11 by 8.5, and then the page is marked as turned a
-    quarter, so every viewer and driver sees a plain portrait Letter page
-    with the layout lying sideways in it. No orientation decision is left
-    to Edge or the Brother; the sheet comes out of the tray the same way.
-    If a print lands upside down against the letterhead, this is the one
-    number to flip, to 270. */
-const SHEET_TURN = 90;
+/** THE SHEET IS A PORTRAIT PAGE WITH THE LAYOUT LYING SIDEWAYS IN IT
+    (Kevin's prints, 2026-10-13, and the research after them). Edge, like
+    Chrome, mishandles a PDF page that is wider than it is tall: it
+    scaled the landscape form onto portrait paper instead of turning it
+    (Microsoft Q&A), the Chromium tracker has the wide-page print bug
+    open (issue 372435414), and a /Rotate flag on the page is ignored by
+    parts of the Windows print path, which is what the one print with it
+    showed. So the form is not a wide page at all: it is drawn in its
+    landscape coordinates, as before, through a surface that lays every
+    line and word sideways into an upright 8.5 by 11 page. Edge sees an
+    ordinary portrait Letter page and prints it as is; on the sheet, fed
+    short edge first, the layout comes out along the long edge, which is
+    where Windows puts a landscape page too. SHEET_TURN is the direction
+    of the turn, 90 or 270; if a print lands upside down against the
+    letterhead, flip it. */
+const SHEET_TURN: 90 | 270 = 90;
 
 const ink = rgb(0, 0, 0);
 const grey = rgb(0.25, 0.23, 0.2);
@@ -144,8 +161,38 @@ const weekdayOf = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateStrin
 const SHOP_TZ = site.timeZone;
 const stamp = (ms: number) => new Date(ms).toLocaleString("en-US", { timeZone: SHOP_TZ, month: "numeric", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 
+/** What the layout code draws on: a page, or a page turned sideways. */
+type Surface = {
+  drawText(text: string, options?: PDFPageDrawTextOptions): void;
+  drawLine(options: PDFPageDrawLineOptions): void;
+  drawRectangle(options?: PDFPageDrawRectangleOptions): void;
+  drawImage(image: PDFImage, options?: PDFPageDrawImageOptions): void;
+};
+
+/** A portrait page onto which the landscape layout is laid sideways. The
+    layout keeps its own coordinates (x along the 11 in edge, y up the
+    8.5 in edge); every point is mapped into the upright page and every
+    word turned with it. */
+function turned(page: PDFPage, turn: 90 | 270): Surface {
+  const W = 8.5 * IN;
+  const H = 11 * IN;
+  // 90: the layout's left edge lies along the page's bottom; 270: along its top.
+  const map = turn === 90 ? (x: number, y: number) => ({ x: W - y, y: x }) : (x: number, y: number) => ({ x: y, y: H - x });
+  const rot = degrees(turn);
+  return {
+    drawText: (text, o = {}) => page.drawText(text, { ...o, ...map(o.x ?? 0, o.y ?? 0), rotate: rot }),
+    drawLine: (o) => page.drawLine({ ...o, start: map(o.start.x, o.start.y), end: map(o.end.x, o.end.y) }),
+    drawRectangle: (o = {}) => {
+      const x = o.x ?? 0, y = o.y ?? 0, w = o.width ?? 0, h = o.height ?? 0;
+      const a = map(x, y), b = map(x + w, y + h);
+      page.drawRectangle({ ...o, x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) });
+    },
+    drawImage: (image, o = {}) => page.drawImage(image, { ...o, ...map(o.x ?? 0, o.y ?? 0), rotate: rot }),
+  };
+}
+
 type Pen = {
-  page: PDFPage;
+  page: Surface;
   reg: PDFFont;
   bold: PDFFont;
   serif: PDFFont;
@@ -303,8 +350,7 @@ async function pens(doc: PDFDocument): Promise<Omit<Pen, "page">> {
 /* ------------------------------ the sheet ------------------------------ */
 
 function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder, printedAt: number) {
-  const page = doc.addPage([11 * IN, 8.5 * IN]);
-  page.setRotation(degrees(SHEET_TURN));
+  const page = turned(doc.addPage([8.5 * IN, 11 * IN]), SHEET_TURN);
   const pen: Pen = { page, ...fonts };
   const box = (col: number, row: number, cols = 1, inset = PANEL_INSET) => ({
     x: col * PANEL_W + inset,
