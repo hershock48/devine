@@ -42,6 +42,7 @@ type Order = {
   email: string;
   fulfillment: "delivery" | "pickup";
   recipient: string;
+  recipientPhone?: string;
   company?: string;
   street: string;
   town: string;
@@ -108,6 +109,7 @@ type Contact = {
       ruling, same day). */
   fulfillment?: "delivery" | "pickup";
   recipient?: string;
+  recipientPhone?: string;
   company?: string;
   street?: string;
   town?: string;
@@ -1160,8 +1162,9 @@ function OrderCard({
         <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>
           {(() => {
             const where = [o.company, o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-            if (where) return `${o.recipient || o.name} · ${where}`;
-            return o.recipient || "No delivery address yet";
+            const who = `${o.recipient || o.name}${o.recipientPhone ? ` (${o.recipientPhone})` : ""}`;
+            if (where) return `${who} · ${where}`;
+            return o.recipient ? who : "No delivery address yet";
           })()}
           {zipFlag && (
             <strong style={{ color: "var(--rose-ink)" }}> · off the delivery list</strong>
@@ -1364,6 +1367,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   const [email, setEmail] = useState(editing?.email ?? "");
   const [recipient, setRecipient] = useState(editing?.recipient ?? "");
   const [company, setCompany] = useState(editing?.company ?? "");
+  const [recipientPhone, setRecipientPhone] = useState(editing?.recipientPhone ?? "");
   const [street, setStreet] = useState(editing?.street ?? "");
   const [town, setTown] = useState(editing?.town ?? "");
   const [zip, setZip] = useState(editing?.zip ?? "");
@@ -1514,6 +1518,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       taxId: taxExempt ? taxId.trim() : "",
       name, phone, email, fulfillment, date, neededBy, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
+      recipientPhone: fulfillment === "delivery" ? recipientPhone.trim() : "",
       company: company.trim(),
       // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
       // from the shop's meeting): it is the customer's own address, kept
@@ -1723,6 +1728,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
                   setEmail(c.email ?? "");
                   if (c.fulfillment) setFulfillment(c.fulfillment);
                   setRecipient(c.recipient ?? "");
+                  setRecipientPhone(c.recipientPhone ?? "");
                   setCompany(c.company ?? "");
                   setStreet(c.street ?? "");
                   setTown(c.town ?? "");
@@ -1814,6 +1820,12 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
           />
         </label>
       )}
+      {delivering && (
+        <label>
+          <span style={labelText}>Recipient&rsquo;s phone (optional, for the driver)</span>
+          <input value={recipientPhone} onChange={(e) => setRecipientPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="off" style={field} />
+        </label>
+      )}
 
       {/* RECIPIENTS COME FROM THE SAME HISTORY (Katy's question, 2026-10-06:
           "will the same happen with recipients?"). Yes: every delivery
@@ -1884,6 +1896,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
                   onClick={() => {
                     setTypedRecipient(false);
                     setRecipient(c.recipient ?? "");
+                    setRecipientPhone(c.recipientPhone ?? "");
                     setStreet(c.street ?? "");
                     setTown(c.town ?? "");
                     setZip(c.zip ?? "");

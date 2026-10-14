@@ -168,6 +168,7 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
       email: str(p.email, 160),
       fulfillment,
       recipient: str(p.recipient, 120),
+      recipientPhone: fulfillment === "delivery" ? str(p.recipientPhone, 40) : "",
       company: str(p.company, 120),
       street: str(p.street, 160),
       town: str(p.town, 80),

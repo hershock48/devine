@@ -47,6 +47,7 @@ export type IntakePayload = {
   email: string; // may be ""
   fulfillment: "delivery" | "pickup";
   recipient: string; // delivery only; "" on pickup
+  recipientPhone: string; // delivery only, optional; "" on pickup
   street: string; // delivery only
   town: string; // delivery only
   zip: string; // delivery only
@@ -112,6 +113,7 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
 
   const fulfillment = p.fulfillment === "pickup" ? "pickup" : "delivery";
   const recipient = str(p.recipient, 120);
+  const recipientPhone = fulfillment === "delivery" ? str(p.recipientPhone, 40) : "";
   const street = str(p.street, 160);
   const town = str(p.town, 80);
   const zip = str(p.zip, 10);
@@ -162,6 +164,7 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
       email,
       fulfillment,
       recipient,
+      recipientPhone,
       street,
       town,
       zip,
@@ -205,7 +208,7 @@ export function shopTicket(o: PricedOrder, paid?: PaidOnline): string {
   const where =
     o.fulfillment === "delivery"
       ? [
-          `Deliver to: ${o.recipient || o.name}`,
+          `Deliver to: ${o.recipient || o.name}${o.recipientPhone ? ` (${o.recipientPhone})` : ""}`,
           `Address: ${o.street}, ${o.town}${o.zip ? ` ${o.zip}` : ""}`,
           deliveryAreaLine(o),
         ]
@@ -266,7 +269,7 @@ function customerCopy(o: PricedOrder, paid?: PaidOnline): string {
     paid ? `Paid by card ${money(paid.totalCents / 100)}` : null,
     "",
     o.fulfillment === "delivery"
-      ? `Requested for delivery on ${o.date} to ${o.recipient || o.name}, ${o.street}, ${o.town}.`
+      ? `Requested for delivery on ${o.date} to ${o.recipient || o.name}${o.recipientPhone ? ` (${o.recipientPhone})` : ""}, ${o.street}, ${o.town}.`
       : `Requested for pickup on ${o.date} at ${addressOneLine}.`,
     o.cardMessage ? `Card message: ${o.cardMessage}` : null,
     "",
@@ -307,7 +310,7 @@ function customerCopyHtml(o: PricedOrder, paid?: PaidOnline): string {
   const sections = [
     block(`Order ${o.number}`, orderTable(o.lines.map((l) => ({ qty: l.qty, name: l.name, total: l.line })), rows)),
     o.fulfillment === "delivery"
-      ? block("Delivery", `${esc(when)}<br>${esc(o.recipient || o.name)}<br>${esc(o.street)}, ${esc(o.town)} ${esc(o.zip)}`)
+      ? block("Delivery", `${esc(when)}<br>${esc(o.recipient || o.name)}${o.recipientPhone ? ` · ${esc(o.recipientPhone)}` : ""}<br>${esc(o.street)}, ${esc(o.town)} ${esc(o.zip)}`)
       : block("Pickup", `${esc(when)}<br>${esc(addressOneLine)}`),
     textBlock("Card message", o.cardMessage),
     textBlock("Notes", o.notes),
