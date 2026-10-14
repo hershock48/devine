@@ -1017,7 +1017,7 @@ function OrderCard({
         opacity: o.status === "canceled" ? 0.55 : 1,
       }}
     >
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+      <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
         <strong style={{ fontSize: 17 }}>{o.name}</strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
           {o.number} · {o.source}
@@ -1030,9 +1030,15 @@ function OrderCard({
           <a href={`/api/workroom/print/${o.id}`} target="_blank" rel="noopener" style={{ padding: "4px 0" }}>
             Print
           </a>
-          {o.printedAt ? <span> · printed {new Date(o.printedAt).toLocaleString("en-US", { timeZone: site.timeZone, month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</span> : ""}
         </span>
       </header>
+      {/* The printed stamp on its own line (Kevin, 2026-10-13): in the
+          header it ran past the card's edge and under the next one. */}
+      {o.printedAt ? (
+        <p className="muted" style={{ margin: "2px 0 0", fontSize: 12.5 }}>
+          Printed {new Date(o.printedAt).toLocaleString("en-US", { timeZone: site.timeZone, month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}
+        </p>
+      ) : null}
 
       {prior.length > 0 && (
         <p style={{ margin: "2px 0 0", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--green)" }}>
