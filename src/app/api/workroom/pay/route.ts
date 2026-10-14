@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { balanceCents, collectedCents, deliveryLineName, isTaxLine, taxLineName, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, isTaxLine, taxLineName, ticketWithZipFee } from "@/lib/workroom/derive";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure } from "@/lib/square/payments";
@@ -89,9 +89,10 @@ export async function POST(req: Request) {
     sheet charges the lines as they stand; that fee is the confirm call's
     business, the way it always was.
   */
-  const zipFee = topUp ? undefined : zipFeeToAppend(order);
-  const ticketLines: WorkroomLine[] = zipFee !== undefined ? [...order.lines, { slug: null, name: deliveryLineName(order.zip), qty: 1, each: zipFee }] : order.lines;
-  const ticketSubtotal = zipFee !== undefined ? Math.round((order.subtotal + zipFee) * 100) / 100 : order.subtotal;
+  const ticket = topUp ? { lines: order.lines, subtotal: order.subtotal, appended: false } : ticketWithZipFee(order);
+  const feeAppended = ticket.appended;
+  const ticketLines: WorkroomLine[] = ticket.lines;
+  const ticketSubtotal = ticket.subtotal;
   // What is due now: the whole ticket (fee included) on a first payment,
   // the balance on a top-up. A part payment may be any amount up to it;
   // the fee still joins the ticket on the first payment, part or whole.
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
       totalCents: payCents,
       feeCents: 0,
     };
-    if (zipFee !== undefined) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
+    if (feeAppended) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
     await record(payment);
     return NextResponse.json({ ok: true, payment });
   }
@@ -187,7 +188,7 @@ export async function POST(req: Request) {
   let boardMissed = false;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      if (zipFee !== undefined) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
+      if (feeAppended) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
       await record(payment);
       boardMissed = false;
       break;
@@ -239,7 +240,15 @@ async function recordOnce(id: string, pmt: OrderPayment): Promise<void> {
   if (!fresh) return;
   const same = (q: OrderPayment | null | undefined) =>
     !!q && (pmt.squarePaymentId ? q.squarePaymentId === pmt.squarePaymentId : q.method === "other" && q.at === pmt.at);
-  if (same(fresh.payment) || (fresh.topUps ?? []).some(same)) return;
+  // The webhook can land first and write the same Square payment as a
+  // "register" ring; the counter's own record (card, cash) is the truer
+  // one and replaces it when it is the first payment. (A register top-up
+  // written first stays: it changes no arithmetic, only the word.)
+  if (same(fresh.payment)) {
+    if (fresh.payment!.method === "register" && pmt.method !== "register") await store.setOrderPayment(id, pmt);
+    return;
+  }
+  if ((fresh.topUps ?? []).some(same)) return;
   if (fresh.payment) await store.addOrderTopUp(id, pmt);
   else await store.setOrderPayment(id, pmt);
 }
@@ -259,7 +268,7 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
   // Each order's ticket as it will stand once charged (the sheet fee
   // appended to a delivery ticket that never carried one), what it is
   // owed, and the lines Square is told.
-  const parts: { o: WorkroomOrder; amountCents: number; lines: WorkroomLine[]; ticket: { lines: WorkroomLine[]; subtotal: number }; appended?: { lines: WorkroomLine[]; subtotal: number } }[] = [];
+  const parts: { o: WorkroomOrder; amountCents: number; lines: WorkroomLine[]; ticket: { lines: WorkroomLine[]; subtotal: number }; appended?: { lines: WorkroomLine[]; subtotal: number }; unreached?: boolean }[] = [];
   for (let i = 0; i < ids.length; i++) {
     const o = orders[i];
     if (!o) return NextResponse.json({ error: `No such order (${ids[i]}).` }, { status: 404 });
@@ -269,18 +278,16 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
       const due = balanceCents(o);
       if (due <= 0) return NextResponse.json({ error: `${o.number} is already paid.` }, { status: 409 });
       const ticket = { lines: o.lines, subtotal: o.subtotal };
-      parts.push({ o, amountCents: due, lines: partLines(`Balance on order ${o.number}`, due, ticket.lines, ticket.subtotal), ticket });
+      parts.push({ o, amountCents: due, lines: groupLines(o, `Balance on order ${o.number}`, due, ticket), ticket });
       continue;
     }
-    const zipFee = zipFeeToAppend(o);
-    const lines: WorkroomLine[] = zipFee !== undefined ? [...o.lines, { slug: null, name: deliveryLineName(o.zip), qty: 1, each: zipFee }] : o.lines;
-    const subtotal = zipFee !== undefined ? Math.round((o.subtotal + zipFee) * 100) / 100 : o.subtotal;
+    const { lines, subtotal, appended } = ticketWithZipFee(o);
     parts.push({
       o,
       amountCents: Math.round(subtotal * 100),
       lines: lines.map((l) => ({ ...l, name: `${o.number}: ${l.name}` })),
       ticket: { lines, subtotal },
-      appended: zipFee !== undefined ? { lines, subtotal } : undefined,
+      appended: appended ? { lines, subtotal } : undefined,
     });
   }
   const dueCents = parts.reduce((s, x) => s + x.amountCents, 0);
@@ -299,8 +306,12 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
       const share = Math.min(left, x.amountCents);
       left -= share;
       if (share < x.amountCents) {
-        x.lines = share > 0 ? partLines(`Part payment on order ${x.o.number}`, share, x.ticket.lines, x.ticket.subtotal) : [];
-        if (share === 0) x.appended = undefined;
+        x.lines = share > 0 ? groupLines(x.o, `Part payment on order ${x.o.number}`, share, x.ticket) : [];
+        // Not reached by this amount: no record at all, not a $0 one.
+        if (share === 0) {
+          x.appended = undefined;
+          x.unreached = true;
+        }
       }
       x.amountCents = share;
     }
@@ -309,7 +320,9 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
   // The reference stays the group's first order, whatever the amount
   // reached; the label counts only the orders this payment touches.
   const first = parts[0].o;
-  const funded = parts.filter((x) => x.amountCents > 0);
+  // Every order the amount reached, a $0 ticket included (it is settled
+  // by a $0 record, as it always was); only the unreached ones are left.
+  const funded = parts.filter((x) => !x.unreached);
   const label = funded.length > 1 ? `${funded[0].o.number} +${funded.length - 1}` : funded[0].o.number;
 
   // One timestamp for the request: the by-hand mark's own marker, so a
@@ -366,5 +379,12 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
       if (attemptNo < 3) await new Promise((r) => setTimeout(r, 400 * attemptNo));
     }
   }
-  return NextResponse.json({ ok: true, payment: { at: Date.now(), method, squarePaymentId: charged.paymentId, totalCents: charged.totalCents, feeCents: charged.feeCents }, receiptUrl: charged.receiptUrl, boardMissed });
+  return NextResponse.json({ ok: true, payment: { at, method, squarePaymentId: charged.paymentId, totalCents: charged.totalCents, feeCents: charged.feeCents }, receiptUrl: charged.receiptUrl, boardMissed });
+}
+
+/** A part or balance line for one order of a group, its tax line carrying
+    the order's number like every other line of the group's Square order,
+    so the sales-tax report can tie it to the order. */
+function groupLines(o: WorkroomOrder, name: string, cents: number, ticket: { lines: WorkroomLine[]; subtotal: number }): WorkroomLine[] {
+  return partLines(name, cents, ticket.lines, ticket.subtotal).map((l, i) => (i === 0 ? l : { ...l, name: `${o.number}: ${l.name}` }));
 }

@@ -137,6 +137,23 @@ export const netOfTax = (o: { subtotal: number; lines: { name: string; qty: numb
     board, the dashboard and the accounts tab quote by it. */
 export const zipFeeToAppend = (o: { fulfillment: string; zip: string; lines: { name: string }[] }): number | undefined =>
   o.fulfillment === "delivery" && !o.lines.some(isDeliveryLine) ? deliveryFeeFor(o.zip) : undefined;
+/** The ticket as it stands once paid: the sheet fee appended as a Delivery
+    line when the order never carried one, else the ticket as is. One copy
+    of the arithmetic for the single and the group pay paths. */
+export function ticketWithZipFee<L extends { slug: string | null; name: string; qty: number; each: number }>(o: {
+  fulfillment: string;
+  zip: string;
+  lines: L[];
+  subtotal: number;
+}): { lines: L[]; subtotal: number; appended: boolean } {
+  const fee = zipFeeToAppend(o);
+  if (fee === undefined) return { lines: o.lines, subtotal: o.subtotal, appended: false };
+  return {
+    lines: [...o.lines, { slug: null, name: deliveryLineName(o.zip), qty: 1, each: fee } as L],
+    subtotal: Math.round((o.subtotal + fee) * 100) / 100,
+    appended: true,
+  };
+}
 
 /**
  * WHICH PAPER AN ORDER PRINTS ON (Kevin's notes from the shop, 2026-10-12):
