@@ -183,7 +183,11 @@ export default function CartView() {
       ? site.deliveryMinimums.marshall
       : site.deliveryMinimums.outside
     : 0;
-  const belowMin = delivering0 && deliveryFee !== undefined && subtotal < deliveryMin;
+  /** The minimum is a gate (Kevin, 2026-10-13): under it, a delivery
+      order cannot be sent at all, paid or not, and the cart says exactly
+      how much more qualifies it. Applies whatever the zip; the sheet's
+      two numbers are the only two. */
+  const belowMin = delivering0 && subtotal < deliveryMin;
   /** Card payment is offered for pickups always, and for deliveries with a
       priceable zip that clears the minimum (owner's confirmed sheet). */
   const cardAllowed = cfg.cards && (!delivering0 || (deliveryFee !== undefined && !belowMin));
@@ -539,6 +543,10 @@ export default function CartView() {
                 ? "Pay by card at checkout, or send the order and pay when we call to confirm. Delivery is priced by zip at checkout."
                 : "No payment is taken online. We call to confirm every order, arrange delivery, and take payment then."}
             </p>
+            <p className="muted" style={{ fontSize: 14.5, marginTop: 4 }}>
+              Delivery orders are {money(site.deliveryMinimums.marshall)} and up in Marshall and{" "}
+              {money(site.deliveryMinimums.outside)} and up elsewhere, before the delivery fee. Pickup has no minimum.
+            </p>
 
             <label style={{ display: "block", marginTop: 20 }}>
               <span style={labelText}>
@@ -546,11 +554,17 @@ export default function CartView() {
               </span>
               <textarea
                 value={cardMessage}
-                onChange={(e) => setCardMessage(e.target.value)}
+                onChange={(e) => setCardMessage(e.target.value.slice(0, site.cardMessageMax))}
                 rows={3}
+                maxLength={site.cardMessageMax}
                 placeholder="Printed on the card exactly as you type it."
                 style={{ ...field, maxWidth: 560 }}
               />
+              {cardMessage.length > 0 && (
+                <span className="muted" style={{ display: "block", fontSize: 13, marginTop: 4, textAlign: "right", maxWidth: 560 }}>
+                  {cardMessage.length} / {site.cardMessageMax}
+                </span>
+              )}
             </label>
 
             {!checkingOut ? (
@@ -579,9 +593,9 @@ export default function CartView() {
                     </label>
                     <label>
                       <span style={labelText}>
-                        Email <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
+                        Email <span className="muted" style={{ fontWeight: 400 }}>(for your receipt)</span>
                       </span>
-                      <input name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" style={field} />
+                      <input name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" style={field} />
                     </label>
                   </div>
 
@@ -751,12 +765,11 @@ export default function CartView() {
                       otherwise send the order and we&rsquo;ll sort it on the confirming call.
                     </p>
                   )}
-                  {cfg.cards && belowMin && (
-                    <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }}>
-                      Delivery orders start at {money(deliveryMin)} in flowers{" "}
-                      {zipTrim === site.marshallZip ? "in Marshall" : "outside Marshall"}. Add a
-                      little more to pay by card now, or send it and we&rsquo;ll talk it through
-                      on the call.
+                  {belowMin && (
+                    <p style={{ fontSize: 14.5, margin: "-6px 0 0", color: "var(--rose-ink)", fontWeight: 600 }} aria-live="polite">
+                      Delivery orders are {money(deliveryMin)} and up before the delivery fee
+                      {zipTrim === site.marshallZip ? " in Marshall" : zipTrim.length === 5 ? " outside Marshall" : ""}.
+                      Add {money(deliveryMin - subtotal)} more to qualify for delivery, or choose pickup.
                     </p>
                   )}
 
@@ -857,18 +870,22 @@ export default function CartView() {
                   <button
                     className="btn btn--solid"
                     type="submit"
-                    disabled={outcome.state === "sending" || (payMethod === "card" && cardAllowed && !cardReady)}
+                    disabled={outcome.state === "sending" || belowMin || (payMethod === "card" && cardAllowed && !cardReady)}
                   >
                     {outcome.state === "sending"
                       ? payMethod === "card" ? "Charging…" : "Sending…"
-                      : payMethod === "card" && cardAllowed
-                        ? cardReady ? `Pay ${money(cardTotalCents / 100)} and place the order` : "Opening card field…"
-                        : "Send the order"}
+                      : belowMin
+                        ? "Add flowers to qualify for delivery"
+                        : payMethod === "card" && cardAllowed
+                          ? cardReady ? `Pay ${money(cardTotalCents / 100)} and place the order` : "Opening card field…"
+                          : "Send the order"}
                   </button>
                   <span className="muted" style={{ fontSize: 14.5 }}>
-                    {payMethod === "card" && cardAllowed
-                      ? "Charged once, when you tap the button."
-                      : "Nothing is charged online."}
+                    {belowMin
+                      ? `${money(deliveryMin - subtotal)} more, or pickup.`
+                      : payMethod === "card" && cardAllowed
+                        ? "Charged once, when you tap the button."
+                        : "Nothing is charged online."}
                   </span>
                 </p>
 

@@ -115,6 +115,26 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
   if (fulfillment === "delivery" && (!street || !town)) {
     return { error: "A delivery order needs a street address and a town." };
   }
+  // Required since 2026-10-13 (Kevin): the receipt, the copy of the order
+  // and the delivered note all go here; an online order without one has
+  // no paper trail for the buyer.
+  const email = str(p.email, 160);
+  if (!email || !email.includes("@")) return { error: "An email address is required, for your receipt." };
+
+  const subtotal = Math.round(lines.reduce((s, l) => s + l.line, 0) * 100) / 100;
+  // THE DELIVERY MINIMUM IS A GATE, not a note (Kevin, 2026-10-13): her
+  // sheet says $45 in Marshall, $55 elsewhere, before the delivery fee,
+  // and an order under it is not a delivery order. Checked for paid and
+  // pay-on-call alike; the cart says the same thing before this is reached.
+  if (fulfillment === "delivery") {
+    const inMarshall = zip === site.marshallZip;
+    const min = inMarshall ? site.deliveryMinimums.marshall : site.deliveryMinimums.outside;
+    if (subtotal < min) {
+      return {
+        error: `Delivery orders are $${min} and up before the delivery fee ${inMarshall ? "in Marshall" : "outside Marshall"}. Add $${(min - subtotal).toFixed(2)} more to qualify for delivery, or choose pickup.`,
+      };
+    }
+  }
 
   const occasionRaw = str(p.occasion, 40);
   const occasion = (OCCASIONS as readonly string[]).includes(occasionRaw) ? occasionRaw : "";
@@ -128,10 +148,10 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
     order: {
       number: orderNumber(),
       lines,
-      subtotal: Math.round(lines.reduce((s, l) => s + l.line, 0) * 100) / 100,
+      subtotal,
       name,
       phone,
-      email: str(p.email, 160),
+      email,
       fulfillment,
       recipient,
       street,
@@ -139,7 +159,7 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
       zip,
       date,
       occasion,
-      cardMessage: str(p.cardMessage, 600),
+      cardMessage: str(p.cardMessage, site.cardMessageMax),
       notes: str(p.notes, 600),
       ...(billing ? { billing } : {}),
     },
