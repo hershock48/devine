@@ -1,5 +1,6 @@
 /**
- * THE CATALOG. 57 products, harvested from their WooCommerce shop on 2026-08-20 and
+ * THE CATALOG. 58 products: 57 harvested from their WooCommerce shop on 2026-08-20 and
+ * one (Lucy) added by hand on 2026-10-14; the harvest notes below are about the 57, and
  * cross-checked against their own Store API, so every name, price and description
  * here is theirs rather than ours.
  *
@@ -204,6 +205,12 @@ export const products: Product[] = [
     desc: "A garden of bold color. Orange daisies, purple alstroemeria, magenta mini carnations, lavender button mums, solidago and a sunflower in mixed seasonal greenery." },
   { slug: "blooming-candle", name: "Blooming Candle", price: 70, cats: ["birthday"], img: "2024/07/IMG_8580-scaled.jpeg",
     desc: "Two gifts in one. Fresh flowers arranged into the top of a scented tinned candle, full of mixed greens, purple stock and larkspur, light blue delphinium, purple button mums, white cushion mums and filler." },
+  /* LUCY (Kevin, 2026-10-14: "Add Lucy to b-day", $105). New since the
+     harvest: no photo and no copy yet. The product page says so in the
+     owner's note until her description arrives, and a photo named
+     lucy.jpg through /photos becomes hers by slug. */
+  { slug: "lucy", name: "Lucy", price: 105, cats: ["birthday"], img: "",
+    desc: "PLACEHOLDER: a new arrangement, added 2026-10-14 at $105; the owner's description is still to come." },
   { slug: "clementine", name: "Clementine", price: 85, cats: ["birthday"], img: "2026/06/Screenshot-2026-06-01-105732.png",
     desc: "The warmth of summer, in double petaled gerbera daisies, snapdragons, sunset orange daisies, whimsical yellow butterfly ranunculus, purple statice and solidago, in a gray ceramic container with seasonal summer greenery." },
   { slug: "nicole", name: "Nicole", price: 110, cats: ["birthday"], img: "2025/04/Nicole-2-1.jpg",

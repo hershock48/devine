@@ -33,7 +33,7 @@ with the shop reachable beside it.
 | `public/pitch/devine/index.html` | The proposal. One self-contained file, no build step, hand-editable on a phone if a call goes sideways. |
 | `public/pitch/devine/og.jpg` | The proposal's link card, 1200x630, 44KB. Rendered from a real page, not assembled by hand. |
 | `src/lib/site.ts` | **Every business fact.** Hours, phone, address, delivery towns and zips, the per-zip delivery fees and the two order minimums (from her IRIS sheet, 2026-09-01), staff names and roles, policies. No card fee since 2026-10-06; the comment where `cardFeePct` used to be says why. One edit fixes any of them everywhere. |
-| `src/lib/catalog.ts` | All 57 products with their real names, prices and their own copy. Keyed on slug, never on name. `offMenu: true` (2026-10-14: Bridget, the two chocolate boxes) takes one off the site, the sitemap and the cart's add-on nudge while the workroom can still sell it; `menu` is what the site reads. The three Designer's Choice entries show one of her own shop photographs until a real one comes through /photos. |
+| `src/lib/catalog.ts` | All 58 products (57 harvested, Lucy added 2026-10-14) with their real names, prices and their own copy. Keyed on slug, never on name. `offMenu: true` (2026-10-14: Bridget, the two chocolate boxes) takes one off the site, the sitemap and the cart's add-on nudge while the workroom can still sell it; `menu` is what the site reads. The three Designer's Choice entries show one of her own shop photographs until a real one comes through /photos. |
 | `src/lib/image-manifest.json` | Which products have a real photograph, and its true pixel size. Generated, not hand-written. |
 | `src/components/ProductImage.tsx` | Decides photograph or generated art, per product. Nothing above it knows which. |
 | `src/lib/seo.ts` | `metadataBase`, the canonical host, and the `LocalBusiness` JSON-LD, all fed from `site.ts`. **`CANONICAL_HOST` is the pitch host today and must become their domain before the noindex comes off.** |
@@ -73,7 +73,7 @@ with the shop reachable beside it.
 | `src/lib/square/oauth.ts`, `src/app/api/square/connect/route.ts`, `src/app/api/square/oauth/callback/route.ts` | **The owner's Square account, connected through the Glazed app.** Two Square accounts are in play and the distinction is the whole design: the SHOP's account owns the register and the money; GLAZED's developer account owns the app she authorizes, and only a token issued through that authorization can carry the platform fee. `GET /api/square/connect` (workroom cookie) sends her browser to Square; the callback checks a state minted with the app secret, stores the grant in Neon (memory storage refuses, and says why) and lands on `/workroom?square=...`. `DELETE` revokes and forgets. With a grant stored, `SQUARE_ACCESS_TOKEN` is no longer consulted. |
 | `src/lib/square/payments.ts` | Card charges with the Glazed platform fee riding INSIDE the payment (`app_fee_money`: the customer pays the total, the shop receives it minus processing minus the fee). 99 cents by default, `SQUARE_APP_FEE_CENTS` overrides, 0 disables. Square's two hard rules are enforced here rather than discovered in a 400: fee only on an OAuth token, and never over 60% of a payment, so tiny totals drop the fee rather than fail the sale. Called by checkout and the board's pay route. |
 | `src/lib/square/web-sdk.ts`, `src/app/api/workroom/square-web/route.ts` | The Web Payments SDK loader, shared by the checkout and the board's card pane so the script hostname lives in one place: the first version pointed at a host that does not resolve and the card field died on its first live test. The gated route hands the board the ids it needs. |
-| `src/lib/square/sync.ts` | Catalog out: all 57 products pushed onto the register, keyed by writing each slug into the variation SKU, so no id mapping is ever stored. Items in her Square catalog that are not ours are counted as strays and never touched. |
+| `src/lib/square/sync.ts` | Catalog out: every product pushed onto the register, keyed by writing each slug into the variation SKU, so no id mapping is ever stored. Items in her Square catalog that are not ours are counted as strays and never touched. |
 | `src/app/api/square/webhook/route.ts` | Sales in. Square posts every payment; completed ones become `square_sales` rows with line items mapped back to catalog slugs by SKU. Signature-verified before parsing, no dev bypass. A sale rung as a custom amount lands with `slug: null`, visibly, because that habit is what starves the inventory numbers. |
 | `src/app/api/square/sync/route.ts` | POST runs the catalog push, GET reports integration status. Workroom-gated; the PIN also works as an `x-workroom-pin` header (throttled like login) so setup can be driven by curl. |
 | `src/app/api/square/sales/route.ts` | The ingested register sales, raw, for the workroom sales view to come. |
@@ -115,11 +115,11 @@ design, picks the shot on her phone, and it is emailed as `<slug>.jpg`. Then
 widths, updates the manifest and regenerates the product link cards. No eyeballing at
 either stage, and no code changes.
 
-**51 of 57 products have a photograph.** The six without: the three Designer's Choice
-pieces, which are whatever she designs that day and are excluded from the drop list on
-purpose, and the three classic wedding pieces (boutonniere, wrist corsage, bridesmaid
-bouquet). Those six render a generated botanical print built from the flower names in
-their own product copy. It is deliberately an illustration and never passes as a
+**54 of 58 products have a photograph.** The four without: the three classic wedding
+pieces (boutonniere, wrist corsage, bridesmaid bouquet) and Lucy, added 2026-10-14 at
+$105 with no photo or copy yet. (The three Designer's Choice pieces, whatever she designs
+that day, show one of her own shop photographs since 2026-10-14.) Those four render a
+generated botanical print built from the flower names in their own product copy. It is deliberately an illustration and never passes as a
 photograph.
 
 ## Zero to live
