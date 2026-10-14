@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveSquare } from "@/lib/square/oauth";
+import { cardsEnabled } from "@/lib/square/cards";
 import { appFeeCents } from "@/lib/square/payments";
 
 /**
@@ -19,16 +19,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const enabled = process.env.CHECKOUT_CARDS?.trim() === "on";
-  const appId = process.env.SQUARE_APP_ID?.trim();
-  if (!enabled || !appId) return NextResponse.json({ cards: false });
-  const cfg = await resolveSquare();
-  if (!cfg) return NextResponse.json({ cards: false });
+  const cards = await cardsEnabled();
+  if (!cards.on) return NextResponse.json({ cards: false });
   return NextResponse.json({
     cards: true,
-    applicationId: appId,
-    locationId: cfg.locationId,
-    env: cfg.env,
+    applicationId: cards.appId,
+    locationId: cards.cfg.locationId,
+    env: cards.cfg.env,
     // The whole Convenience fee since 2026-10-06: the 99 cent platform fee
     // alone, the shop's 3% card fee being retired (site.ts).
     feeCents: appFeeCents(),

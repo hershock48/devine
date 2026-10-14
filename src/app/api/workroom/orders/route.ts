@@ -134,7 +134,7 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
       zip,
       date,
       occasion: str(p.occasion, 40),
-      cardMessage: str(p.cardMessage, 600),
+      cardMessage: str(p.cardMessage, site.cardMessageMax),
       notes: str(p.notes, 600),
       lines,
       subtotal: Math.round(lines.reduce((s, l) => s + l.each * l.qty, 0) * 100) / 100,

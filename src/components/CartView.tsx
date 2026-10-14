@@ -136,6 +136,7 @@ export default function CartView() {
   const [cardFailed, setCardFailed] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
+  const zipCartRef = useRef<HTMLInputElement | null>(null);
   const zipRef = useRef<HTMLInputElement | null>(null);
   const sentHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
@@ -161,9 +162,11 @@ export default function CartView() {
     it live.
   */
   useEffect(() => {
-    if (!checkingOut) return;
     const t = setInterval(() => {
-      const dom = zipRef.current?.value ?? "";
+      // Whichever zip box is on screen (the cart's before checkout, the
+      // address block's after), an autofilled value is read back.
+      const dom = (checkingOut ? zipRef.current : zipCartRef.current)?.value;
+      if (dom === undefined) return;
       setZip((cur) => (dom !== cur ? dom : cur));
     }, 400);
     return () => clearInterval(t);
@@ -235,10 +238,17 @@ export default function CartView() {
   /** A delivery the site cannot price: no zip yet, or one off the sheet. */
   const zipBlocked = cfg.cards && delivering0 && deliveryFee === undefined;
 
-  // Mount Square's field only while the card option is chosen; tear it
-  // down when it is not, same lifecycle as the workroom's pane.
+  /* THE CARD FIELD FOLLOWS ITS BOX (review, 2026-10-13). The holder div
+     exists only while the checkout is open, the card is the method and
+     the order can be charged (a pickup, or a priced delivery over the
+     minimum). Square's field is attached when that becomes true and torn
+     down when it stops being true, and attached again the next time:
+     keyed on exactly the condition that renders the box, so it can never
+     be mounted before the box exists (and bail, silently, for good) or
+     survive the box unmounting with a dead iframe behind a live button. */
+  const cardBoxShown = checkingOut && payMethod === "card" && cardAllowed;
   useEffect(() => {
-    if (payMethod !== "card" || !cfg.cards || !cfg.applicationId || !cfg.locationId) return;
+    if (!cardBoxShown || !cfg.cards || !cfg.applicationId || !cfg.locationId) return;
     let dead = false;
     setCardReady(false);
     setCardFailed(false);
@@ -268,7 +278,7 @@ export default function CartView() {
       cardRef.current = null;
       setCardReady(false);
     };
-  }, [payMethod, cfg]);
+  }, [cardBoxShown, cfg]);
 
   /* The single Convenience fee line is the flat 99 cent platform fee
      alone since the 2026-10-06 meeting (the shop's 3% card fee is
@@ -589,6 +599,7 @@ export default function CartView() {
                 <label style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ ...labelText, display: "inline", margin: 0 }}>Delivery zip</span>
                   <input
+                    ref={zipCartRef}
                     name="zip-cart"
                     value={zip}
                     onChange={(e) => setZip(e.target.value)}
@@ -859,10 +870,10 @@ export default function CartView() {
                   >
                     {outcome.state === "sending"
                       ? payMethod === "card" ? "Charging…" : "Sending…"
-                      : belowMin
-                        ? `${money(deliveryMin - subtotal)} more for delivery`
-                        : zipBlocked
-                          ? zipTrim.length >= 5 ? "We can’t price that delivery online" : "Enter a delivery zip"
+                      : zipBlocked
+                        ? zipTrim.length >= 5 ? "We can’t deliver there online" : "Enter a delivery zip"
+                        : belowMin
+                          ? `${money(deliveryMin - subtotal)} more for delivery`
                           : cardFailed
                             ? "Card entry did not open"
                             : payMethod === "card" && cardAllowed
@@ -870,10 +881,10 @@ export default function CartView() {
                               : "Send the order"}
                   </button>
                   <span className="muted" style={{ fontSize: 14.5 }}>
-                    {belowMin
-                      ? `${money(deliveryMin - subtotal)} more for delivery, or pickup.`
-                      : zipBlocked
-                        ? `Call ${site.phone}, or choose pickup.`
+                    {zipBlocked
+                      ? zipTrim.length >= 5 ? `Call ${site.phone}, or choose pickup.` : "The zip prices the delivery."
+                      : belowMin
+                        ? `${money(deliveryMin - subtotal)} more for delivery, or pickup.`
                         : payMethod === "card" && cardAllowed
                           ? "Charged once, when you tap the button."
                           : "Nothing is charged online."}

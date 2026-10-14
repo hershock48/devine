@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { priceOrder, sendOrder, type PaidOnline, type PricedOrder } from "@/lib/intake";
 import { site } from "@/lib/site";
-import { resolveSquare } from "@/lib/square/oauth";
+import { cardsEnabled } from "@/lib/square/cards";
 import { chargeBoardOrder, appFeeCents } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/workroom/store";
 
@@ -56,11 +56,12 @@ export async function POST(req: Request) {
   const sourceId = typeof card?.sourceId === "string" ? card.sourceId : "";
 
   if (sourceId) return paidFlow(priced.order, sourceId);
-  // ONLINE ORDERS ARE PAID ONLINE (Kevin, 2026-10-13): while the card
-  // switch is on, an unpaid order is refused here too, not only hidden in
-  // the cart, so no request shape reaches the board unpaid. The switch
-  // off is the kill switch, and then every order is a call.
-  if (process.env.CHECKOUT_CARDS?.trim() === "on") {
+  // ONLINE ORDERS ARE PAID ONLINE (Kevin, 2026-10-13): while cards are
+  // on, by the same test the cart's config uses, an unpaid order is
+  // refused here too, not only hidden in the cart, so no request shape
+  // reaches the board unpaid. Cards off (the switch, or Square not
+  // resolving) is call mode everywhere, and then every order is a call.
+  if ((await cardsEnabled()).on) {
     return NextResponse.json({ ok: false, error: "Online orders are paid by card at checkout." }, { status: 400 });
   }
 
@@ -87,42 +88,29 @@ export async function POST(req: Request) {
 }
 
 async function paidFlow(order: PricedOrder, sourceId: string) {
-  if (process.env.CHECKOUT_CARDS?.trim() !== "on") {
-    return NextResponse.json({ ok: false, error: "Card payment is not available online yet." }, { status: 400 });
+  const cards = await cardsEnabled();
+  if (!cards.on) {
+    return NextResponse.json({ ok: false, error: "Card payment is not available online right now; the card was not charged. Please call the shop to order." }, { status: 503 });
   }
+  const cfg = cards.cfg;
 
   /*
     DELIVERY CAN PAY BY CARD since 2026-09-01: the owner confirmed her
     per-zip fee sheet and minimums, which dissolved the reason this was
     pickup-only (an unpriceable delivery meant an unchargeable total).
-    Two honest gates remain, both with the pay-on-call flow as the out:
-    a zip off her sheet cannot be priced, and the flowers subtotal must
-    clear her minimum ($45 Marshall / $55 outside, the stricter
-    fee-excluded reading; see site.ts).
+    One gate remains here: a zip off her sheet cannot be priced. The
+    minimum is checked once, in priceOrder, for every order shape.
   */
   let deliveryFee = 0;
   if (order.fulfillment === "delivery") {
     const fee = site.deliveryFees[order.zip];
     if (fee === undefined) {
       return NextResponse.json(
-        { ok: false, error: "We can only price delivery to zips on our list, so card payment is off for this one. Send the order and we will sort delivery on the confirming call." },
-        { status: 400 },
-      );
-    }
-    const inMarshall = order.zip === site.marshallZip;
-    const min = inMarshall ? site.deliveryMinimums.marshall : site.deliveryMinimums.outside;
-    if (order.subtotal < min) {
-      return NextResponse.json(
-        { ok: false, error: `Delivery orders are $${min} and up before the delivery fee ${inMarshall ? "in Marshall" : "outside Marshall"}. Add $${(min - order.subtotal).toFixed(2)} more to qualify for delivery, or choose pickup.` },
+        { ok: false, error: `We can't price delivery to ${order.zip} online, so the card was not charged. Call the shop at ${site.phone} and we'll tell you if we can get there, or choose pickup.` },
         { status: 400 },
       );
     }
     deliveryFee = fee;
-  }
-
-  const cfg = await resolveSquare();
-  if (!cfg) {
-    return NextResponse.json({ ok: false, error: "Card payment is not available right now; the order was not placed. You can order and pay on the confirming call instead." }, { status: 503 });
   }
 
   const id = newId("wr");
@@ -149,7 +137,7 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
   } catch (err) {
     console.error(`[devine] online payment for ${order.number} failed:`, err);
     return NextResponse.json(
-      { ok: false, error: "The card was not charged. Check the number and try again, or send the order and pay on the confirming call." },
+      { ok: false, error: `The card was not charged. Check the number and try again, or call the shop at ${site.phone}.` },
       { status: 402 },
     );
   }

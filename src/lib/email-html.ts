@@ -25,14 +25,25 @@ const SERIF = "Georgia, 'Times New Roman', serif";
 const SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 export const LOGO_CID = "devines-logo";
+/** Decoded once at module load, not once per email. */
+const LOGO_BUF = Buffer.from(LOGO_PNG_BASE64, "base64");
 
 /** nodemailer attachment for the mark; one per message. */
 export const logoAttachment = () => ({
   filename: "devines.png",
-  content: Buffer.from(LOGO_PNG_BASE64, "base64"),
+  content: LOGO_BUF,
   contentType: "image/png",
   cid: LOGO_CID,
 });
+
+/** "Friday, October 16", from the order's ISO date, on no clock in
+    particular: a date, not an instant. */
+export const longDay = (iso: string) =>
+  new Date(iso + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+
+/** The shop's number as a tap-to-call link in the palette. */
+export const phoneLink = () =>
+  `<a href="${esc(site.phoneHref)}" style="color:${GREEN};font-weight:600;text-decoration:none;">${esc(site.phone)}</a>`;
 
 export const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -117,7 +128,7 @@ export function shell(opts: { title: string; heading: string; intro: string; sec
         </tr>
         <tr>
           <td style="padding:16px 28px 28px;font:14px/1.6 ${SANS};color:${MUTED};">
-            ${opts.outro ?? `Questions or changes: call the shop at <a href="${esc(site.phoneHref)}" style="color:${GREEN};font-weight:600;text-decoration:none;">${esc(site.phone)}</a>.`}
+            ${opts.outro ?? `Questions or changes: call the shop at ${phoneLink()}.`}
             <br>${esc(site.name)}
           </td>
         </tr>
