@@ -106,7 +106,7 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
     const min = inMarshall ? site.deliveryMinimums.marshall : site.deliveryMinimums.outside;
     if (order.subtotal < min) {
       return NextResponse.json(
-        { ok: false, error: `Delivery orders start at $${min} in flowers ${inMarshall ? "in Marshall" : "outside Marshall"}. Add a little more, or send the order unpaid and we will talk it through on the confirming call.` },
+        { ok: false, error: `Delivery orders are $${min} and up before the delivery fee ${inMarshall ? "in Marshall" : "outside Marshall"}. Add $${(min - order.subtotal).toFixed(2)} more to qualify for delivery, or choose pickup.` },
         { status: 400 },
       );
     }

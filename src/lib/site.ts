@@ -98,6 +98,10 @@ export const site = {
   marshallZip: "49068",
   /** Flowers subtotal a delivery order starts at (see the note above). */
   deliveryMinimums: { marshall: 45, outside: 55 },
+  /** Characters on the enclosure card. What fits on the form's card panel
+      at a readable size with room to spare; the cart counts down to it and
+      the server cuts at it. */
+  cardMessageMax: 250,
 
   /*
     NO CARD FEE, since the 2026-10-06 meeting: Katy is baking processing
