@@ -188,6 +188,21 @@ export default function CartView() {
       how much more qualifies it. Applies whatever the zip; the sheet's
       two numbers are the only two. */
   const belowMin = delivering0 && subtotal < deliveryMin;
+  /** Said twice (Kevin, 2026-10-13): right under the Deliver-it choice,
+      where the decision is made, and again by the button, because by the
+      bottom of the form the buyer has already committed in their head.
+      Before a zip is typed it names both numbers and the smaller gap. */
+  const minNote = belowMin ? (
+    <p style={{ fontSize: 14.5, margin: "-6px 0 0", color: "var(--rose-ink)", fontWeight: 600 }} aria-live="polite">
+      {zipTrim === site.marshallZip ? (
+        <>Delivery orders are {money(site.deliveryMinimums.marshall)} and up before the delivery fee in Marshall. Add {money(site.deliveryMinimums.marshall - subtotal)} more to qualify for delivery, or choose pickup.</>
+      ) : zipTrim.length === 5 ? (
+        <>Delivery orders are {money(site.deliveryMinimums.outside)} and up before the delivery fee outside Marshall. Add {money(site.deliveryMinimums.outside - subtotal)} more to qualify for delivery, or choose pickup.</>
+      ) : (
+        <>Delivery orders are {money(site.deliveryMinimums.marshall)} and up in Marshall and {money(site.deliveryMinimums.outside)} and up elsewhere, before the delivery fee. Add at least {money(site.deliveryMinimums.marshall - subtotal)} more to qualify for delivery, or choose pickup.</>
+      )}
+    </p>
+  ) : null;
   /** Card payment is offered for pickups always, and for deliveries with a
       priceable zip that clears the minimum (owner's confirmed sheet). */
   const cardAllowed = cfg.cards && (!delivering0 || (deliveryFee !== undefined && !belowMin));
@@ -619,6 +634,7 @@ export default function CartView() {
                       ))}
                     </div>
                   </fieldset>
+                  {minNote}
 
                   {delivering && (
                     <>
@@ -765,13 +781,7 @@ export default function CartView() {
                       otherwise send the order and we&rsquo;ll sort it on the confirming call.
                     </p>
                   )}
-                  {belowMin && (
-                    <p style={{ fontSize: 14.5, margin: "-6px 0 0", color: "var(--rose-ink)", fontWeight: 600 }} aria-live="polite">
-                      Delivery orders are {money(deliveryMin)} and up before the delivery fee
-                      {zipTrim === site.marshallZip ? " in Marshall" : zipTrim.length === 5 ? " outside Marshall" : ""}.
-                      Add {money(deliveryMin - subtotal)} more to qualify for delivery, or choose pickup.
-                    </p>
-                  )}
+                  {minNote}
 
                   {/* Pay-on-call gets its breakdown too (Kevin's ask): the
                       buyer deserves the same arithmetic whichever way the
