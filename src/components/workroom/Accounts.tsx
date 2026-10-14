@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, isDeliveryLine, isTaxLine, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -97,7 +97,7 @@ function groupAccounts(orders: Order[]): Account[] {
       a.open += 1;
       if (!a.oldestOpenAt || o.createdAt < a.oldestOpenAt) a.oldestOpenAt = o.createdAt;
     }
-    if (o.payment && !o.payment.refundedAt) a.paidCents += o.payment.totalCents;
+    if (o.payment && !o.payment.refundedAt) a.paidCents += collectedCents(o);
     if (o.createdAt > a.lastAt) {
       a.lastAt = o.createdAt;
       // The newest order names the account: a corrected spelling wins.
@@ -310,7 +310,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                     </span>
                     <span style={{ whiteSpace: "nowrap" }}>
                       {o.payment && owed === 0
-                        ? <span style={{ color: "var(--green)", fontWeight: 600 }}>Paid {money(o.payment.totalCents / 100)}{o.payment.refundedAt ? ", refunded" : ""} · {when(o.payment.at)}</span>
+                        ? <span style={{ color: "var(--green)", fontWeight: 600 }}>Paid {money(collectedCents(o) / 100)}{o.payment.refundedAt ? ", refunded" : ""} · {when(o.payment.at)}</span>
                         : owed > 0
                           ? <strong>{money(owed / 100)} owed</strong>
                           : <span className="muted">nothing owed</span>}

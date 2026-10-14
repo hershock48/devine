@@ -1,8 +1,13 @@
 import "server-only";
 
-import nodemailer from "nodemailer";
 import { site } from "@/lib/site";
+import { shopMail } from "@/lib/mail";
 import { block, esc, logoAttachment, phoneLink, shell } from "@/lib/email-html";
+
+/** "DeVine Ventures LLC, 810 Industrial Dr, Marshall, MI 49068": the one
+    email that says this address, because this is the one that asks for
+    a check (Kevin, 2026-10-14). */
+const mailTo = `${site.mailing.name}, ${site.mailing.street}, ${site.mailing.city}, ${site.mailing.state} ${site.mailing.zip}`;
 
 /**
  * A HOUSE-ACCOUNT STATEMENT, sent from the shop's own mailbox (Kevin,
@@ -21,10 +26,8 @@ export async function sendStatement(s: {
   rows: StatementRow[];
   balance: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  if (!host || !user || !pass) return { ok: false, error: "The shop's email is not set up on the server, so nothing was sent." };
+  const mail = shopMail();
+  if (!mail) return { ok: false, error: "The shop's email is not set up on the server, so nothing was sent." };
   const who = [s.name, s.company].filter(Boolean).join(", ");
   // "October 21, 2026", as the receipts say it, when the row's date is ISO.
   const day = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : d);
@@ -38,6 +41,7 @@ export async function sendStatement(s: {
     "",
     `Balance due: ${s.balance}`,
     "",
+    `Checks can be mailed to ${mailTo}.`,
     `Questions: ${site.phone}. Thank you.`,
   ].join("\n");
   const table = `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${s.rows
@@ -48,25 +52,20 @@ export async function sendStatement(s: {
         `<td align="right" style="padding:8px 0;border-bottom:1px solid #e2dacc;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;white-space:nowrap;vertical-align:top;">${esc(r.owed)}</td></tr>`,
     )
     .join("")}<tr><td colspan="2" style="padding:12px 0 0;font:700 15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;">Balance due</td><td align="right" style="padding:12px 0 0;font:700 15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;">${esc(s.balance)}</td></tr></table>`;
-  const transport = nodemailer.createTransport({
-    host,
-    port: Number(process.env.SMTP_PORT || 465),
-    secure: Number(process.env.SMTP_PORT || 465) === 465,
-    auth: { user, pass },
-  });
   try {
-    await transport.sendMail({
-      from: process.env.ORDER_FROM || user,
+    await mail.transport.sendMail({
+      from: mail.from,
       to: s.to,
-      replyTo: process.env.ORDER_TO || undefined,
+      replyTo: mail.replyTo,
       subject: `Statement from ${site.shortName}: ${s.balance} due`,
       text,
       html: shell({
         title: `Statement from ${site.shortName}`,
         heading: "Your statement.",
         intro: `For ${esc(who)}, as of ${esc(asOf)}. These are the orders on your account that are still open.`,
-        sections: [block("Open orders", table)],
-        outro: `Questions, or to settle up: call the shop at ${phoneLink()}. Thank you for your business.`,
+        sections: [block("Open orders", table), block("To pay by check", `Make it out to <strong>${esc(site.mailing.name)}</strong> and mail it to<br>${esc(site.mailing.street)}, ${esc(site.mailing.city)}, ${esc(site.mailing.state)} ${esc(site.mailing.zip)}`)],
+        outro: `Questions, or to settle up by card: call the shop at ${phoneLink()}. Thank you for your business.`,
+        addressLine: mailTo,
       }),
       attachments: [logoAttachment()],
     });

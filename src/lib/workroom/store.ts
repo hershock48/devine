@@ -1,4 +1,5 @@
 import "server-only";
+import { balanceCents } from "./derive";
 
 /**
  * Workroom storage: orders, stem events, recipes.
@@ -672,8 +673,9 @@ const memoryStore: Store = {
     // Done-but-unpaid counts as open for aging: it is a receivable, and a
     // receivable that quietly leaves the board after 60 days disappears at
     // exactly the moment it most needs seeing. It ages off when paid.
+    // ...and so does a done order whose edit left a balance after a payment.
     const open = (o: WorkroomOrder) =>
-      (o.status !== "done" && o.status !== "canceled") || (o.status === "done" && !o.payment);
+      (o.status !== "done" && o.status !== "canceled") || (o.status === "done" && (!o.payment || balanceCents(o) !== 0));
     return [...bag().orders.values()]
       .filter((o) => open(o) || o.createdAt >= cutoff(days))
       .sort((a, b) => a.createdAt - b.createdAt);
@@ -992,6 +994,10 @@ const postgresStore: Store = {
          SELECT data, created_at FROM workroom_orders
          WHERE status NOT IN ('done', 'canceled')
             OR (status = 'done' AND data->>'payment' IS NULL)
+            OR (status = 'done' AND data->>'payment' IS NOT NULL AND
+                ROUND((data->>'subtotal')::numeric * 100) <>
+                  ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
+                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0))
             OR created_at >= $1
          ORDER BY created_at DESC LIMIT 2000
        ) t ORDER BY created_at ASC`,

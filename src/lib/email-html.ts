@@ -92,7 +92,7 @@ export function block(label: string, body: string): string {
 }
 
 /** The shell. `sections` are <tr> rows already; `intro` and `outro` are HTML. */
-export function shell(opts: { title: string; heading: string; intro: string; sections: string[]; outro?: string }): string {
+export function shell(opts: { title: string; heading: string; intro: string; sections: string[]; outro?: string; addressLine?: string }): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -112,7 +112,7 @@ export function shell(opts: { title: string; heading: string; intro: string; sec
           </td>
         </tr>
         <tr>
-          <td align="center" style="padding:0 28px;font:13px/1.5 ${SANS};color:${MUTED};">${esc(addressOneLine)} &nbsp;&middot;&nbsp; ${esc(site.phone)}</td>
+          <td align="center" style="padding:0 28px;font:13px/1.5 ${SANS};color:${MUTED};">${esc(opts.addressLine ?? addressOneLine)} &nbsp;&middot;&nbsp; ${esc(site.phone)}</td>
         </tr>
         <tr>
           <td style="padding:26px 28px 0;font:26px/1.25 ${SERIF};color:${INK};">${esc(opts.heading)}</td>

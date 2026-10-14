@@ -370,15 +370,17 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     }
     const isClosed = (o: Order) =>
       (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
-      (o.status === "done" && !!o.payment && balanceCents(o) <= 0);
+      (o.status === "done" && !!o.payment && balanceCents(o) === 0);
     return {
       held: held.sort(byDate),
       overdue: open.filter((o) => o.date < today).sort(byDate),
       today: open.filter((o) => o.date === today).sort(byDate),
       upcoming: open.filter((o) => o.date > today).sort(byDate),
       owed: shown.filter((o) => o.status === "done" && balanceCents(o) > 0).sort(byDate),
+      // Canceled after paying, or trimmed below what was paid: both are
+      // money to give back, and both get the red bucket.
       toRefund: shown
-        .filter((o) => o.status === "canceled" && !!o.payment && !o.payment.refundedAt)
+        .filter((o) => (o.status === "canceled" && !!o.payment && !o.payment.refundedAt) || (o.status !== "canceled" && !!o.payment && balanceCents(o) < 0))
         .sort((a, b) => b.createdAt - a.createdAt),
       /** Search mode's one list of everything still actionable. */
       active: shown.filter((o) => !isClosed(o)).sort(byDate),
@@ -503,7 +505,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
           <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
           <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
           <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
+          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
 
           {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
