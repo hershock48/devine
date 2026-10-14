@@ -3,9 +3,9 @@
 # OPTIONAL: the board's morning banner does the same job in two clicks.
 #
 #   Delivery orders, and pickups with a card message
-#                   -> the "Order forms" printer entry (bottom tray, the
+#                   -> the "Six-panel forms (bottom tray)" printer entry (the
 #                      pre-printed six-panel form, landscape)
-#   Other pickups   -> the "Plain paper" printer entry (top tray, portrait)
+#   Other pickups   -> the "Plain paper (top tray)" printer entry (portrait)
 #
 # Every 30 seconds it asks the site which website orders have not printed and
 # fetches each one through the same door the board's Print buttons use, which
@@ -21,8 +21,8 @@
 
 $Base         = "https://devine.glazedweb.com"
 $Pin          = "PUT-THE-STAFF-PIN-HERE"
-$FormsPrinter = "Order forms"
-$PlainPrinter = "Plain paper"
+$FormsPrinter = "Six-panel forms (bottom tray)"
+$PlainPrinter = "Plain paper (top tray)"
 $Sumatra      = "C:\PrintHelper\SumatraPDF.exe"
 $OutDir       = "C:\PrintHelper\printed"
 $Every        = 30   # seconds

@@ -146,7 +146,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   /** WHAT CAME IN SINCE ANYONE PRINTED (Kevin, 2026-10-12): the website
       orders nobody has printed yet, on every sign-in and every refresh,
       until each is printed or marked. One PDF per paper, so the morning is
-      two clicks: the order forms (deliveries, and pickups with a card
+      two clicks: the six-panel forms (deliveries, and pickups with a card
       message), then the plain pickup tickets. Read off
       the orders the board already polls (same window, same rule as the
       queue route), so there is one clock and no second request. */
@@ -781,7 +781,7 @@ function PrintBanner({
             <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>{t.number}</span>
             <span style={{ fontWeight: 600 }}>{t.fulfillment === "delivery" && t.recipient ? `${t.recipient} (from ${t.name})` : t.name}</span>
             <span className="muted">
-              {t.fulfillment} · {t.date} · {printPaperFor(t) === "forms" ? "order form, bottom tray" : "plain paper, top tray"}
+              {t.fulfillment} · {t.date} · {printPaperFor(t) === "forms" ? "six-panel form, bottom tray" : "plain paper, top tray"}
             </span>
             <button type="button" disabled={busy !== ""} onClick={() => run("one", () => onPrintOne(t))} style={{ ...textButton, fontSize: 13.5 }}>
               just this one
@@ -792,7 +792,7 @@ function PrintBanner({
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         {forms.length > 0 && (
           <button type="button" className="btn btn--solid" disabled={busy !== ""} onClick={() => run("forms", () => onPrint("forms"))}>
-            {busy === "forms" ? "Opening…" : `Print ${forms.length === 1 ? "the order form" : `the ${forms.length} order forms`}`}
+            {busy === "forms" ? "Opening…" : `Print ${forms.length === 1 ? "the six-panel form" : `the ${forms.length} six-panel forms`}`}
           </button>
         )}
         {plain.length > 0 && (
