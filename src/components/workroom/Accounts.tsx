@@ -337,6 +337,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       deliveryCents={o.payment ? 0 : feeToAppend(o)}
                       payment={o.payment}
                       balanceCents={balanceCents(o)}
+                      collectedCents={collectedCents(o)}
                       onPaid={() => pull().catch(() => {})}
                     />
                   )}
