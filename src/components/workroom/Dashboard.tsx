@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MemoryWarning, PinGate, field, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
-import { HISTORY_DAYS, consumption, isDeliveryLine, isTaxLine, isoDate, lotCosting, mondayOf, netOfTax, saleInstantMs, zipFeeToAppend, type SoldCost } from "@/lib/workroom/derive";
+import { balanceCents, consumption, HISTORY_DAYS, isDeliveryLine, isoDate, isTaxLine, lotCosting, mondayOf, netOfTax, saleInstantMs, type SoldCost, zipFeeToAppend } from "@/lib/workroom/derive";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
@@ -63,6 +63,7 @@ type Order = {
   subtotal: number;
   createdAt: number;
   payment?: OrderPayment | null;
+  topUps?: OrderPayment[];
 };
 type SaleLine = { slug: string | null; name: string; qty: number; eachCents: number; totalCents: number };
 type Sale = { id: string; paidAt: string; source: string; totalCents: number; createdAt: number; workroomOrderId?: string; lines: SaleLine[] };
@@ -920,13 +921,13 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
 
     // Owed is NOW, never windowed: money owed does not care which week it
     // started being owed in.
-    const owed = orders.filter((o) => o.status === "done" && !o.payment);
+    const owed = orders.filter((o) => o.status === "done" && balanceCents(o) > 0);
     // What Take-card will actually charge: a delivery ticket with no
     // delivery line yet gets the zip's sheet fee appended at payment, so
     // the tile counts it too (the pay route's rule, mirrored).
     const owedCents = owed.reduce((sum, o) => {
-      const fee = zipFeeToAppend(o) ?? 0;
-      return sum + Math.round((o.subtotal + fee) * 100);
+      const fee = o.payment ? 0 : zipFeeToAppend(o) ?? 0;
+      return sum + balanceCents(o) + Math.round(fee * 100);
     }, 0);
 
     return { now, prev, owedCount: owed.length, owedCents };

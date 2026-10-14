@@ -97,6 +97,19 @@ export const withTaxLine = <L extends { slug?: string | null; name: string; qty:
   const name = stated !== undefined ? "Sales tax (as quoted)" : taxLineName;
   return tax > 0 ? [...kept, { slug: null, name, qty: 1, each: tax }] : kept;
 };
+/** MONEY IN against the ticket (Kevin, 2026-10-14: a paid order can still
+    be edited, and adding to it or trimming it must not lose the payment
+    already taken). What was collected is the first payment plus any
+    top-ups, each less the customer-paid fee that is not a line of the
+    ticket; the balance is the ticket's total minus that. Positive means
+    still to collect, negative means a refund is owed, zero means settled.
+    An unpaid order's balance is its whole total. */
+type Paid = { totalCents: number; feeCents: number };
+export const collectedCents = (o: { payment?: Paid | null; topUps?: Paid[] }): number =>
+  (o.payment ? o.payment.totalCents - o.payment.feeCents : 0) + (o.topUps ?? []).reduce((s, p) => s + p.totalCents - p.feeCents, 0);
+export const balanceCents = (o: { subtotal: number; payment?: Paid | null; topUps?: Paid[] }): number =>
+  Math.round(o.subtotal * 100) - collectedCents(o);
+
 /** A ticket's money without its tax line: what the shop sold, as opposed
     to what it collected. The dashboard's sales figures use this. */
 export const netOfTax = (o: { subtotal: number; lines: { name: string; qty: number; each: number }[] }): number =>

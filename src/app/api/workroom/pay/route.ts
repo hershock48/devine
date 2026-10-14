@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deliveryLineName, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, deliveryLineName, zipFeeToAppend } from "@/lib/workroom/derive";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure } from "@/lib/square/payments";
@@ -47,8 +47,17 @@ export async function POST(req: Request) {
   if (!order) return NextResponse.json({ error: "No such order." }, { status: 404 });
   if (order.status === "canceled") return NextResponse.json({ error: "That order is canceled." }, { status: 409 });
   if (order.status === "hold") return NextResponse.json({ error: "That order is on hold; finish it first, then take payment." }, { status: 409 });
-  if (order.payment) {
-    return NextResponse.json({ error: `Already paid (${order.payment.method}).` }, { status: 409 });
+  // PAID ONCE ALREADY: only a balance left by an edit can be taken, and
+  // only the balance (Kevin, 2026-10-14). A settled ticket is refused as
+  // before; a ticket trimmed below what was paid is a refund, which lives
+  // in the Square dashboard, not here.
+  const topUp = !!order.payment;
+  const due = balanceCents(order);
+  if (topUp && due <= 0) {
+    return NextResponse.json(
+      { error: due === 0 ? `Already paid (${order.payment!.method}).` : `Already paid; ${(-due / 100).toFixed(2)} is owed back to the customer, not the other way. Refund it from the Square dashboard.` },
+      { status: 409 },
+    );
   }
 
   /*
@@ -62,12 +71,14 @@ export async function POST(req: Request) {
     sheet charges the lines as they stand; that fee is the confirm call's
     business, the way it always was.
   */
-  const zipFee = zipFeeToAppend(order);
-  const lines: WorkroomLine[] =
-    zipFee !== undefined
+  const zipFee = topUp ? undefined : zipFeeToAppend(order);
+  const lines: WorkroomLine[] = topUp
+    ? [{ slug: null, name: `Balance on order ${order.number}`, qty: 1, each: due / 100 }]
+    : zipFee !== undefined
       ? [...order.lines, { slug: null, name: deliveryLineName(order.zip), qty: 1, each: zipFee }]
       : order.lines;
-  const subtotal = zipFee !== undefined ? Math.round((order.subtotal + zipFee) * 100) / 100 : order.subtotal;
+  const subtotal = topUp ? due / 100 : zipFee !== undefined ? Math.round((order.subtotal + zipFee) * 100) / 100 : order.subtotal;
+  const record = (p: OrderPayment) => (topUp ? store.addOrderTopUp(order.id, p) : store.setOrderPayment(order.id, p));
 
   // The by-hand mark: money already moved outside the board (a check, an
   // account, an unlinked register ring). Records the fact and touches
@@ -81,7 +92,7 @@ export async function POST(req: Request) {
       feeCents: 0,
     };
     if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
-    await store.setOrderPayment(order.id, payment);
+    await record(payment);
     return NextResponse.json({ ok: true, payment });
   }
 
@@ -146,7 +157,7 @@ export async function POST(req: Request) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
-      await store.setOrderPayment(order.id, payment);
+      await record(payment);
       boardMissed = false;
       break;
     } catch (err) {

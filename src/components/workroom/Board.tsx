@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, clock12, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -56,6 +56,7 @@ type Order = {
   subtotal: number;
   createdAt: number;
   payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
+  topUps?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number }[];
   canceledFrom?: string;
   madeBy?: string;
   takenBy?: string;
@@ -70,7 +71,9 @@ type Order = {
 /** What a Made tap or a fix on the card may send beside the status. */
 type InitialsExtra = { madeBy?: string; takenBy?: string };
 
-const canEdit = (o: Order) => !o.payment && (o.status === "hold" || o.status === "new" || o.status === "confirmed");
+/** Editable until canceled (Kevin, 2026-10-14): paid, made or delivered,
+    a ticket can still take a tax ID, an address, another item. */
+const canEdit = (o: Order) => o.status !== "canceled";
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   switch (o.status) {
@@ -353,13 +356,13 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     // a counter PIN crosses the line the auth design drew on day one.
     const isClosed = (o: Order) =>
       (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
-      (o.status === "done" && !!o.payment);
+      (o.status === "done" && !!o.payment && balanceCents(o) <= 0);
     return {
       held: held.sort(byDate),
       overdue: open.filter((o) => o.date < today).sort(byDate),
       today: open.filter((o) => o.date === today).sort(byDate),
       upcoming: open.filter((o) => o.date > today).sort(byDate),
-      owed: shown.filter((o) => o.status === "done" && !o.payment).sort(byDate),
+      owed: shown.filter((o) => o.status === "done" && balanceCents(o) > 0).sort(byDate),
       toRefund: shown
         .filter((o) => o.status === "canceled" && !!o.payment && !o.payment.refundedAt)
         .sort((a, b) => b.createdAt - a.createdAt),
@@ -1214,6 +1217,20 @@ function OrderCard({
             </li>
           </>
         )}
+        {/* After an edit to a paid ticket: the top-ups taken since, and
+            what is still due or owed back (derive.ts balanceCents). */}
+        {o.payment && (o.topUps?.length ?? 0) > 0 && o.topUps!.map((p, i) => (
+          <li key={i} style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>Also paid, {p.method === "other" ? "another way" : p.method}</span>
+            <span>{money(p.totalCents / 100)}</span>
+          </li>
+        ))}
+        {o.payment && balanceCents(o) !== 0 && (
+          <li style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, color: "var(--rose-ink)" }}>
+            <span>{balanceCents(o) > 0 ? "Still due after changes" : "To refund after changes"}</span>
+            <span>{money(Math.abs(balanceCents(o)) / 100)}</span>
+          </li>
+        )}
       </ul>
 
       {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
@@ -1304,8 +1321,9 @@ function OrderCard({
           /* Mirrors the pay route's own computation: a delivery ticket with
              no delivery line yet gets the zip's fee appended at charge time,
              and the buttons must quote what will actually be charged. */
-          deliveryCents={Math.round((zipFeeToAppend(o) ?? 0) * 100)}
+          deliveryCents={o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100)}
           payment={o.payment}
+          balanceCents={balanceCents(o)}
           onPaid={() => onPaid().catch(() => {})}
         />
       )}
@@ -1313,6 +1331,15 @@ function OrderCard({
       {/* Keyed by status so a half-finished cancel confirm or initials
           prompt resets when the 30s poll brings a new status underneath. */}
       {next && <Moves key={o.status} o={o} next={next} onMove={onMove} onEdit={onEdit && canEdit(o) ? () => onEdit(o) : undefined} />}
+      {/* A finished order has no next move, but it can still be edited
+          (a tax ID after the fact, a corrected address for the file). */}
+      {!next && onEdit && canEdit(o) && (
+        <p style={{ margin: "10px 0 0" }}>
+          <button type="button" onClick={() => onEdit(o)} style={{ ...textButton, fontSize: 13.5 }}>
+            Edit
+          </button>
+        </p>
+      )}
       {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
     </article>
   );
@@ -2195,6 +2222,16 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
           <strong>{money(totalShown)}</strong>
         </p>
       )}
+      {editing?.payment && (
+        <p className="muted" style={{ margin: 0, fontSize: 14.5 }}>
+          Paid {money(collectedCents(editing) / 100)} already. If the total changes, the card will say what is still due or to refund.
+        </p>
+      )}
+      {editing && !editing.payment && !["hold", "new", "confirmed"].includes(editing.status) && (
+        <p className="muted" style={{ margin: 0, fontSize: 14.5 }}>
+          Already {editing.status === "out" ? "out the door" : editing.status}. The changes save to the ticket; nothing is made again by itself.
+        </p>
+      )}
       {underMinimum && (
         <p role="status" style={{ margin: 0, fontSize: 14.5, fontWeight: 600, color: "var(--rose-ink)" }}>
           Under the ${minimum} delivery minimum for {zip.trim()}: the items come to {money(itemsTotal)}. The website would not
@@ -2224,9 +2261,11 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
             and two questions are open. Park it with everything typed; it
             waits in its own section, off the make list, until someone
             finishes it. */}
-        <button className="btn" type="button" disabled={saving !== ""} onClick={() => save(true).catch(() => setSaving(""))}>
-          {saving === "hold" ? "Saving…" : editing && editing.status !== "hold" ? "Put it on hold" : "Save on hold"}
-        </button>
+        {!(editing && (editing.payment || !["hold", "new", "confirmed"].includes(editing.status))) && (
+          <button className="btn" type="button" disabled={saving !== ""} onClick={() => save(true).catch(() => setSaving(""))}>
+            {saving === "hold" ? "Saving…" : editing && editing.status !== "hold" ? "Put it on hold" : "Save on hold"}
+          </button>
+        )}
         <span aria-live="polite" style={{ color: "var(--rose-ink)", fontWeight: 600, fontSize: 14.5 }}>{error}</span>
       </p>
     </form>

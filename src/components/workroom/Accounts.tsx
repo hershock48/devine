@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { isDeliveryLine, isTaxLine, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, isDeliveryLine, isTaxLine, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -46,6 +46,7 @@ type Order = {
   subtotal: number;
   createdAt: number;
   payment?: Payment | null;
+  topUps?: Payment[];
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
@@ -77,7 +78,8 @@ const daysSince = (ms: number) => Math.max(0, Math.floor((Date.now() - ms) / DAY
 const feeToAppend = (o: Order): number => Math.round((zipFeeToAppend(o) ?? 0) * 100);
 /** What is collectable now. A held order is not: nothing is promised yet
     and the pay route refuses it, the board's own reading. */
-const owedOn = (o: Order): number => (o.payment || o.status === "canceled" || o.status === "hold" ? 0 : cents(o.subtotal) + feeToAppend(o));
+const owedOn = (o: Order): number =>
+  o.status === "canceled" || o.status === "hold" ? 0 : Math.max(0, balanceCents(o)) + (o.payment ? 0 : feeToAppend(o));
 const itemsOf = (o: Order) => o.lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l));
 
 function groupAccounts(orders: Order[]): Account[] {
@@ -307,7 +309,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       <a href={`/api/workroom/print/${o.id}`} target="_blank" rel="noopener">Print</a>
                     </span>
                     <span style={{ whiteSpace: "nowrap" }}>
-                      {o.payment
+                      {o.payment && owed === 0
                         ? <span style={{ color: "var(--green)", fontWeight: 600 }}>Paid {money(o.payment.totalCents / 100)}{o.payment.refundedAt ? ", refunded" : ""} · {when(o.payment.at)}</span>
                         : owed > 0
                           ? <strong>{money(owed / 100)} owed</strong>
@@ -321,8 +323,9 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                     <PayControls
                       orderId={o.id}
                       subtotal={o.subtotal}
-                      deliveryCents={feeToAppend(o)}
+                      deliveryCents={o.payment ? 0 : feeToAppend(o)}
                       payment={o.payment}
+                      balanceCents={balanceCents(o)}
                       onPaid={() => pull().catch(() => {})}
                     />
                   )}

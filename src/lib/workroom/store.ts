@@ -115,6 +115,10 @@ export type WorkroomOrder = {
   subtotal: number;
   createdAt: number;
   payment?: OrderPayment | null;
+  /** Payments taken after the first, when an edit raised a paid ticket's
+      total (Kevin, 2026-10-14). derive.ts sums them; the first payment
+      stays what it was. */
+  topUps?: OrderPayment[];
   /** The status the order held when it was canceled, so Uncancel can put
       it back where it was (Katy, 2026-10-06 meeting) instead of guessing. */
   canceledFrom?: OrderStatus;
@@ -531,6 +535,8 @@ type Store = {
       just writes what it is handed, id and all. */
   replaceOrder(o: WorkroomOrder): Promise<void>;
   setOrderPayment(id: string, p: OrderPayment): Promise<void>;
+  /** A further payment on an order already paid once (a balance after an edit). */
+  addOrderTopUp(id: string, p: OrderPayment): Promise<void>;
   /** The pay route appends the delivery-fee line when it charges a
       delivery ticket that never carried one, so the ticket's rows and its
       payment agree. */
@@ -698,6 +704,10 @@ const memoryStore: Store = {
   async setOrderPayment(id, p) {
     const o = bag().orders.get(id);
     if (o) o.payment = p;
+  },
+  async addOrderTopUp(id, p) {
+    const o = bag().orders.get(id);
+    if (o) o.topUps = [...(o.topUps ?? []), p];
   },
   async setOrderLines(id, lines, subtotal) {
     const o = bag().orders.get(id);
@@ -1031,6 +1041,13 @@ const postgresStore: Store = {
     await pool.query(
       `UPDATE workroom_orders SET data = data || jsonb_build_object('payment', $2::jsonb) WHERE id = $1`,
       [id, JSON.stringify(p)],
+    );
+  },
+  async addOrderTopUp(id, p) {
+    const pool = await pgPool();
+    await pool.query(
+      `UPDATE workroom_orders SET data = data || jsonb_build_object('topUps', COALESCE(data->'topUps', '[]'::jsonb) || $2::jsonb) WHERE id = $1`,
+      [id, JSON.stringify([p])],
     );
   },
   async setOrderLines(id, lines, subtotal) {
