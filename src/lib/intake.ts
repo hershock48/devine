@@ -2,7 +2,7 @@ import "server-only";
 
 import nodemailer from "nodemailer";
 import { bySlug, money } from "@/lib/catalog";
-import { site, addressOneLine, deliveryFeeFor } from "@/lib/site";
+import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
 import { occasions as OCCASIONS } from "@/lib/occasions";
 import { block, esc, logoAttachment, longDay, orderTable, phoneLink, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
@@ -129,7 +129,7 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
   // pay-on-call alike; the cart says the same thing before this is reached.
   if (fulfillment === "delivery") {
     const inMarshall = zip === site.marshallZip;
-    const min = inMarshall ? site.deliveryMinimums.marshall : site.deliveryMinimums.outside;
+    const min = deliveryMinimumFor(zip);
     if (subtotal < min) {
       return {
         error: `Delivery orders are $${min} and up before the delivery fee ${inMarshall ? "in Marshall" : "outside Marshall"}. Add $${(min - subtotal).toFixed(2)} more to qualify for delivery, or choose pickup.`,

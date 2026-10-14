@@ -4,6 +4,7 @@ import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
 import { deliveryLineName, isDeliveryLine, normalizeVariety } from "@/lib/workroom/derive";
+import { INITIALS_ERROR } from "@/lib/workroom/initials";
 import { sendDeliveredEmail, sendWorkroomReceipt } from "@/lib/intake";
 
 /**
@@ -127,10 +128,9 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
   // Required, not merely asked for: an order with nobody's name on it is
   // the one nobody can answer for. An edit keeps asking (the form carries
   // the original initials, so the person fixing a typo is not re-blamed).
-  const takenBy = str(p.takenBy, 3).toUpperCase();
-  if (!/^[A-Z]{2,3}$/.test(takenBy)) {
-    return { error: "Your initials, two or three letters, before it goes on the board." };
-  }
+  // Checked whole, not clipped first: "KEVIN" is refused, not stored as KEV.
+  const takenBy = str(p.takenBy, 12).toUpperCase();
+  if (!/^[A-Z]{2,3}$/.test(takenBy)) return { error: INITIALS_ERROR };
   return {
     fields: {
       takenBy,
@@ -224,7 +224,7 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as {
-    id?: unknown; status?: unknown; markRefunded?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown;
+    id?: unknown; status?: unknown; markRefunded?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown;
   };
   const id = typeof p.id === "string" ? p.id : "";
   // UNCANCEL (Katy, 2026-10-06): a canceled order goes back to the status
@@ -244,11 +244,15 @@ export async function PATCH(req: Request) {
     await getStore().patchOrder(id, { status: back });
     return NextResponse.json({ ok: true, status: back });
   }
-  // INITIALS alone (fixing or adding who made it after the fact).
+  // INITIALS alone (fixing or adding who made it, or who took it, after
+  // the fact: a typo in the taker's initials would otherwise be permanent
+  // once the order is made or paid, exactly when the field matters).
   const madeBy = typeof p.madeBy === "string" ? p.madeBy.trim().toUpperCase().slice(0, 4) : undefined;
-  if (p.status === undefined && madeBy !== undefined) {
+  const takenBy = typeof p.takenBy === "string" ? p.takenBy.trim().toUpperCase() : undefined;
+  if (takenBy !== undefined && !/^[A-Z]{2,3}$/.test(takenBy)) return NextResponse.json({ error: INITIALS_ERROR }, { status: 400 });
+  if (p.status === undefined && (madeBy !== undefined || takenBy !== undefined)) {
     if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
-    await getStore().patchOrder(id, { madeBy });
+    await getStore().patchOrder(id, { ...(madeBy !== undefined ? { madeBy } : {}), ...(takenBy !== undefined ? { takenBy } : {}) });
     return NextResponse.json({ ok: true });
   }
   // Adjusting the delivery fee on an order already on the board (Katy,

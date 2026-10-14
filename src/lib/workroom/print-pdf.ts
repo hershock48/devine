@@ -420,7 +420,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     const b = box(0, 1, 2);
     const c = new Cursor(pen, b.x, b.top, b.w, b.bottom + 10);
     c.row(`Order ${o.number} - ${site.shortName}`, `${deliver ? "Delivery" : "Pickup"}: ${day} | ${weekday}`, 10, pen.bold);
-    c.row(`Taken: ${stamp(o.createdAt)}    Occ: ${o.occasion || "none"}`, `Printed: ${stamp(printedAt)}`, 8, pen.reg);
+    c.row(`Taken: ${stamp(o.createdAt)}${o.takenBy ? ` by ${o.takenBy}` : ""}    Occ: ${o.occasion || "none"}`, `Printed: ${stamp(printedAt)}`, 8, pen.reg);
     c.gap(4);
     // two columns: customer, recipient
     const colW = (b.w - 12) / 2;
@@ -440,7 +440,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     c.y = Math.min(left.y, right.y) - 4;
     itemsTable(c, pen, o, 9.5);
     c.gap(2);
-    c.row(`Method of payment: ${paidWord(o, !deliver)}`, [o.takenBy ? `Taken by: ${o.takenBy}` : "", o.madeBy ? `Made by: ${o.madeBy}` : ""].filter(Boolean).join("    "), 9.5, pen.bold);
+    c.row(`Method of payment: ${paidWord(o, !deliver)}`, o.madeBy ? `Made by: ${o.madeBy}` : "", 9.5, pen.bold);
     if (o.notes) {
       c.heading("Order notes");
       c.line(o.notes, 9.5);

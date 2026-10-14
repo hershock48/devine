@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/components/Cart";
 import ProductImage from "@/components/ProductImage";
 import { bySlug, money, products } from "@/lib/catalog";
-import { deliveryFeeFor, site } from "@/lib/site";
+import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
 import { loadSquareSdk, type BillingContact, type SquareCard } from "@/lib/square/web-sdk";
@@ -199,11 +199,7 @@ export default function CartView() {
   const delivering0 = fulfillment === "delivery";
   const zipTrim = zip.trim();
   const deliveryFee = delivering0 ? deliveryFeeFor(zipTrim) : undefined;
-  const deliveryMin = delivering0
-    ? zipTrim === site.marshallZip
-      ? site.deliveryMinimums.marshall
-      : site.deliveryMinimums.outside
-    : 0;
+  const deliveryMin = delivering0 ? deliveryMinimumFor(zipTrim) : 0;
   /** The minimum is a gate (Kevin, 2026-10-13): under it, a delivery
       order cannot be sent at all, paid or not, and the cart says exactly
       how much more qualifies it. Applies whatever the zip; the sheet's

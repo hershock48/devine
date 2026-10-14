@@ -5,7 +5,7 @@ import type { Quote } from "@/lib/workroom/store";
 import { priceQuote, type QuotePricing } from "@/lib/workroom/quote-math";
 import { QUOTE_TEMPLATES } from "@/lib/workroom/quote-templates";
 import { site, addressOneLine } from "@/lib/site";
-import { field, labelText, longDate, money, prettyTime, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, longDate, money, prettyTime, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 
 /**
  * The quote builder. One page that IS the quote: type into it and the price
@@ -209,8 +209,8 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
       setPlaceError("Add the wedding date first; the board sorts by it.");
       return;
     }
-    if (!/^[A-Za-z]{2,3}$/.test(takenBy.trim())) {
-      setPlaceError("Your initials, two or three letters, before it goes on the board.");
+    if (!isInitials(takenBy)) {
+      setPlaceError(INITIALS_ERROR);
       return;
     }
     const lines = draft.pieces
@@ -622,16 +622,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
                 </p>
               ) : (
                 <>
-                  <input
-                    aria-label="Your initials"
-                    value={takenBy}
-                    onChange={(e) => setTakenBy(e.target.value.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase())}
-                    maxLength={3}
-                    placeholder="Initials"
-                    autoCapitalize="characters"
-                    autoComplete="off"
-                    style={{ ...field, width: 96, textTransform: "uppercase", letterSpacing: "0.08em" }}
-                  />
+                  <InitialsInput value={takenBy} onChange={setTakenBy} placeholder="Initials" />
                   <button className="btn btn--solid" type="button" onClick={placeOrder} disabled={placing || pricing.total <= 0}>
                     {placing ? "Sending…" : "Put it on the board"}
                   </button>
