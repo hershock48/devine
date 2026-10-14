@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MemoryWarning, PinGate, field, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
-import { HISTORY_DAYS, consumption, isDeliveryLine, isoDate, lotCosting, mondayOf, saleInstantMs, type SoldCost } from "@/lib/workroom/derive";
-import { deliveryFeeFor } from "@/lib/site";
+import { HISTORY_DAYS, consumption, isDeliveryLine, isTaxLine, isoDate, lotCosting, mondayOf, netOfTax, saleInstantMs, zipFeeToAppend, type SoldCost } from "@/lib/workroom/derive";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
@@ -782,7 +781,9 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
         // Held orders are limbo, not orders: nothing promised, nothing counted.
         (o) => inMs(o.createdAt) && o.status !== "canceled" && o.status !== "hold" && (sourceFilter === "all" || o.source === sourceFilter),
       );
-      const orderedCents = ordersIn.reduce((sum, o) => sum + Math.round(o.subtotal * 100), 0);
+      // What was sold, not what was collected: the tax line is the
+      // state's money and is left out, as the online fee already is.
+      const orderedCents = ordersIn.reduce((sum, o) => sum + Math.round(netOfTax(o) * 100), 0);
       const web = ordersIn.filter((o) => o.source === "web").length;
       const delivery = ordersIn.filter((o) => o.fulfillment === "delivery").length;
       let returning = 0;
@@ -813,7 +814,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
           row.cents += cents;
           sold.set(name, row);
         };
-        for (const o of ordersIn) for (const l of o.lines) add(l.name, l.qty, Math.round(l.each * 100) * l.qty);
+        for (const o of ordersIn) for (const l of o.lines) if (!isTaxLine(l) && !isDeliveryLine(l)) add(l.name, l.qty, Math.round(l.each * 100) * l.qty);
         for (const { s, ms } of salesM) {
           if (s.workroomOrderId || !inMs(ms)) continue;
           for (const l of s.lines) add(l.name, l.qty, l.totalCents);
@@ -924,7 +925,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
     // delivery line yet gets the zip's sheet fee appended at payment, so
     // the tile counts it too (the pay route's rule, mirrored).
     const owedCents = owed.reduce((sum, o) => {
-      const fee = o.fulfillment === "delivery" && !o.lines.some(isDeliveryLine) ? deliveryFeeFor(o.zip) ?? 0 : 0;
+      const fee = zipFeeToAppend(o) ?? 0;
       return sum + Math.round((o.subtotal + fee) * 100);
     }, 0);
 
