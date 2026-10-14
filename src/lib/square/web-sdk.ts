@@ -17,6 +17,8 @@ export type BillingContact = {
   familyName?: string;
   addressLines?: string[];
   locality?: string;
+  /** The state, two letters (Square's name for it). */
+  administrativeDistrictLevel1?: string;
   postalCode?: string;
   countryCode?: string;
 };

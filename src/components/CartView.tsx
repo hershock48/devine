@@ -130,6 +130,9 @@ export default function CartView() {
   const [billingSame, setBillingSame] = useState(true);
   const [billStreet, setBillStreet] = useState("");
   const [billTown, setBillTown] = useState("");
+  /* The state too (Kevin, 2026-10-13): a card from Georgia should say so.
+     Square checks the zip; the state rides along and prints on the ticket. */
+  const [billState, setBillState] = useState<string>(site.address.state);
   const [billZip, setBillZip] = useState("");
   const [payMethod, setPayMethod] = useState<"call" | "card">("call");
   const [cardReady, setCardReady] = useState(false);
@@ -325,8 +328,8 @@ export default function CartView() {
     const useDelivery = delivering && billingSame;
     const billing = payMethod === "card"
       ? useDelivery
-        ? { street: dStreet, town: dTown, zip: dZip.trim() }
-        : { street: dom("billStreet", billStreet), town: dom("billTown", billTown), zip: dom("billZip", billZip).trim() }
+        ? { street: dStreet, town: dTown, state: site.address.state, zip: dZip.trim() }
+        : { street: dom("billStreet", billStreet), town: dom("billTown", billTown), state: dom("billState", billState).trim().toUpperCase().slice(0, 2), zip: dom("billZip", billZip).trim() }
       : undefined;
     let cardPayload: { sourceId: string } | undefined;
     if (payMethod === "card") {
@@ -339,6 +342,7 @@ export default function CartView() {
           familyName: rest.length ? rest.join(" ") : undefined,
           addressLines: billing?.street ? [billing.street] : undefined,
           locality: billing?.town || undefined,
+          administrativeDistrictLevel1: billing?.state || undefined,
           postalCode: billing?.zip || undefined,
           countryCode: "US",
         };
@@ -816,10 +820,14 @@ export default function CartView() {
                             <span style={labelText}>Street address</span>
                             <input name="billStreet" value={billStreet} onChange={(e) => setBillStreet(e.target.value)} required autoComplete="billing street-address" style={field} />
                           </label>
-                          <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr minmax(110px, 140px)" }}>
+                          <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr minmax(64px, 80px) minmax(110px, 140px)" }}>
                             <label>
                               <span style={labelText}>Town</span>
                               <input name="billTown" value={billTown} onChange={(e) => setBillTown(e.target.value)} required autoComplete="billing address-level2" style={field} />
+                            </label>
+                            <label>
+                              <span style={labelText}>State</span>
+                              <input name="billState" value={billState} onChange={(e) => setBillState(e.target.value.toUpperCase().slice(0, 2))} required maxLength={2} autoComplete="billing address-level1" style={{ ...field, textTransform: "uppercase" }} />
                             </label>
                             <label>
                               <span style={labelText}>Zip</span>
