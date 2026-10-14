@@ -40,11 +40,27 @@ export type { PrintLayout };
 
 const IN = 72;
 const PANEL_W = (11 * IN) / 3;
-const PANEL_H = 4.25 * IN;
+/** THE FOLD IS NOT IN THE MIDDLE (Kevin's photo of an IRIS print beside
+    ours, 2026-10-13): the pre-printed shading, and the crease, end 3.5 in
+    from the top, so the top row is 3.5 in and the bottom row 5 in. Rows
+    drawn as two equal halves left an inch of the big panel blank. */
+const TOP_ROW_H = 3.5 * IN;
+const ROW_TOP = [8.5 * IN, 8.5 * IN - TOP_ROW_H];
+const ROW_BOTTOM = [8.5 * IN - TOP_ROW_H, 0];
 /** Breathing room inside each crease. */
 const PANEL_INSET = 0.22 * IN;
-/** How far down the pre-printed letterhead reaches on the top-left panel. */
-const LETTERHEAD_H = 1.25 * IN;
+/** The address card sits where the window envelope shows it, as IRIS
+    placed it: about an inch in from the left edge and an inch and a
+    half down, under the letterhead. */
+const CARD_X = 1.0 * IN;
+const CARD_TOP = 8.5 * IN - 1.5 * IN;
+/** The card message's band on the top-right panel: below the letterhead
+    line, above the small pre-printed mark at the panel's foot. */
+const MESSAGE_TOP = 8.5 * IN - 1.1 * IN;
+const MESSAGE_BOTTOM = 8.5 * IN - 3.0 * IN;
+/** The driver's stub starts a little further in than the other panels,
+    as IRIS's does. */
+const STUB_INSET = 0.4 * IN;
 
 const ink = rgb(0, 0, 0);
 const grey = rgb(0.25, 0.23, 0.2);
@@ -275,11 +291,11 @@ async function pens(doc: PDFDocument): Promise<Omit<Pen, "page">> {
 function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder, printedAt: number) {
   const page = doc.addPage([11 * IN, 8.5 * IN]);
   const pen: Pen = { page, ...fonts };
-  const box = (col: number, row: number, cols = 1) => ({
-    x: col * PANEL_W + PANEL_INSET,
-    top: 8.5 * IN - row * PANEL_H - PANEL_INSET,
-    w: PANEL_W * cols - PANEL_INSET * 2,
-    bottom: 8.5 * IN - (row + 1) * PANEL_H + PANEL_INSET,
+  const box = (col: number, row: number, cols = 1, inset = PANEL_INSET) => ({
+    x: col * PANEL_W + inset,
+    top: ROW_TOP[row] - PANEL_INSET,
+    w: PANEL_W * cols - inset - PANEL_INSET,
+    bottom: ROW_BOTTOM[row] + PANEL_INSET,
   });
   const day = longDate(o.date);
   const weekday = weekdayOf(o.date);
@@ -289,7 +305,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
   // top-left: the enclosure address card, under the pre-printed letterhead
   {
     const b = box(0, 0);
-    const c = new Cursor(pen, b.x, b.top - LETTERHEAD_H, b.w, b.bottom);
+    const c = new Cursor(pen, CARD_X, CARD_TOP, PANEL_W - CARD_X - PANEL_INSET, b.bottom);
     c.line(o.recipient || o.name, 12, pen.bold);
     for (const w of where) c.line(w, 10.5, pen.bold);
     if (!deliver) c.line("Pickup at the shop", 10.5, pen.bold);
@@ -309,8 +325,8 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     // A long message shrinks to fit, down to 8pt; past that it is cut with
     // a mark, because a card that spills onto the logo is worse than one
     // that says "see the board".
-    const areaTop = b.top - 10;
-    const areaBottom = b.bottom + 0.9 * IN;
+    const areaTop = MESSAGE_TOP;
+    const areaBottom = MESSAGE_BOTTOM;
     const areaH = areaTop - areaBottom;
     let size = 13;
     let lines = wrap(pen.serif, size, o.cardMessage || "", b.w - 10);
@@ -364,7 +380,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
 
   // bottom-right: the driver's stub; its floor sits above the signature line
   {
-    const b = box(2, 1);
+    const b = box(2, 1, 1, STUB_INSET);
     const sy = b.bottom + 14;
     const c = new Cursor(pen, b.x, b.top, b.w, sy + 16);
     c.line(`Order ${o.number} - ${site.shortName}`, 9.5, pen.bold);
