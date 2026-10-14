@@ -13,7 +13,7 @@ The Star TSP100 by the register is Square's receipt printer and is not involved.
 
 | Tray | Paper | Printer entry | Used for |
 |---|---|---|---|
-| Bottom | The shop's pre-printed six-panel form (John Henry stock, reorder 1-866-448-8300): letter, landscape, creased 3 across by 2 down, her logo and address pre-printed on the top-left and top-middle panels and a small mark at the foot of the top-right one | **Six-panel forms (bottom tray)** | Delivery orders, and pickups that carry a card message |
+| Bottom | The shop's pre-printed six-panel form (John Henry stock, reorder 1-866-448-8300): **legal, 8.5 by 14**, landscape, creased 3 across (4 2/3 in each) by 2 down (the fold 3.5 in from the top), her logo and address pre-printed on the top-left and top-middle panels and a small mark at the foot of the top-right one | **Six-panel forms (bottom tray)** | Delivery orders, and pickups that carry a card message |
 | Top | Plain letter paper | **Plain paper (top tray)** | Pickups with no card message |
 
 The rule, from Kevin's notes: a delivery always gets the form; a pickup gets
@@ -89,7 +89,7 @@ the MP Tray (the fold-down at the front, unused). Done on the shop PC,
    installed", name it **Six-panel forms (bottom tray)**, do not share, not
    the default. Skip the test page.
 2. Six-panel forms (bottom tray), Printing preferences, Basic tab: Paper Size
-   Letter; Paper Source, First Page and Other Pages both **Tray 2**; Scaling
+   **Legal**; Paper Source, First Page and Other Pages both **Tray 2**; Scaling
    off. Never **Auto Select**: both cassettes hold letter paper, and Auto
    Select is what sent every form to the plain tray.
 3. The original Brother entry, Printer properties, General tab: rename it
