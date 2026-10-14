@@ -500,6 +500,11 @@ type Store = {
       payment agree. */
   setOrderLines(id: string, lines: WorkroomLine[], subtotal: number): Promise<void>;
   markOrderRefunded(id: string): Promise<void>;
+  /** THE LAUNCH RESET (Kevin, 2026-10-13): every order written before the
+      moment given, gone. For the test orders before go-live; nothing else
+      (sales heard from the register, her lists, quotes, stems) is touched.
+      Returns how many went. */
+  deleteOrdersBefore(ts: number): Promise<number>;
   addStemEvent(e: StemEvent): Promise<void>;
   listStemEvents(days: number): Promise<StemEvent[]>;
   /** Mis-keyed counts happen at 7am. A delete, not an edit: retyping five
@@ -709,6 +714,16 @@ const memoryStore: Store = {
   },
   async deleteQuote(id) {
     bag().quotes.delete(id);
+  },
+  async deleteOrdersBefore(ts) {
+    let n = 0;
+    for (const [id, o] of bag().orders) {
+      if (o.createdAt < ts) {
+        bag().orders.delete(id);
+        n += 1;
+      }
+    }
+    return n;
   },
   async upsertSquareSale(s) {
     bag().squareSales.set(s.id, s);
@@ -1071,6 +1086,11 @@ const postgresStore: Store = {
   async deleteQuote(id) {
     const pool = await pgPool();
     await pool.query(`DELETE FROM workroom_quotes WHERE id = $1`, [id]);
+  },
+  async deleteOrdersBefore(ts) {
+    const pool = await pgPool();
+    const r = await pool.query(`DELETE FROM workroom_orders WHERE created_at < $1 RETURNING id`, [ts]);
+    return r.rows.length;
   },
   async upsertSquareSale(s) {
     const pool = await pgPool();

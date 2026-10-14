@@ -56,6 +56,13 @@ export async function POST(req: Request) {
   const sourceId = typeof card?.sourceId === "string" ? card.sourceId : "";
 
   if (sourceId) return paidFlow(priced.order, sourceId);
+  // ONLINE ORDERS ARE PAID ONLINE (Kevin, 2026-10-13): while the card
+  // switch is on, an unpaid order is refused here too, not only hidden in
+  // the cart, so no request shape reaches the board unpaid. The switch
+  // off is the kill switch, and then every order is a call.
+  if (process.env.CHECKOUT_CARDS?.trim() === "on") {
+    return NextResponse.json({ ok: false, error: "Online orders are paid by card at checkout." }, { status: 400 });
+  }
 
   const result = await sendOrder(priced.order);
   if (result === "sent") {

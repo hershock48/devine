@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MemoryWarning, PinGate, money, phoneKey, todayISO } from "@/components/workroom/ui";
+import { MemoryWarning, PinGate, field, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
 import { HISTORY_DAYS, consumption, isoDate, lotCosting, mondayOf, saleInstantMs, type SoldCost } from "@/lib/workroom/derive";
 
 /**
@@ -519,6 +519,72 @@ function IrisImport() {
           />
           <span className="muted" style={{ fontSize: 13.5 }}>Either list; it tells which from the columns. Loading one twice is harmless.</span>
         </label>
+        {report && <p role="status" style={{ margin: 0, fontSize: 14, color: "var(--green)", fontWeight: 600 }}>{report}</p>}
+        {err && <p role="alert" style={{ margin: 0, fontSize: 14, color: "var(--rose-ink)" }}>{err}</p>}
+      </div>
+    </>
+  );
+}
+
+/**
+ * THE LAUNCH RESET (Kevin, 2026-10-13): the test orders off the board
+ * before the first real one lands. Owner tier, the word CLEAR typed, one
+ * request. Orders only; everything else on the workroom stays.
+ */
+function LaunchReset() {
+  const [open, setOpen] = useState(false);
+  const [word, setWord] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState("");
+  const [err, setErr] = useState("");
+  async function clear() {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await fetch("/api/workroom/orders/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: word.trim() }),
+      });
+      const d = (await r.json().catch(() => null)) as { deleted?: number; error?: string } | null;
+      if (!r.ok) throw new Error(d?.error || "The reset failed.");
+      setReport(`Cleared ${d?.deleted ?? 0} order${d?.deleted === 1 ? "" : "s"} off the board.`);
+      setOpen(false);
+      setWord("");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "The reset failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <SectionHead label="Before launch" />
+      <div className="panel" style={{ padding: "14px 16px", display: "grid", gap: 10, maxWidth: 640 }}>
+        <p style={{ margin: 0, fontSize: 14.5 }}>
+          Clear every order off the board, so the first real order is the first order on it. For the test orders before
+          go-live. Register sales, her lists, quotes and stems stay. There is no undo.
+        </p>
+        {!open ? (
+          <div>
+            <button type="button" className="btn" onClick={() => setOpen(true)} disabled={busy}>
+              Clear the test orders
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <label style={{ fontSize: 14.5, display: "flex", gap: 8, alignItems: "center" }}>
+              Type CLEAR to confirm
+              <input value={word} onChange={(e) => setWord(e.target.value)} style={{ ...field, width: 110 }} autoFocus />
+            </label>
+            <button type="button" className="btn btn--solid" disabled={busy || word.trim() !== "CLEAR"} onClick={clear}>
+              {busy ? "Clearing…" : "Clear every order"}
+            </button>
+            <button type="button" onClick={() => { setOpen(false); setWord(""); }} style={{ ...textButton, fontSize: 14 }}>
+              Keep them
+            </button>
+          </div>
+        )}
         {report && <p role="status" style={{ margin: 0, fontSize: 14, color: "var(--green)", fontWeight: 600 }}>{report}</p>}
         {err && <p role="alert" style={{ margin: 0, fontSize: 14, color: "var(--rose-ink)" }}>{err}</p>}
       </div>
@@ -1268,6 +1334,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
 
       <SquareLink />
       <IrisImport />
+      <LaunchReset />
 
       {/* The provenance, off the face and in one place. */}
       <details style={{ marginTop: 30 }}>

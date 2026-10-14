@@ -133,6 +133,7 @@ export default function CartView() {
   const [billZip, setBillZip] = useState("");
   const [payMethod, setPayMethod] = useState<"call" | "card">("call");
   const [cardReady, setCardReady] = useState(false);
+  const [cardFailed, setCardFailed] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
   const zipRef = useRef<HTMLInputElement | null>(null);
@@ -207,20 +208,16 @@ export default function CartView() {
       priceable zip that clears the minimum (owner's confirmed sheet). */
   const cardAllowed = cfg.cards && (!delivering0 || (deliveryFee !== undefined && !belowMin));
 
-  // If the choice stops being available mid-checkout (zip edited, items
-  // removed below the minimum), fall back to the call, quietly.
+  /* ONLINE ORDERS ARE PAID ONLINE (Kevin, 2026-10-13): with the card
+     switch on there is no pay-later choice at all. A delivery the site
+     cannot price (a zip off her sheet) is not sent for the shop to sort
+     out on a call; it is held, with the phone number. The switch off is
+     the kill switch, and then every order is a call, as it was. */
   useEffect(() => {
-    if (payMethod === "card" && !cardAllowed) setPayMethod("call");
-  }, [payMethod, cardAllowed]);
-
-  /* Card is the DEFAULT whenever it is available (Kevin's call): most
-     buyers expect to pay at a checkout, and the pay-later option remains
-     one tap away. The upgrade only happens while the buyer has not touched
-     the radio; an explicit choice is never overridden. */
-  const [payChosen, setPayChosen] = useState(false);
-  useEffect(() => {
-    if (!payChosen && cardAllowed && payMethod === "call") setPayMethod("card");
-  }, [payChosen, cardAllowed, payMethod]);
+    setPayMethod(cfg.cards ? "card" : "call");
+  }, [cfg.cards]);
+  /** A delivery the site cannot price: no zip yet, or one off the sheet. */
+  const zipBlocked = cfg.cards && delivering0 && deliveryFee === undefined;
 
   // Mount Square's field only while the card option is chosen; tear it
   // down when it is not, same lifecycle as the workroom's pane.
@@ -228,6 +225,7 @@ export default function CartView() {
     if (payMethod !== "card" || !cfg.cards || !cfg.applicationId || !cfg.locationId) return;
     let dead = false;
     setCardReady(false);
+    setCardFailed(false);
     (async () => {
       try {
         await loadSquareSdk(cfg.env ?? "sandbox");
@@ -243,9 +241,8 @@ export default function CartView() {
         if (!dead) setCardReady(true);
       } catch {
         if (!dead) {
-          // The honest fallback is the flow that always works.
-          setPayMethod("call");
-          setOutcome({ state: "invalid", message: "Card entry did not open; you can place the order and pay on the confirming call." });
+          setCardFailed(true);
+          setOutcome({ state: "invalid", message: `Card entry did not open. Reload the page and try again, or call the shop at ${site.phone}.` });
         }
       }
     })();
@@ -555,7 +552,7 @@ export default function CartView() {
             </div>
             <p className="muted" style={{ fontSize: 14.5, marginTop: -8 }}>
               {cfg.cards
-                ? "Pay by card at checkout, or send the order and pay when we call to confirm. Delivery is priced by zip at checkout."
+                ? "Paid by card at checkout. Delivery is priced by zip at checkout."
                 : "No payment is taken online. We call to confirm every order, arrange delivery, and take payment then."}
             </p>
             <p className="muted" style={{ fontSize: 14.5, marginTop: 4 }}>
@@ -656,16 +653,25 @@ export default function CartView() {
                         </label>
                         <label>
                           <span style={labelText}>Zip</span>
-                          <input ref={zipRef} name="zip" value={zip} onChange={(e) => setZip(e.target.value)} inputMode="numeric" autoComplete="postal-code" style={field} />
+                          <input ref={zipRef} name="zip" value={zip} onChange={(e) => setZip(e.target.value)} required={cfg.cards} inputMode="numeric" autoComplete="postal-code" style={field} />
                         </label>
                       </div>
                       {/* ZipCheck's rule: a near miss is a phone call, not a wall.
                           The order still submits; the ticket carries a flag. */}
                       {zip.trim().length === 5 && !zipKnown && (
-                        <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }} aria-live="polite">
-                          {zip.trim()} isn&rsquo;t on our published delivery list. Send the order
-                          anyway and we&rsquo;ll tell you honestly on the confirm call, or ask us
-                          first on <a href={site.phoneHref}>{site.phone}</a>.
+                        <p style={{ fontSize: 14.5, margin: "-6px 0 0", ...(cfg.cards ? { color: "var(--rose-ink)", fontWeight: 600 } : {}) }} className={cfg.cards ? undefined : "muted"} aria-live="polite">
+                          {cfg.cards ? (
+                            <>
+                              {zip.trim()} isn&rsquo;t on our delivery list, so we can&rsquo;t price delivery online.
+                              Call the shop at <a href={site.phoneHref}>{site.phone}</a> and we&rsquo;ll tell you if we can get there, or choose pickup.
+                            </>
+                          ) : (
+                            <>
+                              {zip.trim()} isn&rsquo;t on our published delivery list. Send the order
+                              anyway and we&rsquo;ll tell you honestly on the confirm call, or ask us
+                              first on <a href={site.phoneHref}>{site.phone}</a>.
+                            </>
+                          )}
                         </p>
                       )}
                       {/* The fee is a fact now (the owner's own zip sheet), so a
@@ -745,42 +751,9 @@ export default function CartView() {
                     <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={field} />
                   </label>
 
-                  {/* Payment choice: pickups always; deliveries once the
-                      zip prices them and the flowers clear the owner's
-                      minimum. The unavailable states say why, and the
-                      pay-on-call flow is always the out. */}
-                  {cardAllowed && (
-                    <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-                      <legend style={labelText}>Payment</legend>
-                      <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
-                        {(["card", "call"] as const).map((m) => (
-                          <label key={m} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15.5, padding: "4px 0" }}>
-                            <input
-                              type="radio"
-                              name="paymethod"
-                              checked={payMethod === m}
-                              onChange={() => {
-                                setPayMethod(m);
-                                setPayChosen(true);
-                              }}
-                              style={{ width: 20, height: 20, accentColor: "var(--green)" }}
-                            />
-                            {m === "card"
-                              ? "Pay now by card"
-                              : delivering
-                                ? "Pay when we call to confirm"
-                                : "Pay at pickup (we’ll call to confirm)"}
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
-                  )}
-                  {cfg.cards && delivering && deliveryFee === undefined && (
-                    <p className="muted" style={{ fontSize: 14.5, margin: "-6px 0 0" }}>
-                      A zip on our delivery list prices the delivery and opens card payment;
-                      otherwise send the order and we&rsquo;ll sort it on the confirming call.
-                    </p>
-                  )}
+                  {/* No payment choice: with cards on, every online order
+                      is paid by card here (Kevin, 2026-10-13); with cards
+                      off, every order is a call. */}
                   {minNote}
 
                   {/* Pay-on-call gets its breakdown too (Kevin's ask): the
@@ -880,22 +853,28 @@ export default function CartView() {
                   <button
                     className="btn btn--solid"
                     type="submit"
-                    disabled={outcome.state === "sending" || belowMin || (payMethod === "card" && cardAllowed && !cardReady)}
+                    disabled={outcome.state === "sending" || belowMin || zipBlocked || cardFailed || (payMethod === "card" && cardAllowed && !cardReady)}
                   >
                     {outcome.state === "sending"
                       ? payMethod === "card" ? "Charging…" : "Sending…"
                       : belowMin
                         ? "Add more to qualify for delivery"
-                        : payMethod === "card" && cardAllowed
-                          ? cardReady ? `Pay ${money(cardTotalCents / 100)} and place the order` : "Opening card field…"
-                          : "Send the order"}
+                        : zipBlocked
+                          ? zipTrim.length >= 5 ? "We can’t price that delivery online" : "Enter a delivery zip"
+                          : cardFailed
+                            ? "Card entry did not open"
+                            : payMethod === "card" && cardAllowed
+                              ? cardReady ? `Pay ${money(cardTotalCents / 100)} and place the order` : "Opening card field…"
+                              : "Send the order"}
                   </button>
                   <span className="muted" style={{ fontSize: 14.5 }}>
                     {belowMin
                       ? `${money(deliveryMin - subtotal)} more, or pickup.`
-                      : payMethod === "card" && cardAllowed
-                        ? "Charged once, when you tap the button."
-                        : "Nothing is charged online."}
+                      : zipBlocked
+                        ? `Call ${site.phone}, or choose pickup.`
+                        : payMethod === "card" && cardAllowed
+                          ? "Charged once, when you tap the button."
+                          : "Nothing is charged online."}
                   </span>
                 </p>
 
