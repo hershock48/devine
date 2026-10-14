@@ -139,9 +139,13 @@ function statementText(a: Account): string {
   ].join("\n");
 }
 
-function mailtoStatement(a: Account): string {
+/** A mailto: link carrying the statement, or null when the statement is
+    too long for one: browsers and mail apps cut a mailto body at about
+    2KB and say nothing, so a long month gets the Copy button instead. */
+function mailtoStatement(a: Account): string | null {
   const subject = `Statement from ${site.shortName}: ${money(a.owedCents / 100)} due`;
-  return `mailto:${encodeURIComponent(a.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(statementText(a))}`;
+  const href = `mailto:${encodeURIComponent(a.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(statementText(a))}`;
+  return href.length <= 1800 ? href : null;
 }
 
 export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) {
@@ -247,8 +251,8 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
           </button>
           {a.owedCents > 0 && (
             <>
-              {a.email && (
-                <a href={mailtoStatement(a)} style={{ fontSize: 14 }}>
+              {a.email && mailtoStatement(a) && (
+                <a href={mailtoStatement(a) ?? undefined} style={{ fontSize: 14 }}>
                   Email a statement
                 </a>
               )}
@@ -314,7 +318,9 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
       </p>
       {error && <p role="alert" style={{ color: "var(--rose-ink)", fontWeight: 600 }}>{error}</p>}
 
-      {loaded && accounts.length === 0 ? (
+      {!loaded ? (
+        <p className="muted" aria-live="polite">{error ? "" : "Loading the accounts…"}</p>
+      ) : accounts.length === 0 ? (
         <p className="muted">No account orders yet. Tick <strong>On account</strong> when writing one up and it will appear here.</p>
       ) : (
         <>

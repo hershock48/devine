@@ -21,6 +21,9 @@ import { clock12, isDeliveryLine, isTaxLine, type PrintLayout } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
+// Decoded once, like the logo: a holiday print run must not decode the
+// same 100KB string per ticket.
+const CARD_FONT = Buffer.from(CARD_FONT_BASE64, "base64");
 
 /**
  * THE PRINTED ORDER, AS A PDF (2026-10-12). One layout per paper, drawn in
@@ -123,6 +126,17 @@ function clean(s: string): string {
     .replace(/[^\x20-\x7e\xa0-\xff\n]/g, "");
 }
 
+/** For the card face, which is a real embedded font: curly quotes,
+    dashes and the ellipsis stay as typed (it has the glyphs, Latin plus
+    the general punctuation block). Only what it cannot draw is dropped,
+    since pdf-lib throws on a glyph the font lacks and a ticket that fails
+    to print over an emoji is worse than one without it. */
+function cleanCard(s: string): string {
+  return s
+    .replace(/\t/g, " ")
+    .replace(/[^\x20-\x7e\xa0-\u017f\u2010-\u2027\u2030\u2039\u203a\u20ac\u2122\n]/g, "");
+}
+
 /** A single token wider than the column (a long email, a pasted URL, a
     run of dashes) is cut at the edge rather than drawn past it. */
 function breakToken(font: PDFFont, size: number, w: string, maxW: number): string[] {
@@ -139,9 +153,9 @@ function breakToken(font: PDFFont, size: number, w: string, maxW: number): strin
   return parts;
 }
 
-function wrap(font: PDFFont, size: number, text: string, maxW: number): string[] {
+function wrap(font: PDFFont, size: number, text: string, maxW: number, cleaner: (s: string) => string = clean): string[] {
   const out: string[] = [];
-  for (const para of clean(text).split("\n")) {
+  for (const para of cleaner(text).split("\n")) {
     const words = para
       .split(/\s+/)
       .filter(Boolean)
@@ -208,7 +222,6 @@ type Pen = {
   bold: PDFFont;
   /** Cormorant Garamond italic, for the card message alone. */
   card: PDFFont;
-  serif: PDFFont;
 };
 
 /**
@@ -363,15 +376,14 @@ function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
 
 async function pens(doc: PDFDocument): Promise<Omit<Pen, "page">> {
   doc.registerFontkit(fontkit);
-  const [reg, bold, serif, card] = await Promise.all([
+  const [reg, bold, card] = await Promise.all([
     doc.embedFont(StandardFonts.Helvetica),
     doc.embedFont(StandardFonts.HelveticaBold),
-    doc.embedFont(StandardFonts.TimesRoman),
     // The card message's own face (card-font.ts); subset so a ticket
     // carries only the glyphs it prints.
-    doc.embedFont(Buffer.from(CARD_FONT_BASE64, "base64"), { subset: true }),
+    doc.embedFont(CARD_FONT, { subset: true }),
   ]);
-  return { reg, bold, serif, card };
+  return { reg, bold, card };
 }
 
 /* ------------------------------ the sheet ------------------------------ */
@@ -395,9 +407,11 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     const b = box(0, 0);
     const c = new Cursor(pen, CARD_X, CARD_TOP, PANEL_W - CARD_X - PANEL_INSET, b.bottom);
     c.line(o.recipient || o.name, 12, pen.bold);
-    for (const w of where) c.line(w, 10.5, pen.bold);
-    if (!deliver && o.company) c.line(o.company, 10.5, pen.bold);
-    if (!deliver) c.line("Pickup at the shop", 10.5, pen.bold);
+    if (deliver) for (const w of where) c.line(w, 10.5, pen.bold);
+    else {
+      if (o.company) c.line(o.company, 10.5, pen.bold);
+      c.line("Pickup at the shop", 10.5, pen.bold);
+    }
     if (o.phone) c.line(o.phone, 10, pen.reg);
     c.gap(6);
     c.line(`[ Order ${o.number} ]`, 10);
@@ -420,10 +434,10 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     // Cormorant runs small for its point size, so it starts larger than
     // the Times it replaced and floors higher.
     let size = 16;
-    let lines = wrap(pen.card, size, o.cardMessage || "", b.w - 10);
+    let lines = wrap(pen.card, size, o.cardMessage || "", b.w - 10, cleanCard);
     while (lines.length * size * 1.35 > areaH && size > 10) {
       size -= 1;
-      lines = wrap(pen.card, size, o.cardMessage || "", b.w - 10);
+      lines = wrap(pen.card, size, o.cardMessage || "", b.w - 10, cleanCard);
     }
     const maxLines = Math.max(1, Math.floor(areaH / (size * 1.35)));
     if (lines.length > maxLines) lines = [...lines.slice(0, maxLines - 1), "(... the rest is on the board)"];
@@ -556,7 +570,7 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
   c.heading("Card message");
   {
     const size = 17;
-    let lines = wrap(pen.card, size, o.cardMessage || "(none)", W - 24);
+    let lines = wrap(pen.card, size, o.cardMessage || "(none)", W - 24, cleanCard);
     // The box takes what fits above the floor, leaving room for the stamp.
     const room = c.y - c.floor - 20 - 30;
     const maxLines = Math.floor(room / (size * 1.4));

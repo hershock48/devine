@@ -1056,6 +1056,7 @@ const postgresStore: Store = {
       createdAt: Number(row.created_at),
       fulfillment: row.fulfillment === "pickup" ? ("pickup" as const) : ("delivery" as const),
       recipient: (row.recipient as string) ?? "",
+      company: (row.company as string) ?? "",
       street: (row.street as string) ?? "",
       town: (row.town as string) ?? "",
       zip: (row.zip as string) ?? "",

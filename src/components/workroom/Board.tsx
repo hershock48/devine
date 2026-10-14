@@ -1919,16 +1919,14 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
             minimum wins over the fr columns and the whole form pushes the
             page sideways at 390px. Caught by the authed-state audit. */}
         {/* The place above the street (Kevin, 2026-10-14): a funeral home,
-            a school, a church, an office. Its own line, delivery only; the
-            driver reads it before the number. */}
-        {/* Pickups too (Kevin): a business picking up has a name worth
-            keeping; "worst comes to worst they don't use it". */}
-        {(
-          <label style={{ display: "block", marginBottom: 14 }}>
-            <span style={labelText}>Company or place (optional)</span>
-            <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Funeral home, school, church, office" style={field} />
-          </label>
-        )}
+            a school, a church, an office. Its own line on every order: the
+            driver reads it before the number on a delivery, and a business
+            picking up has a name worth keeping ("worst comes to worst they
+            don't use it"). */}
+        <label style={{ display: "block", marginBottom: 14 }}>
+          <span style={labelText}>Company or place (optional)</span>
+          <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Funeral home, school, church, office" style={field} />
+        </label>
         <div style={{ display: "grid", gap: 14, gridTemplateColumns: "2fr 1fr minmax(70px, 110px)" }}>
           <label style={{ minWidth: 0 }}>
             <span style={labelText}>Street</span>
