@@ -416,6 +416,11 @@ export async function PATCH(req: Request) {
   if (p.markRefunded === true) {
     if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
     const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    // Only a canceled order is refunded whole; anything else still has
+    // its money, and the note would tell the customer a thing that is
+    // not so.
+    if (o.status !== "canceled") return NextResponse.json({ error: "Only a canceled order is marked refunded." }, { status: 409 });
     const changed = await getStore().markOrderRefunded(id);
     if (changed && o?.email) await sendRefundEmail(o);
     return NextResponse.json({ ok: true });

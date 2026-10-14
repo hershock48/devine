@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, refundableCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -581,8 +581,8 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
   if (orders.length === 0) return null;
   const moneyWord = (o: Order) => {
     if (!o.payment) return o.status === "canceled" ? "" : "not paid";
-    if (o.payment.refundedAt) return `refunded ${money(o.payment.totalCents / 100)}`;
-    return `paid ${money(o.payment.totalCents / 100)}`;
+    if (o.payment.refundedAt) return `refunded ${money(refundableCents(o) / 100)}`;
+    return `paid ${money(refundableCents(o) / 100)}`;
   };
   return (
     <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0", maxWidth: 720 }}>
@@ -1390,7 +1390,7 @@ function OrderCard({
       {o.status === "canceled" && o.payment && !o.payment.refundedAt && (
         <div style={{ margin: "10px 0 0" }}>
           <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
-            Paid {money(o.payment.totalCents / 100)}, then canceled. Refund it from the Square
+            Paid {money(refundableCents(o) / 100)}, then canceled. Refund it from the Square
             dashboard (Transactions), then mark it here.
           </p>
           {onRefunded && (
@@ -2473,6 +2473,9 @@ function PhoneOrderForm({
                   setPickedFromFile(true);
                   setTyped({ name: false, phone: false });
                   setName(f.name);
+                  // The customer file's Business column is the customer's
+                  // own company (the recipient file's is the place flowers
+                  // go, and that one fills the address's company line).
                   setBusiness(f.business && f.business !== f.name ? f.business : "");
                   setPhone(f.phone);
                   setEmail(f.email);

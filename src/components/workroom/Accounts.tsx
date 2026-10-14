@@ -89,7 +89,11 @@ const itemsOf = (o: Order) => o.lines.filter((l) => !isDeliveryLine(l) && !isTax
 function groupAccounts(orders: Order[]): Account[] {
   const map = new Map<string, Account>();
   for (const o of orders) {
-    const key = phoneKey(o.phone) || (o.business ?? "").trim().toLowerCase() || o.name.trim().toLowerCase() || o.id;
+    // A business is one account however many people there call (the
+    // director's cell, the office line); a person is their phone, else
+    // their name. Prefixed so a Mr. Kempf never lands in the funeral home.
+    const biz = (o.business ?? "").trim().toLowerCase();
+    const key = biz ? `biz:${biz}` : phoneKey(o.phone) || `name:${o.name.trim().toLowerCase()}` || o.id;
     const a = map.get(key) ?? {
       key, name: o.name, business: o.business ?? "", company: o.company ?? "", phone: o.phone, email: o.email,
       orders: [], owedCents: 0, paidCents: 0, open: 0, oldestOpenAt: 0, lastAt: 0,
@@ -135,7 +139,7 @@ function statementText(a: Account): string {
   });
   return [
     `${site.name}`,
-    `Statement for ${[a.business, a.name].filter(Boolean).join(", ")}`,
+    `Statement for ${[a.business, a.name, a.company].filter(Boolean).join(", ")}`,
     `As of ${when(Date.now())}`,
     "",
     ...rows,

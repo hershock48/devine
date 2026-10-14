@@ -3,7 +3,7 @@ import "server-only";
 import { shopMail } from "@/lib/mail";
 import { bySlug, money } from "@/lib/catalog";
 import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
-import { clock12, isTaxLine, taxFor, taxLineName } from "@/lib/workroom/derive";
+import { clock12, isTaxLine, refundableCents, taxFor, taxLineName } from "@/lib/workroom/derive";
 import { occasions as OCCASIONS } from "@/lib/occasions";
 import { block, esc, logoAttachment, longDay, orderTable, phoneLink, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
@@ -92,7 +92,9 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
     const slug = str((l as IntakeLine).slug, 80);
     const qtyN = Number((l as IntakeLine).qty);
     const product = bySlug.get(slug);
-    if (!product || !Number.isFinite(qtyN)) continue;
+    // Off the menu is off sale: a line for it is dropped like an unknown
+    // slug (the cart drops it on load too, so the customer sees it go).
+    if (!product || product.offMenu || !Number.isFinite(qtyN)) continue;
     const qty = Math.min(99, Math.max(1, Math.round(qtyN)));
     lines.push({
       slug,
@@ -495,7 +497,7 @@ export async function sendRefundEmail(o: {
     return;
   }
   const transport = mail.transport;
-  const amount = money(((o.payment?.totalCents ?? 0) + (o.topUps ?? []).reduce((s, p) => s + p.totalCents, 0)) / 100);
+  const amount = money(refundableCents(o) / 100);
   const how =
     o.payment?.method === "card"
       ? "Back to the card you paid with. Allow a few business days for your bank to show it."

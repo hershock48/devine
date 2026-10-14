@@ -18,7 +18,8 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { slug } = await params;
   const p = bySlug.get(slug);
-  if (!p) return {};
+  // Off the menu reads as gone in the head too: no title, no link card.
+  if (!p || p.offMenu) return {};
 
   /*
     A handful of their products carry no description at all, only the substitution

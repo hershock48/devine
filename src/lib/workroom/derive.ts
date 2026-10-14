@@ -107,6 +107,12 @@ export const withTaxLine = <L extends { slug?: string | null; name: string; qty:
 type Paid = { totalCents: number; feeCents: number };
 export const collectedCents = (o: { payment?: Paid | null; topUps?: Paid[] }): number =>
   (o.payment ? o.payment.totalCents - o.payment.feeCents : 0) + (o.topUps ?? []).reduce((s, p) => s + p.totalCents - p.feeCents, 0);
+/** What a full refund gives back: every charge as it was made, fees
+    included, because that is what Square returns to the card. The board's
+    "Refund it" line, the closed list and the refund note all read this one
+    number, so the shop and the customer are told the same amount. */
+export const refundableCents = (o: { payment?: { totalCents: number } | null; topUps?: { totalCents: number }[] }): number =>
+  (o.payment?.totalCents ?? 0) + (o.topUps ?? []).reduce((s, p) => s + p.totalCents, 0);
 export const balanceCents = (o: { subtotal: number; payment?: (Paid & { method?: string }) | null; topUps?: Paid[] }): number => {
   const due = Math.round(o.subtotal * 100) - collectedCents(o);
   // A ring at the register (the webhook's record) is the register's own

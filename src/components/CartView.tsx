@@ -97,6 +97,8 @@ type CardConfig = { cards: boolean; applicationId?: string; locationId?: string;
  * zero code changes. The counter always has three little things by the
  * register.
  */
+// An entry off the menu (the chocolates, since 2026-10-14) is skipped
+// below and comes back by itself when the product does.
 const ADD_ON_PRIORITY = ["petite-box-of-chocolates", "bohemian-breakfast-tea", "lil-lovey"];
 const ADD_ON_POOL = (() => {
   const gifts = menu.filter((p) => p.cats.includes("gifts-add-ons"));
