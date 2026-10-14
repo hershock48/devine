@@ -554,7 +554,10 @@ type Store = {
       delivery ticket that never carried one, so the ticket's rows and its
       payment agree. */
   setOrderLines(id: string, lines: WorkroomLine[], subtotal: number): Promise<void>;
-  markOrderRefunded(id: string): Promise<void>;
+  /** True when this call set the stamp: the refund email (Kevin,
+      2026-10-14) goes on that transition and never on a repeat tap, so
+      an order with no payment or one already stamped reports false. */
+  markOrderRefunded(id: string): Promise<boolean>;
   /** THE LAUNCH RESET (Kevin, 2026-10-13): every order written before the
       moment given, gone. For the test orders before go-live; nothing else
       (sales heard from the register, her lists, quotes, stems) is touched.
@@ -732,7 +735,9 @@ const memoryStore: Store = {
   },
   async markOrderRefunded(id) {
     const o = bag().orders.get(id);
-    if (o?.payment) o.payment.refundedAt = Date.now();
+    if (!o?.payment || o.payment.refundedAt) return false;
+    o.payment.refundedAt = Date.now();
+    return true;
   },
   async listOrderContacts() {
     return [...bag().orders.values()]
@@ -1080,13 +1085,17 @@ const postgresStore: Store = {
     const pool = await pgPool();
     // jsonb_set, not ||: the stamp goes INSIDE the existing payment object.
     // The payment-exists guard keeps a stray call from minting a payment
-    // out of a bare refund stamp.
-    await pool.query(
+    // out of a bare refund stamp; the not-yet-stamped guard and RETURNING
+    // say whether this call was the transition (same shape as the print
+    // stamp above).
+    const r = await pool.query(
       `UPDATE workroom_orders
        SET data = jsonb_set(data, '{payment,refundedAt}', to_jsonb($2::bigint))
-       WHERE id = $1 AND data->'payment' IS NOT NULL`,
+       WHERE id = $1 AND data->'payment' IS NOT NULL AND data->'payment'->>'refundedAt' IS NULL
+       RETURNING id`,
       [id, Date.now()],
     );
+    return r.rows.length > 0;
   },
   async listOrderContacts() {
     const pool = await pgPool();

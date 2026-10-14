@@ -5,7 +5,7 @@ import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrde
 import { bySlug } from "@/lib/catalog";
 import { deliveryLineName, isDeliveryLine, normalizeVariety, withTaxLine } from "@/lib/workroom/derive";
 import { INITIALS_ERROR } from "@/lib/workroom/initials";
-import { sendDeliveredEmail, sendWorkroomReceipt } from "@/lib/intake";
+import { sendDeliveredEmail, sendRefundEmail, sendWorkroomReceipt } from "@/lib/intake";
 
 /**
  * The board's orders. GET lists the last 60 days (a wedding sits on the board
@@ -409,10 +409,15 @@ export async function PATCH(req: Request) {
 
   // The refund attestation: the shop says the Square refund happened, and
   // the money-to-return section clears. Guarded in the store to orders
-  // that actually carry a payment.
+  // that actually carry a payment. The customer hears that it is done
+  // (Kevin, 2026-10-14): once, on the mark that actually transitions, so
+  // a second tap or an order already stamped sends nothing. Best-effort
+  // after the stamp is safely stored.
   if (p.markRefunded === true) {
     if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
-    await getStore().markOrderRefunded(id);
+    const o = await getStore().getOrder(id);
+    const changed = await getStore().markOrderRefunded(id);
+    if (changed && o?.email) await sendRefundEmail(o);
     return NextResponse.json({ ok: true });
   }
 
