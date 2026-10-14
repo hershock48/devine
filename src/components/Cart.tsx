@@ -71,7 +71,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           !!l && typeof l === "object" &&
           typeof (l as Line).slug === "string" &&
           Number.isFinite((l as Line).qty) &&
-          bySlug.has((l as Line).slug))
+          bySlug.has((l as Line).slug) &&
+          // Taken off the menu since it was added: gone from the cart too.
+          !bySlug.get((l as Line).slug)?.offMenu)
         .map((l) => ({ slug: l.slug, qty: Math.min(99, Math.max(1, Math.round(l.qty))) }));
       if (clean.length) setLines(clean);
     } catch {

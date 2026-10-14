@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidInParts, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -40,6 +40,7 @@ type Order = {
   fulfillment: "delivery" | "pickup";
   recipient: string;
   company?: string;
+  business?: string;
   zip: string;
   date: string;
   lines: Line[];
@@ -56,6 +57,9 @@ type Order = {
 type Account = {
   key: string;
   name: string;
+  /** The business ordering (a funeral home, a school), when there is one;
+      its orders group under it however many people there call. */
+  business: string;
   company: string;
   phone: string;
   email: string;
@@ -85,9 +89,13 @@ const itemsOf = (o: Order) => o.lines.filter((l) => !isDeliveryLine(l) && !isTax
 function groupAccounts(orders: Order[]): Account[] {
   const map = new Map<string, Account>();
   for (const o of orders) {
-    const key = phoneKey(o.phone) || o.name.trim().toLowerCase() || o.id;
+    // A business is one account however many people there call (the
+    // director's cell, the office line); a person is their phone, else
+    // their name. Prefixed so a Mr. Kempf never lands in the funeral home.
+    const biz = (o.business ?? "").trim().toLowerCase();
+    const key = biz ? `biz:${biz}` : phoneKey(o.phone) || `name:${o.name.trim().toLowerCase()}` || o.id;
     const a = map.get(key) ?? {
-      key, name: o.name, company: o.company ?? "", phone: o.phone, email: o.email,
+      key, name: o.name, business: o.business ?? "", company: o.company ?? "", phone: o.phone, email: o.email,
       orders: [], owedCents: 0, paidCents: 0, open: 0, oldestOpenAt: 0, lastAt: 0,
     };
     a.orders.push(o);
@@ -102,6 +110,7 @@ function groupAccounts(orders: Order[]): Account[] {
       a.lastAt = o.createdAt;
       // The newest order names the account: a corrected spelling wins.
       a.name = o.name || a.name;
+      a.business = o.business || a.business;
       a.email = o.email || a.email;
       a.phone = o.phone || a.phone;
       a.company = o.company || a.company;
@@ -130,7 +139,7 @@ function statementText(a: Account): string {
   });
   return [
     `${site.name}`,
-    `Statement for ${[a.name, a.company].filter(Boolean).join(", ")}`,
+    `Statement for ${[a.business, a.name, a.company].filter(Boolean).join(", ")}`,
     `As of ${when(Date.now())}`,
     "",
     ...rows,
@@ -198,6 +207,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
     return accounts.filter(
       (a) =>
         a.name.toLowerCase().includes(q) ||
+        a.business.toLowerCase().includes(q) ||
         a.company.toLowerCase().includes(q) ||
         a.email.toLowerCase().includes(q) ||
         (digits.length >= 3 && phoneKey(a.phone).includes(digits)) ||
@@ -219,7 +229,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
       const r = await fetch("/api/workroom/accounts/statement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: a.email, name: a.name, company: a.company, rows: statementRows(a), balance: money(a.owedCents / 100) }),
+        body: JSON.stringify({ to: a.email, name: a.name, business: a.business, company: a.company, rows: statementRows(a), balance: money(a.owedCents / 100) }),
       });
       const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
       if (!r.ok || !d?.ok) throw new Error(d?.error || "The statement did not send.");
@@ -256,7 +266,8 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
       <section key={a.key} className="panel" style={{ padding: 16, borderLeft: overdue ? "3px solid var(--rose-ink)" : "3px solid transparent" }}>
         <header style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
           <div style={{ minWidth: 0 }}>
-            <strong style={{ fontSize: 17 }}>{a.name || "No name"}</strong>
+            <strong style={{ fontSize: 17 }}>{a.business || a.name || "No name"}</strong>
+            {a.business && a.name && <span className="muted" style={{ fontSize: 15 }}> · {a.name}</span>}
             {a.company && <span className="muted" style={{ fontSize: 15 }}> · {a.company}</span>}
             <p className="muted" style={{ margin: "2px 0 0", fontSize: 13.5 }}>
               {[a.phone, a.email].filter(Boolean).join(" · ") || "no phone or email on file"}
@@ -326,6 +337,8 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       deliveryCents={o.payment ? 0 : feeToAppend(o)}
                       payment={o.payment}
                       balanceCents={balanceCents(o)}
+                      collectedCents={collectedCents(o)}
+                      paidInParts={paidInParts(o)}
                       onPaid={() => pull().catch(() => {})}
                     />
                   )}

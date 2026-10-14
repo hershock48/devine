@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { textButton } from "@/components/workroom/ui";
+import { field, textButton } from "@/components/workroom/ui";
 import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
 
 /**
@@ -24,6 +24,11 @@ import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
 type Payment = { at: number; method: string; totalCents: number; feeCents: number };
 
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+/** "40", "40.5", "$1,200.00" to cents; null when it is not a money amount. */
+const parseDollars = (s: string): number | null => {
+  const t = s.trim().replace(/^\$/, "").replace(/,/g, "");
+  return /^\d+(\.\d{1,2})?$/.test(t) ? Math.round(Number(t) * 100) : null;
+};
 
 export default function PayControls({
   orderId,
@@ -31,6 +36,8 @@ export default function PayControls({
   deliveryCents = 0,
   payment,
   balanceCents = 0,
+  collectedCents = 0,
+  paidInParts = false,
   batch,
   onPaid,
 }: {
@@ -45,9 +52,16 @@ export default function PayControls({
       With a payment on the order this is what the buttons charge; a
       zero or negative balance shows no buttons. */
   balanceCents?: number;
+  /** Cents taken so far (derive.ts collectedCents), for the "Paid $40 of
+      $70.90" line on a ticket paid in part. */
+  collectedCents?: number;
+  /** derive.ts paidInParts: settled or part-paid in more than one go. */
+  paidInParts?: boolean;
   /** The orders placed together with this one that still need paying
-      (the batch), so one card can settle all of them. */
-  batch?: { ids: string[]; count: number; totalCents: number; name: string };
+      (the batch), so one card can settle all of them. `owed` is each
+      order's number and cents due, in the order the route deals a part
+      payment out, so a lost board write can say which got what. */
+  batch?: { ids: string[]; count: number; totalCents: number; name: string; owed: { number: string; cents: number }[] };
   onPaid: () => void;
 }) {
   /** "one" or "all": which the buttons charge when a batch is offered. */
@@ -76,6 +90,46 @@ export default function PayControls({
   const total = topUp ? balanceCents : Math.round(subtotal * 100) + deliveryCents;
   const forAll = !!batch && scope === "all";
   const amount = forAll ? batch!.totalCents : total;
+
+  /* PART OF IT NOW (Kevin, 2026-10-14: "x amount cash and the rest on
+     card, or half on this card and half on another"). A link under the
+     amount opens a box prefilled with the whole amount; what is typed is
+     what the buttons charge, and the rest stays due on the card, where
+     Take card and Record cash take it later by the top-up path. Checked
+     here in words, and again by the pay route. */
+  const [part, setPart] = useState(false);
+  const [partText, setPartText] = useState("");
+  const partCents = part ? parseDollars(partText) : null;
+  const partError = !part
+    ? ""
+    : partCents === null
+      ? "Type the amount as a number, like 40 or 40.50."
+      : partCents <= 0
+        ? "The amount has to be more than zero."
+        : partCents > amount
+          ? `That is more than what is due (${dollars(amount)}).`
+          : "";
+  const charge = part && !partError ? partCents! : amount;
+  const openPart = () => {
+    setPart(true);
+    setPartText((amount / 100).toFixed(2));
+  };
+  /* Flipping All / This order after the box opened: the box follows the
+     new amount, so a figure typed against the group cannot be charged
+     against one order (or the reverse) unnoticed. */
+  const pickScope = (s: "one" | "all") => {
+    setScope(s);
+    if (part) setPartText(((s === "all" ? batch!.totalCents : total) / 100).toFixed(2));
+  };
+  /* Not while unsure: the retry must resend the same attempt with the
+     same amount, so the pane stays exactly as it is (box, figure, scope)
+     until Square gives a definite answer. Never mind is disabled too;
+     closing and reopening with a different figure would be refused by
+     Square as a key reuse, with the counter none the wiser. */
+  const close = () => {
+    setMode("idle");
+    setPart(false);
+  };
 
   // Mount Square's card field when card mode opens; tear it down when it
   // closes, because a destroyed iframe beats a leaked one on a page that
@@ -132,6 +186,7 @@ export default function PayControls({
     setBusy(true);
     setError("");
     try {
+      if (partError) throw new Error(partError);
       let sourceId: string | undefined;
       if (method === "card") {
         if (!cardRef.current) throw new Error("The card field is not ready yet.");
@@ -148,7 +203,15 @@ export default function PayControls({
         r = await fetch("/api/workroom/pay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(forAll ? { ids: batch!.ids, method, sourceId, attempt: attemptRef.current || undefined } : { id: orderId, method, sourceId, attempt: attemptRef.current || undefined }),
+          body: JSON.stringify({
+            ...(forAll ? { ids: batch!.ids } : { id: orderId }),
+            method,
+            sourceId,
+            attempt: attemptRef.current || undefined,
+            // Only when the box is open: a closed box means the whole of
+            // what is due, the route's own default.
+            amountCents: part ? charge : undefined,
+          }),
         });
         d = (await r.json().catch(() => ({}))) as typeof d;
       } catch {
@@ -166,15 +229,25 @@ export default function PayControls({
       }
       attemptRef.current = "";
       setUnsure(false);
-      setMode("idle");
+      close();
       if (d.boardMissed) {
         // The charge is real; only the board missed it. Said loudly, so
         // nobody takes the card again. The webhook catches up by itself.
+        // For a group, the charge is dealt out the way the route does it
+        // (each order's due filled in order), and the message names each
+        // order's share, so a part payment is not marked on orders that
+        // got nothing.
+        let left = charge;
+        const shares = (batch?.owed ?? []).map((x) => {
+          const share = Math.min(left, x.cents);
+          left -= share;
+          return { number: x.number, share };
+        }).filter((x) => x.share > 0);
         setError(
           forAll
-            ? `CHARGED ${dollars(amount)} for all ${batch!.count} orders, but the board did not save it. Do NOT charge again. Mark each of them "Paid another way" with this charge's amount.`
+            ? `CHARGED ${dollars(charge)} on ${shares.length} of ${batch!.count} orders, but the board did not save it. Do NOT charge again. Mark "Paid another way": ${shares.map((x) => `${dollars(x.share)} on ${x.number}`).join(", ")}.`
             : topUp
-              ? "CHARGED the balance, but the board did not save it. Do NOT charge again. Square's notice will add it within a minute; if it does not, mark it by hand."
+              ? `CHARGED ${dollars(charge)}, but the board did not save it. Do NOT charge again. Square's notice will add it within a minute; if it does not, mark it by hand.`
               : "CHARGED, but the board did not save it. Do NOT charge again. Reload in a minute; the payment will appear.",
         );
       }
@@ -186,6 +259,10 @@ export default function PayControls({
     }
   }
 
+  /* Never a bare PAID on a ticket paid in part: it says what came in, of
+     what, and what is still due, in the owed color, with the buttons
+     below for the rest. Settled in more than one payment (cash then
+     card) says so instead of naming the first payment alone. */
   const paidLine = payment ? (
     <p
       style={{
@@ -197,11 +274,48 @@ export default function PayControls({
         color: balanceCents > 0 ? "var(--rose-ink)" : "var(--green)",
       }}
     >
-      Paid · {payment.method === "other" ? "another way" : payment.method} · {dollars(payment.totalCents)}
-      {balanceCents > 0 ? ` · ${dollars(balanceCents)} still due after changes` : balanceCents < 0 ? ` · ${dollars(-balanceCents)} to refund (Square dashboard)` : ""}
+      {balanceCents > 0
+        ? `Paid ${dollars(collectedCents)} of ${dollars(Math.round(subtotal * 100))} · ${dollars(balanceCents)} still due`
+        : paidInParts
+          ? `Paid in full · ${dollars(collectedCents)} · in parts`
+          : `Paid · ${payment.method === "other" ? "another way" : payment.method} · ${dollars(payment.totalCents)}`}
+      {balanceCents < 0 ? ` · ${dollars(-balanceCents)} to refund (Square dashboard)` : ""}
     </p>
   ) : null;
   if (payment && balanceCents <= 0) return paidLine;
+
+  const partBlock = (
+    <div style={{ margin: "0 0 10px", fontSize: 14 }}>
+      {!part ? (
+        <button type="button" disabled={busy || unsure} onClick={openPart} style={{ ...textButton, fontSize: 14 }}>
+          Pay part of it now
+        </button>
+      ) : (
+        <>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            Amount now
+            <input
+              value={partText}
+              onChange={(e) => setPartText(e.target.value)}
+              inputMode="decimal"
+              disabled={busy || unsure}
+              aria-label="Amount to pay now, in dollars"
+              style={{ ...field, width: 110, padding: "6px 10px" }}
+            />
+            of {dollars(amount)}
+          </label>
+          <span style={{ display: "block", margin: "4px 0 0", fontSize: 13.5, color: "var(--muted)" }}>
+            The rest stays due on the card; take it by cash or card after.
+          </span>
+          {partError && (
+            <span role="alert" style={{ display: "block", margin: "4px 0 0", fontWeight: 600, color: "var(--rose-ink)" }}>
+              {partError}
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div style={{ margin: "10px 0 0" }}>
@@ -230,29 +344,32 @@ export default function PayControls({
       {batch && mode !== "idle" && (
         <p style={{ margin: "0 0 10px", display: "flex", gap: 18, flexWrap: "wrap", fontSize: 14.5 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "all"} disabled={unsure} onChange={() => setScope("all")} />
+            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "all"} disabled={unsure} onChange={() => pickScope("all")} />
             All {batch.count} orders for {batch.name} · {dollars(batch.totalCents)}
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "one"} disabled={unsure} onChange={() => setScope("one")} />
+            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "one"} disabled={unsure} onChange={() => pickScope("one")} />
             This order only · {dollars(total)}
           </label>
         </p>
       )}
 
       {mode === "manual" && (
-        <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 14 }}>
-            Marks it paid without touching Square. For money that already moved: the register, a
-            check, an account.
-          </span>
-          <button type="button" className="btn btn--solid" disabled={busy} onClick={() => pay("manual")}>
-            {busy ? "Marking…" : "Mark paid"}
-          </button>
-          <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
-            Never mind
-          </button>
-        </p>
+        <>
+          {partBlock}
+          <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 14 }}>
+              Marks it paid without touching Square. For money that already moved: the register, a
+              check, an account.
+            </span>
+            <button type="button" className="btn btn--solid" disabled={busy || !!partError} onClick={() => pay("manual")}>
+              {busy ? "Marking…" : part ? `Mark ${dollars(charge)} paid` : "Mark paid"}
+            </button>
+            <button type="button" disabled={busy || unsure} onClick={close} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+              Never mind
+            </button>
+          </p>
+        </>
       )}
 
       {mode === "card" && (
@@ -261,7 +378,7 @@ export default function PayControls({
               card is charged exactly the ticket. */}
           <ul style={{ listStyle: "none", padding: 0, margin: "0 0 10px", fontSize: 14.5 }}>
             <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <span>{forAll ? `All ${batch!.count} orders for ${batch!.name}` : topUp ? "Still due after changes" : "Ticket (items and tax)"}</span>
+              <span>{forAll ? `All ${batch!.count} orders for ${batch!.name}` : topUp ? "Still due" : "Ticket (items and tax)"}</span>
               <span>{dollars(forAll ? batch!.totalCents : topUp ? balanceCents : Math.round(subtotal * 100))}</span>
             </li>
             {!forAll && deliveryCents > 0 && (
@@ -275,12 +392,13 @@ export default function PayControls({
               <span>{dollars(amount)}</span>
             </li>
           </ul>
+          {partBlock}
           <div ref={holderRef} />
           <p style={{ margin: "10px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
-            <button type="button" className="btn btn--solid" disabled={busy || !ready} onClick={() => pay("card")}>
-              {!ready ? "Opening card field…" : busy ? "Charging…" : `Charge ${dollars(amount)}`}
+            <button type="button" className="btn btn--solid" disabled={busy || !ready || !!partError} onClick={() => pay("card")}>
+              {!ready ? "Opening card field…" : busy ? "Charging…" : `Charge ${dollars(charge)}`}
             </button>
-            <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+            <button type="button" disabled={busy || unsure} onClick={close} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
               Never mind
             </button>
           </p>
@@ -288,14 +406,17 @@ export default function PayControls({
       )}
 
       {mode === "cash" && (
-        <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" className="btn btn--solid" disabled={busy} onClick={() => pay("cash")}>
-            {busy ? "Recording…" : `Record ${dollars(amount)} cash`}
-          </button>
-          <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
-            Never mind
-          </button>
-        </p>
+        <>
+          {partBlock}
+          <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn btn--solid" disabled={busy || !!partError} onClick={() => pay("cash")}>
+              {busy ? "Recording…" : `Record ${dollars(charge)} cash`}
+            </button>
+            <button type="button" disabled={busy || unsure} onClick={close} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+              Never mind
+            </button>
+          </p>
+        </>
       )}
 
       {error && (

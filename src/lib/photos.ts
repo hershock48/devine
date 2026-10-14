@@ -1,4 +1,4 @@
-import { products, type Product } from "@/lib/catalog";
+import { menu, type Product } from "@/lib/catalog";
 import { hasPhoto } from "@/lib/order";
 
 /**
@@ -29,7 +29,8 @@ export type NeededPhoto = {
 const DESIGNERS_CHOICE = new Set(["designers-choice", "designers-choice-2", "designers-choice-3"]);
 
 /** The checkout's add-on strip (CartView.tsx) sells these three with every
-    order, which promotes their photos past their category's turn. */
+    order, which promotes their photos past their category's turn (one off
+    the menu is simply not in `menu`, so it never asks for a photo). */
 const REGISTER_ADD_ONS = new Set(["petite-box-of-chocolates", "bohemian-breakfast-tea", "lil-lovey"]);
 
 type Tier = { key: string; label: string; cats: string[] };
@@ -44,7 +45,7 @@ export const TIERS: Tier[] = [
 ];
 
 export function neededPhotos(): { tier: Tier; items: NeededPhoto[] }[] {
-  const missing = products.filter((p) => !hasPhoto(p.slug) && !DESIGNERS_CHOICE.has(p.slug));
+  const missing = menu.filter((p) => !hasPhoto(p.slug) && !DESIGNERS_CHOICE.has(p.slug));
   const taken = new Set<string>();
 
   const pick = (test: (p: Product) => boolean) =>

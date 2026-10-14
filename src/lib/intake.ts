@@ -3,7 +3,7 @@ import "server-only";
 import { shopMail } from "@/lib/mail";
 import { bySlug, money } from "@/lib/catalog";
 import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
-import { clock12, isTaxLine, taxFor, taxLineName } from "@/lib/workroom/derive";
+import { clock12, isTaxLine, refundableCents, taxFor, taxLineName } from "@/lib/workroom/derive";
 import { occasions as OCCASIONS } from "@/lib/occasions";
 import { block, esc, logoAttachment, longDay, orderTable, phoneLink, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
@@ -92,7 +92,9 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
     const slug = str((l as IntakeLine).slug, 80);
     const qtyN = Number((l as IntakeLine).qty);
     const product = bySlug.get(slug);
-    if (!product || !Number.isFinite(qtyN)) continue;
+    // Off the menu is off sale: a line for it is dropped like an unknown
+    // slug (the cart drops it on load too, so the customer sees it go).
+    if (!product || product.offMenu || !Number.isFinite(qtyN)) continue;
     const qty = Math.min(99, Math.max(1, Math.round(qtyN)));
     lines.push({
       slug,
@@ -469,6 +471,68 @@ export async function sendWorkroomReceipt(input: ReceiptOrder | ReceiptOrder[]):
       attachments: [logoAttachment()],
     })
     .catch((err) => console.error(`[devine] receipt for ${numbers} not sent:`, err));
+}
+
+/**
+ * The refund note (Kevin, 2026-10-14): when the shop marks a canceled
+ * order's payment refunded in Square, the customer hears that it is
+ * done. The amount is what the card (or the till) took: the payment and
+ * any top-ups, fee line included, the same "Paid $X" the board told the
+ * shop to refund; a full Square refund returns the whole charge. Where
+ * it goes is worded by the payment's method; a register ring or a
+ * by-hand mark cannot say more than "the way you paid". Best-effort and
+ * awaited, same rules as every send; the route only calls it on the
+ * mark that transitioned.
+ */
+export async function sendRefundEmail(o: {
+  number: string;
+  name: string;
+  email: string;
+  payment?: { method: string; totalCents: number } | null;
+  topUps?: { totalCents: number }[];
+}): Promise<void> {
+  const mail = shopMail();
+  if (!mail || !o.email) {
+    console.log(`[devine] refund note for ${o.number} not sent (no ${o.email ? "SMTP" : "email on the order"}).`);
+    return;
+  }
+  const transport = mail.transport;
+  const amount = money(refundableCents(o) / 100);
+  const how =
+    o.payment?.method === "card"
+      ? "Back to the card you paid with. Allow a few business days for your bank to show it."
+      : o.payment?.method === "cash"
+        ? "In cash at the shop."
+        : "The way you paid.";
+  const subject = `Your refund from ${site.shortName}, order ${o.number}`;
+  await transport
+    .sendMail({
+      from: mail.from,
+      to: o.email,
+      replyTo: mail.replyTo,
+      subject,
+      text: [
+        `Hi ${o.name}. Your refund is complete.`,
+        "",
+        `Order ${o.number}`,
+        `Refunded ${amount}`,
+        how,
+        "",
+        `Questions: call the shop at ${site.phone}.`,
+      ].join("\n"),
+      html: shell({
+        title: subject,
+        heading: "Your refund is complete.",
+        intro: `Hi ${esc(o.name)}. ${esc(site.shortName)} has refunded <strong>${amount}</strong> for order ${esc(o.number)}.`,
+        sections: [
+          block(`Order ${o.number}`, orderTable([], [{ label: "Refunded", value: amount, strong: true }])),
+          block("Where it goes", esc(how)),
+        ],
+        outro: `Questions: call the shop at ${phoneLink()}.`,
+      }),
+      attachments: [logoAttachment()],
+    })
+    .catch((err) => console.error(`[devine] refund note for ${o.number} not sent:`, err));
 }
 
 export async function sendOrder(o: PricedOrder, paid?: PaidOnline): Promise<SendResult> {

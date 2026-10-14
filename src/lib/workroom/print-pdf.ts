@@ -17,7 +17,7 @@ import {
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { balanceCents, clock12, isDeliveryLine, isTaxLine, type PrintLayout } from "./derive";
+import { balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, type PrintLayout } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -303,20 +303,27 @@ function whereLines(o: WorkroomOrder): string[] {
 const items = (o: WorkroomOrder) => o.lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l));
 const deliveryLine = (o: WorkroomOrder) => o.lines.find(isDeliveryLine);
 const taxLine = (o: WorkroomOrder) => o.lines.find(isTaxLine);
-const paidWord = (o: WorkroomOrder, atPickup: boolean) =>
-  o.payment
-    ? `PAID - ${o.payment.method === "other" ? "by hand" : o.payment.method} - ${money(o.payment.totalCents / 100)}${
-        // A website card payment carries the 99 cent ordering fee, which
-        // is not a line of the order; said here so PAID and TOTAL agree.
-        o.payment.feeCents > 0 ? ` (incl. ${money(o.payment.feeCents / 100)} online fee)` : ""
-      }`
-    : o.status === "canceled"
-      ? "CANCELED"
-      : o.account
-        ? "ON ACCOUNT - billed, not paid"
-        : atPickup
-          ? "NOT PAID - collect at pickup"
-          : "NOT PAID";
+const paidWord = (o: WorkroomOrder, atPickup: boolean): string => {
+  if (o.payment) {
+    // Canceled with money on it, whole or part: never PAID. The amount is
+    // the one refund figure (refundableCents), so the ticket in the file
+    // says what the Square refund has to be.
+    if (o.status === "canceled") return `CANCELED - ${money(refundableCents(o) / 100)} paid, ${o.payment.refundedAt ? "refunded" : "to be refunded"}`;
+    // Paid in part (Kevin, 2026-10-14: some cash now, the rest on a card
+    // later): the ticket must not read PAID. It says what came in and
+    // what is still to collect, the figure the Balance due line shows.
+    if (balanceCents(o) > 0) {
+      return `PART PAID - ${money(collectedCents(o) / 100)} of ${money(o.subtotal)} - ${money(balanceCents(o) / 100)} still due`;
+    }
+    if (paidInParts(o)) return `PAID - in parts - ${money(collectedCents(o) / 100)}`;
+    return `PAID - ${o.payment.method === "other" ? "by hand" : o.payment.method} - ${money(o.payment.totalCents / 100)}${
+      // A website card payment carries the 99 cent ordering fee, which
+      // is not a line of the order; said here so PAID and TOTAL agree.
+      o.payment.feeCents > 0 ? ` (incl. ${money(o.payment.feeCents / 100)} online fee)` : ""
+    }`;
+  }
+  return o.status === "canceled" ? "CANCELED" : o.account ? "ON ACCOUNT - billed, not paid" : atPickup ? "NOT PAID - collect at pickup" : "NOT PAID";
+};
 
 function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
   const cols = [0, c.w * 0.58, c.w * 0.68, c.w * 0.83];
@@ -463,7 +470,8 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     const colW = (b.w - 12) / 2;
     const left = new Cursor(pen, b.x, c.y, colW, c.floor);
     left.heading("Customer");
-    left.line(o.name, 10.5, pen.bold);
+    if (o.business) left.line(o.business, 10.5, pen.bold);
+    left.line(o.name, 10.5, o.business ? pen.reg : pen.bold);
     if (!deliver) for (const w of where) left.line(w, 9.5);
     if (o.phone) left.line(`Phone: ${o.phone}`, 9.5);
     if (o.email) left.line(`Email: ${o.email}`, 9.5);
@@ -505,7 +513,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
       c.line("Pickup at the shop", 9.5);
     }
     c.gap(6);
-    c.line(`Sold to: ${o.name}`, 9.5);
+    c.line(`Sold to: ${[o.business, o.name].filter(Boolean).join(", ")}`, 9.5);
     if (o.phone) c.line(`Phone: ${o.phone}`, 9.5);
     c.gap(6);
     for (const l of items(o)) c.line(`${l.name} x ${l.qty}`, 9.5);
@@ -558,7 +566,8 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
   const colW = (W - 24) / 2;
   const left = new Cursor(pen, M, c.y, colW, c.floor);
   left.heading(pickup ? "Picking up" : "Ordered by");
-  left.line(o.name, 12, pen.bold);
+  if (o.business) left.line(o.business, 12, pen.bold);
+  left.line(o.name, 12, o.business ? pen.reg : pen.bold);
   if (o.phone) left.line(o.phone, 10.5);
   if (o.email) left.line(o.email, 10.5);
   const right = new Cursor(pen, M + colW + 24, c.y, colW, c.floor);
@@ -617,11 +626,12 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
     }
     const s = new Cursor(pen, M, top - 6, W, M + 26);
     s.row(`Order ${o.number}`, pickup ? "PICKUP" : "DELIVERY", 13, pen.bold);
-    s.row(`${longDate(o.date)}, ${weekdayOf(o.date)}${o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}`, balance > 0 ? `Please collect ${money(balance)}` : o.payment ? "Paid in full" : "", 11, pen.bold);
+    s.row(`${longDate(o.date)}, ${weekdayOf(o.date)}${o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}`, o.status === "canceled" ? "CANCELED" : balance > 0 ? `Please collect ${money(balance)}` : o.payment ? "Paid in full" : "", 11, pen.bold);
     s.gap(4);
     const sl = new Cursor(pen, M, s.y, colW, M + 26);
     sl.heading("Customer");
-    sl.line(o.name, 10.5, pen.bold);
+    if (o.business) sl.line(o.business, 10.5, pen.bold);
+    sl.line(o.name, 10.5, o.business ? pen.reg : pen.bold);
     if (o.phone) sl.line(o.phone, 10);
     const sr = new Cursor(pen, M + colW + 24, s.y, colW, M + 26);
     sr.heading("Recipient");

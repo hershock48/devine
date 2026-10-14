@@ -17,7 +17,8 @@ export type Product = {
   slug: string;
   name: string;
   price: number;
-  /** Set only where their shop shows a strikethrough. One product has one. */
+  /** Set only where their shop shows a strikethrough. None does today (the
+      Classic Red Dozen's sale ended 2026-10-14, back to its full price). */
   regularPrice?: number;
   cats: string[];
   /** Their own product copy, verbatim. */
@@ -28,6 +29,12 @@ export type Product = {
   placeholderImage?: boolean;
   /** No substitution clause appears on their wedding items or the plush toys. */
   noSubs?: boolean;
+  /** OFF THE MENU FOR NOW (Kevin, 2026-10-14: "take down Bridget", "take off
+      the chocolates, for now"). Not listed in its categories, not linked, not
+      in the sitemap, not sold online, no add-on nudge. Still a product: past
+      orders keep their lines, and the workroom's write-up can still sell it
+      at the counter. Delete the flag to put it back. */
+  offMenu?: boolean;
 };
 
 export type Category = {
@@ -112,7 +119,7 @@ export const products: Product[] = [
     desc: "For the quiet hours when sleep should come but thoughts still wander. Caffeine free. Organic shatavari, chamomile, ashwagandha, passionflower, oat straw, lemon balm, rose petals, lavender, lemon myrtle and magnolia bark." },
   { slug: "bohemian-breakfast-tea", name: "Bohemian Breakfast Tea", price: 15, cats: ["gifts-add-ons"], img: "2026/07/IMG_0178-scaled.jpeg", noSubs: true,
     desc: "Round, bold and rich with hints of chocolate and vanilla, in an amber glass bottle. Probiotic-rich puerh black tea blended with biodynamic Sri Lankan tea and Rwandan black teas." },
-  { slug: "petite-box-of-chocolates", name: "Signature Collection of Chocolates", price: 15, cats: ["gifts-add-ons"], img: "2026/07/IMG_0656-scaled.jpeg", noSubs: true,
+  { slug: "petite-box-of-chocolates", name: "Signature Collection of Chocolates", price: 15, cats: ["gifts-add-ons"], img: "2026/07/IMG_0656-scaled.jpeg", noSubs: true, offMenu: true,
     desc: "Four handcrafted dark chocolate truffles, sourced locally from YellowBird Chocolate Shop in Albion, Michigan. Each box varies slightly, the way handmade things do." },
   { slug: "lil-lovey", name: "Lil' Lovey", price: 21, cats: ["gifts-add-ons", "new-baby"], img: "2026/07/IMG_0294-scaled.jpeg", noSubs: true,
     desc: "Send a little bit of love. Choose Winnie the white bear, Briar the brown bear, or Blossom the white bunny, and tell us which in your order notes." },
@@ -120,7 +127,7 @@ export const products: Product[] = [
     desc: "Whether you are cheering up a friend or welcoming a new arrival, Claire is eager to be a loving companion." },
   { slug: "piper-the-puppy", name: "Piper the Puppy", price: 28.95, cats: ["gifts-add-ons", "new-baby"], img: "2026/07/IMG_0309.jpeg", noSubs: true,
     desc: "Whether you are cheering up a friend or welcoming a new arrival, Piper is eager to be a loving companion." },
-  { slug: "grand-collection-of-chocolates", name: "Grand Collection of Chocolates", price: 30, cats: ["gifts-add-ons"], img: "2026/07/IMG_0661-scaled.jpeg", noSubs: true,
+  { slug: "grand-collection-of-chocolates", name: "Grand Collection of Chocolates", price: 30, cats: ["gifts-add-ons"], img: "2026/07/IMG_0661-scaled.jpeg", noSubs: true, offMenu: true,
     desc: "Nine handcrafted dark chocolate truffles from YellowBird Chocolate Shop in Albion, Michigan. Each box varies slightly, the way handmade things do." },
   { slug: "duke-the-dog", name: "Duke the Dog", price: 31.95, cats: ["gifts-add-ons", "new-baby"], img: "2026/07/IMG_0300-scaled.jpeg", noSubs: true,
     desc: "Whether you are cheering up a friend or welcoming a new arrival, Duke is eager to be a loving companion." },
@@ -148,7 +155,14 @@ export const products: Product[] = [
     desc: "All white roses surrounded by baby's breath and wrapped with ivory ribbon. A touch of classic." },
 
   // ---- Just Because ----
-  { slug: "designers-choice", name: "Designer's Choice", price: 55, cats: ["just-because", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png", placeholderImage: true,
+  /* DESIGNER'S CHOICE PICTURE (Kevin, 2026-10-14: the generated print "looks
+     like old people wallpaper"). Her own shop used a line-art placeholder
+     for all three; ours drew the botanical print. Now all three show one
+     of her own photographs, a mixed purple-and-pink arrangement from the
+     shop's atmosphere set (public/img/shop/shop-4), until she sends a
+     photo of an actual Designer's Choice piece through /photos, which the
+     ingest tool drops in by slug. */
+  { slug: "designers-choice", name: "Designer's Choice", price: 55, cats: ["just-because", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png",
     desc: "Put the creative agency in the hands of the designer. Container and flowers are chosen for seasonality, availability and inspiration on the day. Tell us any colors or flowers you have in mind in your order notes." },
   { slug: "maeve", name: "Maeve", price: 65, cats: ["just-because"], img: "2026/08/IMG_0759-scaled.jpeg",
     desc: "In a green ceramic keepsake pumpkin, full of mixed greenery with peach spray roses, burgundy cushion mums, red leucadendron, red strawflower, peach hypericum, bunny tails and solidago. A collection of complementing autumn tones." },
@@ -156,15 +170,15 @@ export const products: Product[] = [
     desc: "A play on traditional autumn color in a keepsake orange ceramic pumpkin. A deep toned dahlia, orange spray roses, red alstroemeria, champagne cushion mums, burgundy hypericum berries and bright yellow solidago." },
   { slug: "harper-2", name: "Harper", price: 65, cats: ["just-because"], img: "2026/08/IMG_0714-scaled.jpeg",
     desc: "A feminine take on autumn. Mauves, pinks and apricot tones in spray roses, stock, thistle, cushion mums and solidago. The stock fills a room with scent as well as color." },
-  { slug: "designers-choice-3", name: "Designer's Choice", price: 75, cats: ["just-because", "anniversary", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png", placeholderImage: true,
+  { slug: "designers-choice-3", name: "Designer's Choice", price: 75, cats: ["just-because", "anniversary", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png",
     desc: "Put the creative agency in the hands of the designer. Container and flowers are chosen for seasonality, availability and inspiration on the day. Tell us any colors or flowers you have in mind in your order notes." },
   { slug: "della", name: "Della", price: 79, cats: ["just-because"], img: "2026/08/IMG_0688-scaled.jpeg",
     desc: "Vibrant fall color in a concrete container. Red hypericum berries, orange alstroemeria, craspedia balls, solidago, a large sunflower and a live succulent that can be planted and keep growing, nestled in mixed seasonal greenery." },
   { slug: "ginger", name: "Ginger", price: 85, cats: ["just-because"], img: "2026/08/IMG_0741-scaled.jpeg",
     desc: "A stunning collection of purples and oranges. Deep toned hydrangeas, orange daisies, butterscotch cremones, dark purple button mums, Free Spirit roses, orange carnations, solidago and garden fresh calendula in a clear bowl vase." },
-  { slug: "bridget", name: "Bridget", price: 85, cats: ["just-because"], img: "2026/08/IMG_0676-scaled.jpeg",
+  { slug: "bridget", name: "Bridget", price: 85, cats: ["just-because"], img: "2026/08/IMG_0676-scaled.jpeg", offMenu: true,
     desc: "The more neutral, natural side of autumn, in a gray ceramic container. White Japanese anemones, peachy orange hypericum berries, pale yellow lisianthus, chocolate Queen Anne's lace, burgundy carnations, autumn leaves, and slices of tree trunk and twig." },
-  { slug: "designers-choice-2", name: "Designer's Choice", price: 100, cats: ["just-because", "anniversary", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png", placeholderImage: true,
+  { slug: "designers-choice-2", name: "Designer's Choice", price: 100, cats: ["just-because", "anniversary", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png",
     desc: "Put the creative agency in the hands of the designer. Container and flowers are chosen for seasonality, availability and inspiration on the day. Tell us any colors or flowers you have in mind in your order notes." },
   { slug: "helene", name: "Helene", price: 115, cats: ["just-because"], img: "2026/08/IMG_0805-scaled.jpeg",
     desc: "A show stopping vased arrangement in gray ceramic, abundant with seeded eucalyptus, willow eucalyptus, plumosa fern, grasses and ninebark. Woven through the greenery: solidago, cremone mums, burgundy micro daisies, golden fennel and a mixture of hypericum berries. For someone who appreciates a natural, neutral palette." },
@@ -172,7 +186,7 @@ export const products: Product[] = [
   // ---- Anniversary ----
   { slug: "hanna", name: "Hanna", price: 60, cats: ["anniversary"], img: "2026/08/IMG_0557-scaled.jpeg",
     desc: "Delicately sweet. A clear regency vase with mixed greenery, petite peach spray roses and baby's breath. The right size for a kitchen counter or a work desk, as an everyday reminder." },
-  { slug: "dozen-roses", name: "Classic Red Dozen", price: 75, regularPrice: 126.95, cats: ["anniversary"], img: "2026/01/IMG_0513-scaled.jpeg",
+  { slug: "dozen-roses", name: "Classic Red Dozen", price: 126.95, cats: ["anniversary"], img: "2026/01/IMG_0513-scaled.jpeg",
     desc: "The classic way to say I love you. Twelve long stemmed red roses in a large clear vase, filled abundantly with greens and filler accents, finished with a satin bow." },
   { slug: "serena", name: "Serena", price: 100, cats: ["anniversary"], img: "2026/08/IMG_0754-scaled.jpeg",
     desc: "A romantic display of neutral tones. White lilies, hydrangeas, mums, alstroemeria, snapdragons and classic white roses in mixed seasonal greenery, intertwined with white waxflower in a clear tapered vase." },
@@ -194,7 +208,7 @@ export const products: Product[] = [
     desc: "The energy of a garden in full bloom, in a bubble glass vase. Blue delphinium, Free Spirit roses, orange and yellow alstroemeria, blue hydrangea, orange lily, chamomile, pink rice flower and solidago." },
 
   // ---- Plants ----
-  { slug: "6-peace-lily", name: "6″ Peace Lily", price: 45.95, cats: ["plants"], img: "2024/08/6-inch-Peace-Lily.jpg",
+  { slug: "6-peace-lily", name: "6″ Peace Lily", price: 46.95, cats: ["plants"], img: "2024/08/6-inch-Peace-Lily.jpg",
     desc: "The peace lily, Spathiphyllum, blooms with stunning white flowers and is a symbol of calm and balance. Delivered in a woven basket or a tin container with a white satin bow. Prefers moist soil and low light." },
   { slug: "small-ceramic-dish-garden", name: "Small Ceramic Dish Garden", price: 48.95, cats: ["plants"], img: "2026/02/IMG_0028-scaled.jpeg",
     desc: "A collection of plants grown together in an 8″ ceramic dish. Plants and dish may vary. Keep the soil moist, in bright diffused light." },
@@ -210,7 +224,7 @@ export const products: Product[] = [
     desc: "A ceramic bowl abundantly filled with mixed succulents. The soil prefers to stay relatively dry, with occasional watering, in bright diffused light." },
   { slug: "cylinder-wind-chime", name: "Cylinder Wind Chime", price: 61, cats: ["plants"], img: "2024/07/Untitled-design-1.png",
     desc: "A single cylinder chime with a deep tone. For a garden, or the corner of a house, calling in the memory of someone or simply bringing awareness to the breeze. Five colors. If no preference is noted, black will be sent." },
-  { slug: "8-peace-lily", name: "8″ Peace Lily", price: 62.95, cats: ["plants"], img: "2024/07/8-inch-Peace-Lily.jpg",
+  { slug: "8-peace-lily", name: "8″ Peace Lily", price: 65.95, cats: ["plants"], img: "2024/07/8-inch-Peace-Lily.jpg",
     desc: "The peace lily, Spathiphyllum, blooms with stunning white flowers and is a symbol of calm and balance. Delivered in a woven basket or a tin container with a white satin bow. Prefers moist soil and low light." },
   { slug: "rustic-box-planter", name: "Rustic Box Planter", price: 65.95, cats: ["plants"], img: "2024/07/Rustic-Box-.jpg",
     desc: "Mixed house plants grown together in a rustic box planter. Plants and planter may vary." },
@@ -226,9 +240,13 @@ export const products: Product[] = [
 
 export const bySlug = new Map(products.map((p) => [p.slug, p]));
 export const catBySlug = new Map(categories.map((c) => [c.slug, c]));
+/** What the shop shows and sells online today: everything not off the menu.
+    The pages, the sitemap, the cart and the counts read this; the workroom
+    and past orders read `products`. */
+export const menu: Product[] = products.filter((p) => !p.offMenu);
 
 export function inCategory(catSlug: string): Product[] {
-  return products.filter((p) => p.cats.includes(catSlug)).sort((a, b) => a.price - b.price);
+  return menu.filter((p) => p.cats.includes(catSlug)).sort((a, b) => a.price - b.price);
 }
 
 export function priceRange(catSlug: string): [number, number] {

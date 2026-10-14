@@ -5,7 +5,7 @@ import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrde
 import { bySlug } from "@/lib/catalog";
 import { deliveryLineName, isDeliveryLine, normalizeVariety, withTaxLine } from "@/lib/workroom/derive";
 import { INITIALS_ERROR } from "@/lib/workroom/initials";
-import { sendDeliveredEmail, sendWorkroomReceipt } from "@/lib/intake";
+import { sendDeliveredEmail, sendRefundEmail, sendWorkroomReceipt } from "@/lib/intake";
 
 /**
  * The board's orders. GET lists the last 60 days (a wedding sits on the board
@@ -114,7 +114,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
   const name = str(p.name, 120);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(str(p.date, 10)) ? str(p.date, 10) : "";
   if (!name || !date || lines.length === 0) {
-    return { error: "A phone order needs a name, a date, and at least one item (pick a product or type a custom one with a price)." };
+    return { error: "An order needs a name, a date, and at least one item (pick a product or type a custom one with a price)." };
   }
   /*
     THE DELIVERY FEE IS A LINE ON THE TICKET, set while the order is rung up
@@ -169,6 +169,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
       taxExempt,
       taxId: taxExempt ? str(p.taxId, 40) : "",
       name,
+      business: str(p.business, 120),
       phone: str(p.phone, 40),
       email: str(p.email, 160),
       fulfillment,
@@ -240,7 +241,7 @@ export async function POST(req: Request) {
   // The customer's own fields come from the body, never from an entry:
   // one sale is one customer, one way of paying, one receipt address.
   const shared: Record<string, unknown> = {};
-  for (const k of ["name", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold"]) {
+  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold"]) {
     if (k in p) shared[k] = p[k];
   }
   const cache: PriceCache = { stemPrices: null };
@@ -408,10 +409,20 @@ export async function PATCH(req: Request) {
 
   // The refund attestation: the shop says the Square refund happened, and
   // the money-to-return section clears. Guarded in the store to orders
-  // that actually carry a payment.
+  // that actually carry a payment. The customer hears that it is done
+  // (Kevin, 2026-10-14): once, on the mark that actually transitions, so
+  // a second tap or an order already stamped sends nothing. Best-effort
+  // after the stamp is safely stored.
   if (p.markRefunded === true) {
     if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
-    await getStore().markOrderRefunded(id);
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    // Only a canceled order is refunded whole; anything else still has
+    // its money, and the note would tell the customer a thing that is
+    // not so.
+    if (o.status !== "canceled") return NextResponse.json({ error: "Only a canceled order is marked refunded." }, { status: 409 });
+    const changed = await getStore().markOrderRefunded(id);
+    if (changed && o?.email) await sendRefundEmail(o);
     return NextResponse.json({ ok: true });
   }
 

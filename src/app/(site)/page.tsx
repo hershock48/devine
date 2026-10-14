@@ -1,6 +1,6 @@
 import ProductCard from "@/components/ProductCard";
 import HeroTrace from "@/components/HeroTrace";
-import { bySlug, categories, inCategory, priceRange, money, products } from "@/lib/catalog";
+import { bySlug, categories, inCategory, priceRange, money, menu } from "@/lib/catalog";
 import { site, formatHours } from "@/lib/site";
 import { currentSeasonal, heroFor } from "@/lib/seasons";
 import { photoFirst } from "@/lib/order";
@@ -107,7 +107,7 @@ export default async function Home() {
               {season.featureKicker}
             </p>
             <a className="btn" href={href("/shop")}>
-              All {products.length} designs
+              All {menu.length} designs
             </a>
           </div>
           <div className="grid">

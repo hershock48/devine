@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, paidInParts, printPaperFor, refundableCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -44,6 +44,8 @@ type Order = {
   recipient: string;
   recipientPhone?: string;
   company?: string;
+  /** The business ordering, when one is (a funeral home for a family). */
+  business?: string;
   street: string;
   town: string;
   zip: string;
@@ -115,6 +117,7 @@ type Contact = {
   recipient?: string;
   recipientPhone?: string;
   company?: string;
+  business?: string;
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
@@ -348,6 +351,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       !q ||
       (qNorm.length >= 2 && o.number.toLowerCase().replace(/[^a-z0-9]/g, "").includes(qNorm)) ||
       o.name.toLowerCase().includes(q) ||
+      (o.business ?? "").toLowerCase().includes(q) ||
       (qDigits.length >= 3 && o.phone.replace(/\D/g, "").includes(qDigits));
     const shown = base.filter(matches);
     // Held orders are limbo (Katy, 2026-10-12): parked with questions open,
@@ -470,7 +474,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
             }
           }}
         >
-          {adding || editing ? "Close the form" : "Write up a phone order"}
+          {adding || editing ? "Close the form" : "Write up an order"}
         </button>
         <input
           type="search"
@@ -546,7 +550,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
           {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
-              Nothing open. Web orders land here on their own; phone orders get written up above.
+              Nothing open. Web orders land here on their own; counter and phone orders get written up above.
             </p>
           )}
 
@@ -577,8 +581,11 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
   if (orders.length === 0) return null;
   const moneyWord = (o: Order) => {
     if (!o.payment) return o.status === "canceled" ? "" : "not paid";
-    if (o.payment.refundedAt) return `refunded ${money(o.payment.totalCents / 100)}`;
-    return `paid ${money(o.payment.totalCents / 100)}`;
+    // Everything paid, fees included, the one refund figure (derive.ts
+    // refundableCents): a ticket paid in parts (cash then card) is one
+    // paid order, not a $40 one, and the line agrees with the card's.
+    if (o.payment.refundedAt) return `refunded ${money(refundableCents(o) / 100)}`;
+    return `paid ${money(refundableCents(o) / 100)}`;
   };
   return (
     <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0", maxWidth: 720 }}>
@@ -596,7 +603,7 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
             >
               <span aria-hidden="true" style={{ color: "var(--muted)", fontSize: 11 }}>&#9656;</span>
               <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)", whiteSpace: "nowrap" }}>{o.number}</span>
-              <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.name}</span>
+              <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.business ? `${o.business} · ${o.name}` : o.name}</span>
               <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{o.date}{o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}</span>
               <span style={{ whiteSpace: "nowrap" }}>{o.status === "canceled" ? "canceled" : "done"}</span>
               <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{moneyWord(o)}</span>
@@ -1130,7 +1137,7 @@ function OrderCard({
   const owedFor = (x: Order) => Math.max(0, balanceCents(x)) + (x.payment ? 0 : Math.round((zipFeeToAppend(x) ?? 0) * 100));
   const batch =
     group && group.length > 1 && group.some((x) => x.id === o.id)
-      ? { ids: group.map((x) => x.id), count: group.length, index: group.findIndex((x) => x.id === o.id) + 1, totalCents: group.reduce((s, x) => s + owedFor(x), 0), name: o.name }
+      ? { ids: group.map((x) => x.id), count: group.length, index: group.findIndex((x) => x.id === o.id) + 1, totalCents: group.reduce((s, x) => s + owedFor(x), 0), name: o.name, owed: group.map((x) => ({ number: x.number, cents: owedFor(x) })) }
       : undefined;
   const zipFlag = o.fulfillment === "delivery" && o.zip && !(site.deliveryZips as readonly string[]).includes(o.zip);
   const sympathy = o.occasion === "Sympathy or funeral";
@@ -1159,7 +1166,10 @@ function OrderCard({
       }}
     >
       <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
-        <strong style={{ fontSize: 17 }}>{o.name}</strong>
+        <strong style={{ fontSize: 17 }}>
+          {o.business || o.name}
+          {o.business && o.name ? <span style={{ fontWeight: 400 }}> · {o.name}</span> : null}
+        </strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
           <span
             style={{
@@ -1292,14 +1302,25 @@ function OrderCard({
               <span>{money(o.payment.feeCents / 100)}</span>
             </li>
             <li style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>
+              {/* Everything paid once there are top-ups, so this row is
+                  the sum of the payment rows below it. */}
               <span>Total paid</span>
-              <span>{money(o.payment.totalCents / 100)}</span>
+              <span>{money((paidInParts(o) ? refundableCents(o) : o.payment.totalCents) / 100)}</span>
             </li>
           </>
         )}
-        {/* After an edit to a paid ticket: the top-ups taken since, and
-            what is still due or owed back (derive.ts balanceCents). */}
-        {o.payment && (o.topUps?.length ?? 0) > 0 && o.topUps!.map((p, i) => (
+        {/* After an edit to a paid ticket, or a part payment (Kevin,
+            2026-10-14): the payments taken since the first, and what is
+            still due or owed back (derive.ts balanceCents). */}
+        {o.payment && paidInParts(o) && (
+          <li style={{ display: "flex", justifyContent: "space-between" }}>
+            {/* The first payment gets its own row once there are more,
+                so the list adds up on its own ($40 cash + $28.90 card). */}
+            <span>Paid, {o.payment.method === "other" ? "another way" : o.payment.method}</span>
+            <span>{money((o.payment.totalCents - o.payment.feeCents) / 100)}</span>
+          </li>
+        )}
+        {o.payment && paidInParts(o) && o.topUps!.map((p, i) => (
           <li key={i} style={{ display: "flex", justifyContent: "space-between" }}>
             <span>Also paid, {p.method === "other" ? "another way" : p.method}</span>
             <span>{money(p.totalCents / 100)}</span>
@@ -1307,7 +1328,7 @@ function OrderCard({
         ))}
         {o.payment && balanceCents(o) !== 0 && (
           <li style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, color: "var(--rose-ink)" }}>
-            <span>{balanceCents(o) > 0 ? "Still due after changes" : "To refund after changes"}</span>
+            <span>{balanceCents(o) > 0 ? "Still due" : "To refund after changes"}</span>
             <span>{money(Math.abs(balanceCents(o)) / 100)}</span>
           </li>
         )}
@@ -1383,7 +1404,7 @@ function OrderCard({
       {o.status === "canceled" && o.payment && !o.payment.refundedAt && (
         <div style={{ margin: "10px 0 0" }}>
           <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
-            Paid {money(o.payment.totalCents / 100)}, then canceled. Refund it from the Square
+            Paid {money(refundableCents(o) / 100)}, then canceled. Refund it from the Square
             dashboard (Transactions), then mark it here.
           </p>
           {onRefunded && (
@@ -1404,6 +1425,8 @@ function OrderCard({
           deliveryCents={o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100)}
           payment={o.payment}
           balanceCents={balanceCents(o)}
+          collectedCents={collectedCents(o)}
+          paidInParts={paidInParts(o)}
           batch={batch}
           onPaid={() => onPaid().catch(() => {})}
         />
@@ -2182,6 +2205,11 @@ function PhoneOrderForm({
   const [batchId, setBatchId] = useState(editing?.batchId ?? (addTo ? addTo.batchId || addTo.id : ""));
   const seed = editing ?? addTo;
   const [name, setName] = useState(seed?.name ?? "");
+  /** THE BUSINESS ORDERING (Kevin, 2026-10-14): Kempf's funeral home calls
+      for a family, a school's office orders for a teacher. The name stays
+      the person on the phone (or the family); the business is who the
+      order is really for, on the card, the ticket and the Accounts tab. */
+  const [business, setBusiness] = useState(seed?.business ?? "");
   const [phone, setPhone] = useState(seed?.phone ?? "");
   const [email, setEmail] = useState(seed?.email ?? "");
   const [picked, setPicked] = useState<Contact | null>(null);
@@ -2301,6 +2329,7 @@ function PhoneOrderForm({
       taxExempt,
       taxId: taxExempt ? taxId.trim() : "",
       name,
+      business: business.trim(),
       phone,
       email,
     };
@@ -2369,6 +2398,12 @@ function PhoneOrderForm({
           />
         </label>
         <label>
+          <span style={labelText}>
+            Business <span className="muted" style={{ fontWeight: 400 }}>(if a company is ordering)</span>
+          </span>
+          <input value={business} onChange={(e) => setBusiness(e.target.value)} placeholder="Funeral home, school, office" style={field} />
+        </label>
+        <label>
           <span style={labelText}>Phone</span>
           <input
             type="tel"
@@ -2429,7 +2464,7 @@ function PhoneOrderForm({
         const hits = [...latestByKey.values()]
           .filter(
             ({ c }) =>
-              (q.length >= 2 && c.name.toLowerCase().includes(q)) ||
+              (q.length >= 2 && (c.name.toLowerCase().includes(q) || (c.business ?? "").toLowerCase().includes(q))) ||
               (pq.length >= 3 && phoneKey(c.phone).includes(pq)),
           )
           .sort((a, b) => b.c.createdAt - a.c.createdAt)
@@ -2454,6 +2489,10 @@ function PhoneOrderForm({
                   setPickedFromFile(true);
                   setTyped({ name: false, phone: false });
                   setName(f.name);
+                  // The customer file's Business column is the customer's
+                  // own company (the recipient file's is the place flowers
+                  // go, and that one fills the address's company line).
+                  setBusiness(f.business && f.business !== f.name ? f.business : "");
                   setPhone(f.phone);
                   setEmail(f.email);
                   patchStop(first, { street: f.street, town: f.town, zip: f.zip });
@@ -2472,6 +2511,7 @@ function PhoneOrderForm({
                   setPickedFromFile(false);
                   setTyped({ name: false, phone: false });
                   setName(c.name);
+                  setBusiness(c.business ?? "");
                   setPhone(c.phone);
                   // Email is part of WHO: without this line a regular's
                   // receipt silently stopped, because nobody redictates an
@@ -2494,7 +2534,7 @@ function PhoneOrderForm({
                 }}
                 style={chipSolid}
               >
-                {c.name} · {c.phone || c.email || "no phone"} · {count} order{count === 1 ? "" : "s"}
+                {c.business ? `${c.business} · ` : ""}{c.name} · {c.phone || c.email || "no phone"} · {count} order{count === 1 ? "" : "s"}
                 {c.fulfillment === "delivery" && c.recipient ? ` · last to ${c.recipient}` : ""}
               </button>
             ))}
