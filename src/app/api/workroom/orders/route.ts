@@ -185,42 +185,103 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
   };
 }
 
+/** A DV- number nobody on the board has. Same shape as the email tickets,
+    P for phone so the two streams cannot collide. A thousand values per
+    date is few enough that a busy holiday would repeat one, so each
+    candidate is checked against the board before it is used. */
+async function freshNumber(date: string, taken: Set<string>): Promise<string> {
+  const mmdd = date.slice(5).replace("-", "");
+  for (let tries = 0; tries < 4; tries++) {
+    const candidate = `DV-${mmdd}-P${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
+    if (taken.has(candidate)) continue;
+    if (!(await getStore().getOrderByNumber(candidate).catch(() => null))) {
+      taken.add(candidate);
+      return candidate;
+    }
+  }
+  const fallback = `DV-${mmdd}-P${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
+  taken.add(fallback);
+  return fallback;
+}
+
+/**
+ * ONE SALE, ONE OR MORE ORDERS (Kevin, 2026-10-14: "oaklawn hospital calls
+ * and they want to place multiple orders, but use one card"). The form
+ * sends the customer once and a `deliveries` list, one entry per recipient
+ * or stop; each entry becomes its own order (its own ticket, card, driver
+ * stub and make-list line, because the workroom makes and drives them one
+ * at a time) and all of them share a batch id, so the board can take one
+ * card for the lot and the customer gets one receipt. A flat body (the
+ * quote pads, a single write-up) is one delivery. Adding to a group that
+ * is already on the board sends that group's batch id.
+ */
 export async function POST(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!p) return NextResponse.json({ error: "Malformed." }, { status: 400 });
-  const parsed = await parseBody(p);
-  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
-  const now = Date.now();
-  const mmdd = parsed.fields.date.slice(5).replace("-", "");
-  // Same DV- shape as the email tickets, P for phone so the two streams
-  // cannot collide on a number. A thousand values per date is few enough
-  // that a busy holiday would repeat one, so the number is checked against
-  // the board before it is used.
-  let number = "";
-  for (let tries = 0; tries < 4 && !number; tries++) {
-    const candidate = `DV-${mmdd}-P${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
-    if (!(await getStore().getOrderByNumber(candidate).catch(() => null))) number = candidate;
+  const stops: Record<string, unknown>[] = Array.isArray(p.deliveries)
+    ? p.deliveries.map((d) => (d && typeof d === "object" ? (d as Record<string, unknown>) : {}))
+    : [p];
+  if (stops.length === 0) return NextResponse.json({ error: "Nothing to write up: add at least one order." }, { status: 400 });
+  if (stops.length > 20) return NextResponse.json({ error: "Twenty orders at most on one write-up. Put the rest on a second one." }, { status: 400 });
+  // Every entry is read by the one set of rules before anything is written,
+  // so a typo in the fourth delivery stops the whole sale and nothing is
+  // half on the board. The error names the order it is about.
+  const parsedAll: Extract<ParsedBody, { fields: unknown }>["fields"][] = [];
+  for (let i = 0; i < stops.length; i++) {
+    const parsed = await parseBody({ ...p, ...stops[i] });
+    if ("error" in parsed) {
+      return NextResponse.json({ error: stops.length > 1 ? `Order ${i + 1}: ${parsed.error}` : parsed.error }, { status: 400 });
+    }
+    parsedAll.push(parsed.fields);
   }
-  if (!number) number = `DV-${mmdd}-P${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
-  const order: WorkroomOrder = {
-    id: newId("wr"),
-    number,
-    source: "phone",
-    // A phone order is born confirmed: the shop is already talking to the
-    // customer, which is the whole thing "confirmed" means here. ON HOLD
-    // (Katy, 2026-10-12) is the exception: written up with questions still
-    // open, parked until someone finishes it.
-    status: p.hold === true ? "hold" : "confirmed",
-    ...parsed.fields,
-    createdAt: now,
-  };
-  await getStore().createOrder(order);
-  // The form asks for an email "for their receipt"; this is the receipt.
-  // Best-effort and awaited; a bounced copy never fails the write-up. Not
-  // for a held order: nothing has been promised yet.
-  if (order.email && order.status !== "hold") await sendWorkroomReceipt(order);
-  return NextResponse.json({ ok: true, order });
+  const now = Date.now();
+  const ids = parsedAll.map(() => newId("wr"));
+  // The group: the one the form was adding to, else the first order's own
+  // id when there are several, else none (a single order is not a group).
+  const batchId = parsedAll[0].batchId || (ids.length > 1 ? ids[0] : "");
+  const taken = new Set<string>();
+  const orders: WorkroomOrder[] = [];
+  for (let i = 0; i < parsedAll.length; i++) {
+    orders.push({
+      id: ids[i],
+      number: await freshNumber(parsedAll[i].date, taken),
+      source: "phone",
+      // A phone order is born confirmed: the shop is already talking to the
+      // customer, which is the whole thing "confirmed" means here. ON HOLD
+      // (Katy, 2026-10-12) is the exception: written up with questions still
+      // open, parked until someone finishes it. A group holds together.
+      status: p.hold === true ? "hold" : "confirmed",
+      ...parsedAll[i],
+      batchId,
+      // A millisecond apart, so "order 2 of 3" is the second one typed,
+      // on every reload (the store lists by creation time).
+      createdAt: now + i,
+    });
+  }
+  const placed: WorkroomOrder[] = [];
+  for (const order of orders) {
+    try {
+      await getStore().createOrder(order);
+      placed.push(order);
+    } catch (err) {
+      console.error(`[devine] write-up failed after ${placed.length} of ${orders.length}:`, err);
+      return NextResponse.json(
+        {
+          error: placed.length
+            ? `${placed.map((o) => o.number).join(", ")} went on the board; order ${placed.length + 1} did not save. Find them on the board and add the rest with "Another order" on the card.`
+            : "That did not save. Look it over and try again.",
+          orders: placed,
+        },
+        { status: 500 },
+      );
+    }
+  }
+  // The form asks for an email "for their receipt"; this is the receipt,
+  // one for the whole sale. Best-effort and awaited; a bounced copy never
+  // fails the write-up. Not for a held order: nothing has been promised yet.
+  if (orders[0].email && orders[0].status !== "hold") await sendWorkroomReceipt(orders);
+  return NextResponse.json({ ok: true, order: orders[0], orders });
 }
 
 /**

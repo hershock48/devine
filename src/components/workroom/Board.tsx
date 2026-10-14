@@ -149,6 +149,11 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   /** The order open in the form for editing (on hold, or not yet made).
       The form remounts per id so a half-typed edit never bleeds across. */
   const [editing, setEditing] = useState<Order | null>(null);
+  /** Another order for a customer already on the board, on the same card
+      (the card's link): the form opens with them filled in. */
+  const [addTo, setAddTo] = useState<Order | null>(null);
+  /** One line after a write-up lands: what went on, by number. */
+  const [notice, setNotice] = useState("");
   const [showDone, setShowDone] = useState(false);
   /** The find box: a caller says "order DV-0901-4226" or "it's under
       Wanda" and the counter should not have to scan a busy board by eye.
@@ -251,7 +256,18 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       at the top of the page, so the page goes there with it. */
   function openEdit(o: Order) {
     setAdding(false);
+    setAddTo(null);
+    setNotice("");
     setEditing(o);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  /** Open the form for another order on this customer's card (Kevin,
+      2026-10-14: the hospital calls back with a sixth). */
+  function openAddTo(o: Order) {
+    setEditing(null);
+    setNotice("");
+    setAddTo(o);
+    setAdding(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -442,8 +458,12 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
           className="btn"
           type="button"
           onClick={() => {
+            setNotice("");
             if (editing) setEditing(null);
-            else setAdding((v) => !v);
+            else {
+              setAdding((v) => !v);
+              setAddTo(null);
+            }
           }}
         >
           {adding || editing ? "Close the form" : "Write up a phone order"}
@@ -463,17 +483,30 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         )}
       </p>
 
+      {notice && (
+        <p role="status" style={{ margin: "-14px 0 22px", fontSize: 15, fontWeight: 600, color: "var(--green)" }}>
+          {notice}
+        </p>
+      )}
+
       {(adding || editing) && (
         <PhoneOrderForm
-          key={editing?.id ?? "new"}
+          key={editing?.id ?? (addTo ? `add:${addTo.id}` : "new")}
           contacts={contacts}
           editing={editing}
-          onSaved={() => {
+          addTo={addTo}
+          onSaved={(placed) => {
             setAdding(false);
             setEditing(null);
+            setAddTo(null);
+            if (placed && placed.length > 1) {
+              setNotice(`${placed.length} orders on the board for ${placed[0].name}: ${placed.map((o) => o.number).join(", ")}. One card pays for all of them.`);
+            } else if (placed && placed.length === 1 && !editing) {
+              setNotice(`${placed[0].number} is on the board for ${placed[0].name}.`);
+            }
             pull().catch(() => {});
           }}
-          onPlaced={() => pull().catch(() => {})}
+          onRefresh={() => pull().catch(() => {})}
         />
       )}
 
@@ -488,7 +521,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
@@ -500,12 +533,12 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </>
       ) : (
         <>
-          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
+          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
+          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onRefunded={markRefunded} />
 
           {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
@@ -619,6 +652,7 @@ function Bucket({
   onFee,
   onUncancel,
   onEdit,
+  onAddTo,
 }: {
   title: string;
   tone?: "late";
@@ -631,6 +665,7 @@ function Bucket({
   onFee?: (id: string, fee: number) => Promise<void>;
   onUncancel?: (id: string) => Promise<void>;
   onEdit?: (o: Order) => void;
+  onAddTo?: (o: Order) => void;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -658,7 +693,7 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} batches={batches} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} />
+          <OrderCard key={o.id} o={o} contacts={contacts} batches={batches} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} onAddTo={onAddTo} />
         ))}
       </div>
     </section>
@@ -683,12 +718,15 @@ function Moves({
   next,
   onMove,
   onEdit,
+  onAddTo,
 }: {
   o: Order;
   next: { to: Order["status"]; label: string };
   onMove: (id: string, s: Order["status"], extra?: InitialsExtra) => void;
   /** Present while the order may still be edited (on hold, or not yet made). */
   onEdit?: () => void;
+  /** One more order for this customer, on this card. */
+  onAddTo?: () => void;
 }) {
   const [cancelStep, setCancelStep] = useState<0 | 1 | 2>(0);
   const [asking, setAsking] = useState(false);
@@ -757,7 +795,7 @@ function Moves({
   }
 
   return (
-    <p style={{ margin: "12px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
+    <p style={{ margin: "12px 0 0", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
       <button
         className="btn btn--solid"
         type="button"
@@ -768,6 +806,11 @@ function Moves({
       {onEdit && (
         <button type="button" onClick={onEdit} style={{ ...textButton, fontSize: 13.5 }}>
           {o.status === "hold" ? "Finish it" : "Edit"}
+        </button>
+      )}
+      {onAddTo && (
+        <button type="button" onClick={onAddTo} style={{ ...textButton, fontSize: 13.5 }}>
+          Another order, same card
         </button>
       )}
       <button type="button" onClick={() => setCancelStep(1)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
@@ -1062,6 +1105,7 @@ function OrderCard({
   onFee,
   onUncancel,
   onEdit,
+  onAddTo,
 }: {
   o: Order;
   contacts: Contact[];
@@ -1072,6 +1116,7 @@ function OrderCard({
   onFee?: (id: string, fee: number) => Promise<void>;
   onUncancel?: (id: string) => Promise<void>;
   onEdit?: (o: Order) => void;
+  onAddTo?: (o: Order) => void;
 }) {
   const next = nextMove(o);
   const today = todayISO();
@@ -1362,14 +1407,34 @@ function OrderCard({
 
       {/* Keyed by status so a half-finished cancel confirm or initials
           prompt resets when the 30s poll brings a new status underneath. */}
-      {next && <Moves key={o.status} o={o} next={next} onMove={onMove} onEdit={onEdit && canEdit(o) ? () => onEdit(o) : undefined} />}
+      {/* "Another order, same card" (Kevin, 2026-10-14): the customer calls
+          back with one more for the same card. Not on a canceled order;
+          a held one is fine (the new one joins the group when it is
+          finished). */}
+      {next && (
+        <Moves
+          key={o.status}
+          o={o}
+          next={next}
+          onMove={onMove}
+          onEdit={onEdit && canEdit(o) ? () => onEdit(o) : undefined}
+          onAddTo={onAddTo && canEdit(o) ? () => onAddTo(o) : undefined}
+        />
+      )}
       {/* A finished order has no next move, but it can still be edited
           (a tax ID after the fact, a corrected address for the file). */}
-      {!next && onEdit && canEdit(o) && (
-        <p style={{ margin: "10px 0 0" }}>
-          <button type="button" onClick={() => onEdit(o)} style={{ ...textButton, fontSize: 13.5 }}>
-            Edit
-          </button>
+      {!next && canEdit(o) && (onEdit || onAddTo) && (
+        <p style={{ margin: "10px 0 0", display: "flex", gap: 14, flexWrap: "wrap" }}>
+          {onEdit && (
+            <button type="button" onClick={() => onEdit(o)} style={{ ...textButton, fontSize: 13.5 }}>
+              Edit
+            </button>
+          )}
+          {onAddTo && (
+            <button type="button" onClick={() => onAddTo(o)} style={{ ...textButton, fontSize: 13.5 }}>
+              Another order, same card
+            </button>
+          )}
         </p>
       )}
       {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
@@ -1377,12 +1442,6 @@ function OrderCard({
   );
 }
 
-/**
- * The counter's order pad. Catalog lines price themselves from the catalog
- * (same rule as the web checkout); custom lines take a typed price, because
- * half of what a florist sells — a casket spray, a one-off vase — has no
- * catalog entry.
- */
 const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name));
 
 type DraftPart = { variety: string; stems: string };
@@ -1408,15 +1467,693 @@ const fromLines = (o: Order): DraftLine[] => {
   }));
 };
 
-function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { contacts: Contact[]; onSaved: () => void; onPlaced?: () => void; editing?: Order | null }) {
-  /** After a save: the order that just went on, so the form can offer
-      "another order for this customer" before it closes. */
-  const [placed, setPlaced] = useState<{ id: string; number: string } | null>(null);
-  /** The group this write-up belongs to (the first order's id), carried
-      from "Add another order" so one card can settle them all. */
-  const [batchId, setBatchId] = useState(editing?.batchId ?? "");
-  const [name, setName] = useState(editing?.name ?? "");
-  const [phone, setPhone] = useState(editing?.phone ?? "");
+/* ====================== THE WRITE-UP, ONE OR MANY ====================== */
+
+/**
+ * One order within a write-up: who it is for, where, when, what. A write-up
+ * is one customer and one or more of these (Kevin, 2026-10-14: "oaklawn
+ * hospital calls and they want to place multiple orders, but use one
+ * card"). Each becomes its own order on the board, because the workroom
+ * makes and drives them one at a time and each wants its own ticket, card
+ * and driver stub; all of them share one card at the end. The shape is the
+ * "add another" pattern the UK government design systems settled on for
+ * repeated entries on one page: everything stays visible, each entry can be
+ * removed, and the add button sits right under the last one.
+ */
+type Stop = {
+  key: number;
+  fulfillment: "delivery" | "pickup";
+  recipient: string;
+  recipientPhone: string;
+  company: string;
+  street: string;
+  town: string;
+  zip: string;
+  /** What was typed into the fee field, or null while it still follows the
+      zip sheet. Derived, not an effect: a typed fee survives retyping a zip
+      to fix a digit, and a never-touched field tracks the zip as it changes. */
+  feeOverride: string | null;
+  date: string;
+  neededBy: string;
+  occasion: string;
+  cardMessage: string;
+  notes: string;
+  lines: DraftLine[];
+};
+let stopSeq = 0;
+const blankStop = (from: Partial<Stop> = {}): Stop => ({
+  key: ++stopSeq,
+  fulfillment: "delivery",
+  recipient: "",
+  recipientPhone: "",
+  company: "",
+  street: "",
+  town: "",
+  zip: "",
+  feeOverride: null,
+  date: todayISO(),
+  neededBy: "",
+  occasion: "",
+  cardMessage: "",
+  notes: "",
+  lines: [blankLine()],
+  ...from,
+});
+/** A stored order back into the form's shape, for editing. */
+const stopFromOrder = (o: Order): Stop => {
+  const dl = o.lines.find(isDeliveryLine);
+  return blankStop({
+    fulfillment: o.fulfillment,
+    recipient: o.recipient ?? "",
+    recipientPhone: o.recipientPhone ?? "",
+    company: o.company ?? "",
+    street: o.street ?? "",
+    town: o.town ?? "",
+    zip: o.zip ?? "",
+    feeOverride: dl ? String(dl.each) : null,
+    date: o.date,
+    neededBy: o.neededBy ?? "",
+    occasion: o.occasion ?? "",
+    cardMessage: o.cardMessage ?? "",
+    notes: o.notes ?? "",
+    lines: fromLines(o),
+  });
+};
+/** Anything typed into it that deserves an "are you sure" before Remove. */
+const stopHasWork = (s: Stop) =>
+  !!(s.recipient.trim() || s.cardMessage.trim() || s.notes.trim() || s.lines.some((l) => l.slug || l.custom.trim() || l.parts.some((pt) => pt.variety.trim())));
+
+const productBySlug = (slug: string): Product | undefined => sortedProducts.find((p) => p.slug === slug);
+const stemPriceIn = (library: StemPrice[], variety: string): number | undefined => {
+  const v = library.find((x) => x.name === normalizeVariety(variety));
+  return v && v.sellStem != null && v.sellStem > 0 ? v.sellStem : undefined;
+};
+/** The built price of a line, in dollars, plus the varieties the library
+    cannot price (the route will refuse those by name). */
+const builtPriceIn = (library: StemPrice[], l: DraftLine): { each: number; unpriced: string[] } => {
+  let cents = 0;
+  const unpriced: string[] = [];
+  for (const pt of l.parts) {
+    const stems = Math.round(Number(pt.stems) || 0);
+    const name = pt.variety.trim();
+    if (!name || stems <= 0) continue;
+    const price = stemPriceIn(library, name);
+    if (price === undefined) unpriced.push(name);
+    else cents += Math.round(price * 100) * stems;
+  }
+  return { each: cents / 100, unpriced };
+};
+/** What one draft line costs each, by the rule the route will apply:
+    built by stems from the library, else the catalog price, else what
+    was typed. The warning and the items list read the same number. */
+const lineEachIn = (library: StemPrice[], l: DraftLine): number =>
+  l.byStems && canBuild(l) ? builtPriceIn(library, l).each : l.slug ? productBySlug(l.slug)?.price ?? 0 : Number(l.each) || 0;
+
+/** One order's arithmetic, in the route's terms: items, the fee as shown,
+    tax on the items (none when exempt), and the delivery-minimum reading.
+    Display only; the route writes the ticket. */
+function stopMath(s: Stop, library: StemPrice[], taxExempt: boolean) {
+  const delivering = s.fulfillment === "delivery";
+  const items = s.lines.reduce((sum, l) => sum + lineEachIn(library, l) * l.qty, 0);
+  // A by-stems piece with a flower the library does not price would be
+  // summed short and could cry "under" at an order that is not; no warning
+  // until every piece can be priced.
+  const anyUnpriced = s.lines.some((l) => l.byStems && canBuild(l) && builtPriceIn(library, l).unpriced.length > 0);
+  const sheetFee = deliveryFeeFor(s.zip.trim());
+  const deliveryFee = s.feeOverride ?? (sheetFee !== undefined ? String(sheetFee) : "");
+  const feeTyped = delivering && deliveryFee.trim() !== "" && Number.isFinite(Number(deliveryFee));
+  const fee = feeTyped ? Number(deliveryFee) : 0;
+  // Any delivery zip, on the sheet or off it (a typed fee for an off-list
+  // zip is still a delivery, and the website would have refused it too).
+  const minimum = delivering && s.zip.trim().length >= 5 ? deliveryMinimumFor(s.zip.trim()) : 0;
+  const underMinimum = minimum > 0 && !anyUnpriced && items > 0 && items < minimum;
+  const tax = taxFor(s.lines.map((l) => ({ name: l.custom.trim() || "item", qty: l.qty, each: lineEachIn(library, l) })), taxExempt);
+  const total = Math.round((items + fee + tax) * 100) / 100;
+  return { delivering, items, anyUnpriced, sheetFee, deliveryFee, feeTyped, fee, minimum, underMinimum, tax, total };
+}
+
+/** What the route reads for one order: the form's stop in the body's words. */
+function stopPayload(s: Stop, library: StemPrice[]) {
+  const m = stopMath(s, library, false);
+  return {
+    fulfillment: s.fulfillment,
+    date: s.date,
+    neededBy: s.neededBy,
+    occasion: s.occasion,
+    cardMessage: s.cardMessage,
+    notes: s.notes,
+    recipient: m.delivering ? s.recipient : "",
+    recipientPhone: m.delivering ? s.recipientPhone.trim() : "",
+    company: s.company.trim(),
+    // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
+    // from the shop's meeting): it is the customer's own address, kept
+    // for their file, house accounts and mileage later.
+    street: s.street,
+    town: s.town,
+    zip: s.zip.trim(),
+    // The fee as shown, sheet or typed (Katy, 2026-10-06). Blank means
+    // "none typed and the zip is off the list": the route adds no line.
+    deliveryFee: m.feeTyped ? m.fee : undefined,
+    lines: s.lines
+      .filter((l) => l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)))
+      .map((l) => {
+        // Built by stems: the route prices from the library, so only the
+        // parts travel, never a browser-computed price.
+        const parts =
+          l.byStems && canBuild(l)
+            ? l.parts.filter((pt) => pt.variety.trim() && Number(pt.stems) > 0).map((pt) => ({ variety: pt.variety.trim(), stems: Number(pt.stems) }))
+            : undefined;
+        return l.slug ? { slug: l.slug, qty: l.qty, parts } : { name: l.custom.trim(), each: parts ? 0 : Number(l.each) || 0, qty: l.qty, parts };
+      }),
+  };
+}
+
+const chipDashed: React.CSSProperties = {
+  font: "inherit",
+  fontSize: 14,
+  fontWeight: 600,
+  color: "var(--ink)",
+  background: "var(--paper-2)",
+  border: "1px dashed var(--line)",
+  borderRadius: 2,
+  padding: "6px 10px",
+  cursor: "pointer",
+};
+const chipSolid: React.CSSProperties = { ...chipDashed, color: "var(--green)", border: "1px solid var(--line)" };
+
+/**
+ * The fields of one order within the write-up. With one order on the form
+ * this is the whole lower half, unframed, exactly as it has always looked;
+ * with several, each sits in its own numbered frame with a Remove link.
+ */
+function StopFields({
+  s,
+  patch,
+  contacts,
+  library,
+  index,
+  count,
+  taxExempt,
+  focus,
+  onRemove,
+}: {
+  s: Stop;
+  patch: (p: Partial<Stop>) => void;
+  contacts: Contact[];
+  library: StemPrice[];
+  index: number;
+  count: number;
+  taxExempt: boolean;
+  /** Land the cursor in this one when it appears (the one just added). */
+  focus: boolean;
+  onRemove?: () => void;
+}) {
+  /** Only what the human typed drives the recipient suggestions, and a
+      pick closes them (the same rule as the customer chips). */
+  const [typedRecipient, setTypedRecipient] = useState(false);
+  /** Hits from the contacts on file (IRIS), fetched as the human types. */
+  const [fileRecipHits, setFileRecipHits] = useState<FileContact[]>([]);
+  const recipQ = typedRecipient ? s.recipient.trim() : "";
+  useEffect(() => {
+    let dead = false;
+    if (recipQ.length < 2) {
+      setFileRecipHits([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      fetch(`/api/workroom/contacts?kind=recipient&q=${encodeURIComponent(recipQ)}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!dead) setFileRecipHits((d?.hits as FileContact[]) ?? []);
+        })
+        .catch(() => {});
+    }, 180);
+    return () => {
+      dead = true;
+      clearTimeout(t);
+    };
+  }, [recipQ]);
+
+  const many = count > 1;
+  const m = stopMath(s, library, taxExempt);
+  const delivering = m.delivering;
+  const lines = s.lines;
+  const setLines = (f: (cur: DraftLine[]) => DraftLine[]) => patch({ lines: f(s.lines) });
+  function setLine(i: number, p: Partial<DraftLine>) {
+    setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...p } : l)));
+  }
+  function setPart(i: number, j: number, p: Partial<DraftPart>) {
+    setLines((cur) => cur.map((l, at) => (at === i ? { ...l, parts: l.parts.map((pt, k) => (k === j ? { ...pt, ...p } : pt)) } : l)));
+  }
+  // Field labels for a screen reader stay unique across several orders.
+  const aria = (t: string) => (many ? `Order ${index} ${t.charAt(0).toLowerCase()}${t.slice(1)}` : t);
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gap: 14,
+        minWidth: 0,
+        ...(many
+          ? {
+              padding: 14,
+              border: "1px solid var(--line)",
+              borderRadius: 2,
+              background: delivering ? "var(--wash-delivery)" : "var(--wash-pickup)",
+            }
+          : {}),
+      }}
+    >
+      {many && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>
+            Order {index} of {count}
+            {s.recipient.trim() ? <span className="muted" style={{ fontWeight: 400 }}> · for {s.recipient.trim()}</span> : ""}
+          </h3>
+          {onRemove && (
+            <button type="button" onClick={onRemove} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+              Remove this order
+            </button>
+          )}
+        </div>
+      )}
+
+      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend style={labelText}>Delivery or pickup</legend>
+        <div style={{ display: "flex", gap: 22 }}>
+          {(["delivery", "pickup"] as const).map((f) => (
+            <label key={f} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0" }}>
+              <input type="radio" name={`wr-fulfillment-${s.key}`} checked={s.fulfillment === f} onChange={() => patch({ fulfillment: f })} style={radio} />
+              {f === "delivery" ? "Deliver it" : "Pickup"}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {delivering && (
+        <label>
+          <span style={labelText}>Recipient (if not the customer)</span>
+          <input
+            value={s.recipient}
+            autoFocus={focus}
+            onChange={(e) => {
+              patch({ recipient: e.target.value });
+              setTypedRecipient(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setTypedRecipient(false);
+            }}
+            style={field}
+          />
+        </label>
+      )}
+      {delivering && (
+        <label>
+          <span style={labelText}>Recipient&rsquo;s phone (optional, for the driver)</span>
+          <input value={s.recipientPhone} onChange={(e) => patch({ recipientPhone: e.target.value })} type="tel" inputMode="tel" autoComplete="off" style={field} />
+        </label>
+      )}
+
+      {/* RECIPIENTS COME FROM THE SAME HISTORY (Katy's question, 2026-10-06:
+          "will the same happen with recipients?"). Yes: every delivery
+          order already carries who it went to and where, so typing a few
+          letters of a recipient offers the matching ones and a tap fills
+          the name and the address. Same autocomplete rules as the customer
+          chips above, same no-separate-list design: a funeral home or a
+          grandmother who gets flowers every month is in the orders. */}
+      {delivering &&
+        (() => {
+          const q = typedRecipient ? s.recipient.trim().toLowerCase() : "";
+          if (q.length < 2) return null;
+          const latest = new Map<string, { c: Contact; count: number }>();
+          for (const c of contacts) {
+            if (c.fulfillment !== "delivery" || !c.recipient) continue;
+            const key = `${c.recipient.trim().toLowerCase()}|${(c.street ?? "").trim().toLowerCase()}`;
+            const cur = latest.get(key);
+            if (!cur) latest.set(key, { c, count: 1 });
+            else {
+              cur.count += 1;
+              if (c.createdAt > cur.c.createdAt) cur.c = c;
+            }
+          }
+          const hits = [...latest.values()]
+            .filter(({ c }) => (c.recipient ?? "").toLowerCase().includes(q))
+            .sort((a, b) => b.c.createdAt - a.c.createdAt)
+            .slice(0, 4);
+          const onFile = fileRecipHits.filter(
+            (f) => !hits.some(({ c }) => (c.recipient ?? "").trim().toLowerCase() === f.name.trim().toLowerCase() && (c.street ?? "").trim().toLowerCase() === f.street.trim().toLowerCase()),
+          );
+          if (hits.length === 0 && onFile.length === 0) return null;
+          return (
+            <div role="status" style={{ margin: "-6px 0 0", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {onFile.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => {
+                    setTypedRecipient(false);
+                    // A person at a place keeps both: the driver needs the
+                    // funeral home's name and the family's. The place goes
+                    // on its own line now (the company field).
+                    patch({
+                      recipient: f.name,
+                      company: f.business && f.business !== f.name ? f.business : "",
+                      street: [f.street, f.street2].filter(Boolean).join(", "),
+                      town: f.town,
+                      zip: f.zip,
+                    });
+                  }}
+                  style={chipDashed}
+                >
+                  {f.name}{f.business && f.business !== f.name ? ` at ${f.business}` : ""} · {[f.street, f.town].filter(Boolean).join(", ") || "no address on file"} · on file
+                </button>
+              ))}
+              {hits.map(({ c, count: n }) => (
+                <button
+                  key={`${c.recipient}|${c.street}`}
+                  type="button"
+                  onClick={() => {
+                    setTypedRecipient(false);
+                    patch({ recipient: c.recipient ?? "", recipientPhone: c.recipientPhone ?? "", street: c.street ?? "", town: c.town ?? "", zip: c.zip ?? "" });
+                  }}
+                  style={chipSolid}
+                >
+                  {c.recipient} · {[c.street, c.town].filter(Boolean).join(", ") || "no address on file"} · {n} deliver{n === 1 ? "y" : "ies"}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
+      {/* The address block renders for BOTH fulfillments since 2026-09-04
+          (Kevin, from the shop's meeting): on a delivery it is where the
+          flowers go; on a pickup it is the customer's own address, kept
+          for their file. The heading says which so nobody wonders. */}
+      <div>
+        <span style={labelText}>
+          {delivering ? "Delivery address" : "Customer address"}
+          {!delivering && <span className="muted" style={{ fontWeight: 400 }}> (optional, for their file)</span>}
+        </span>
+        {/* minWidth: 0 on every grid label, or the inputs' intrinsic ~170px
+            minimum wins over the fr columns and the whole form pushes the
+            page sideways at 390px. Caught by the authed-state audit. */}
+        {/* The place above the street (Kevin, 2026-10-14): a funeral home,
+            a school, a church, an office. Its own line on every order: the
+            driver reads it before the number on a delivery, and a business
+            picking up has a name worth keeping ("worst comes to worst they
+            don't use it"). */}
+        <label style={{ display: "block", marginBottom: 14 }}>
+          <span style={labelText}>Company or place (optional)</span>
+          <input value={s.company} onChange={(e) => patch({ company: e.target.value })} placeholder="Funeral home, school, church, office" style={field} />
+        </label>
+        <div style={{ display: "grid", gap: 14, gridTemplateColumns: "2fr 1fr minmax(70px, 110px)" }}>
+          <label style={{ minWidth: 0 }}>
+            <span style={labelText}>Street</span>
+            <input value={s.street} onChange={(e) => patch({ street: e.target.value })} style={field} />
+          </label>
+          <label style={{ minWidth: 0 }}>
+            <span style={labelText}>Town</span>
+            <input value={s.town} onChange={(e) => patch({ town: e.target.value })} style={field} />
+          </label>
+          <label style={{ minWidth: 0 }}>
+            <span style={labelText}>Zip</span>
+            <input value={s.zip} onChange={(e) => patch({ zip: e.target.value })} inputMode="numeric" style={field} />
+          </label>
+        </div>
+      </div>
+
+      {/* THE FEE, WHILE THE PRICE IS BEING QUOTED (Katy, 2026-10-06): the
+          zip sheet fills it in, and the person on the phone can change it
+          on the spot. It goes on the ticket as the Delivery line, so what
+          the customer was told is what the card is charged. */}
+      {delivering && (
+        <label style={{ maxWidth: 260 }}>
+          <span style={labelText}>Delivery fee</span>
+          <input
+            value={m.deliveryFee}
+            onChange={(e) => patch({ feeOverride: e.target.value })}
+            inputMode="decimal"
+            placeholder={s.zip.trim() ? "" : "type the zip first"}
+            style={field}
+          />
+          <span className="muted" style={{ fontSize: 13, display: "block", marginTop: 4 }}>
+            {m.sheetFee !== undefined
+              ? Number(m.deliveryFee) === m.sheetFee
+                ? `From the zip list for ${s.zip.trim()}. Change it if this one is different.`
+                : `The list says ${money(m.sheetFee)} for ${s.zip.trim()}; this order charges what you typed.`
+              : s.zip.trim()
+                ? "That zip is not on the list. Type a fee, or leave it blank to settle on the call."
+                : "The zip fills this in from the list; you can also just type a fee."}
+          </span>
+        </label>
+      )}
+
+      <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+        <label>
+          <span style={labelText}>{delivering ? "Delivery date" : "Pickup date"}</span>
+          <input type="date" value={s.date} onChange={(e) => patch({ date: e.target.value })} required style={field} />
+        </label>
+        {/* "Needed by" (Kevin, 2026-10-14): a service at two, a party at
+            six. Optional; the board sorts the day by it and the ticket
+            prints it. */}
+        <label>
+          <span style={labelText}>Needed by (optional)</span>
+          <input type="time" value={s.neededBy} onChange={(e) => patch({ neededBy: e.target.value })} step={300} style={field} />
+        </label>
+        <label>
+          <span style={labelText}>Occasion</span>
+          <select value={s.occasion} onChange={(e) => patch({ occasion: e.target.value })} style={field}>
+            <option value="">None given</option>
+            {occasions.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {/* minWidth: 0 down this whole chain. The product select's intrinsic
+          width is its longest option, ~350px, and without these the form's
+          grid track inherits it and every row stretches past a 390px phone.
+          With them, the select shrinks and clips its text instead. */}
+      <div style={{ minWidth: 0 }}>
+        {/* "Items", not "Lines": a session shipped order-ticket jargon and
+            Kevin could not parse the validation error, which means her staff
+            cannot either. The code keeps calling them lines; the shop never
+            sees the code. */}
+        <span style={labelText}>Items</span>
+        <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+          {lines.map((l, i) => {
+            const p = productBySlug(l.slug);
+            const building = l.byStems && canBuild(l);
+            const built = building ? builtPriceIn(library, l) : null;
+            return (
+              /* Flex with wrap, not a fixed grid: four cells at their minimums
+                 are ~440px, and a 390px phone needs the row to fold instead of
+                 shoving the page sideways. */
+              <div key={i} style={{ display: "grid", gap: 8, minWidth: 0 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
+                <select
+                  aria-label={aria(`Item ${i + 1} product`)}
+                  value={l.slug}
+                  onChange={(e) => setLine(i, { slug: e.target.value })}
+                  style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
+                >
+                  <option value="">Custom item…</option>
+                  {sortedProducts.map((sp) => (
+                    <option key={sp.slug} value={sp.slug}>
+                      {sp.name} ({money(sp.price)})
+                    </option>
+                  ))}
+                </select>
+                {l.slug ? (
+                  <span style={{ alignSelf: "center", fontSize: 14.5, flex: "1 1 auto" }} className="muted">
+                    {built ? `${money(built.each)} each, by stems` : `${p ? money(p.price) : ""} each`}
+                  </span>
+                ) : (
+                  <input
+                    aria-label={aria(`Item ${i + 1} custom item`)}
+                    placeholder="What it is"
+                    value={l.custom}
+                    onChange={(e) => setLine(i, { custom: e.target.value })}
+                    style={{ ...field, flex: "1 1 140px", minWidth: 0, width: "auto" }}
+                  />
+                )}
+                {!l.slug && !building && (
+                  <input
+                    aria-label={aria(`Item ${i + 1} price`)}
+                    placeholder="$"
+                    inputMode="decimal"
+                    value={l.each}
+                    onChange={(e) => setLine(i, { each: e.target.value })}
+                    style={{ ...field, flex: "0 1 90px", minWidth: 0, width: "auto" }}
+                  />
+                )}
+                {!l.slug && building && built && (
+                  <span style={{ alignSelf: "center", fontSize: 14.5, flex: "0 1 auto" }} className="muted">
+                    {money(built.each)} each, by stems
+                  </span>
+                )}
+                <input
+                  aria-label={aria(`Item ${i + 1} quantity`)}
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={l.qty}
+                  onChange={(e) => setLine(i, { qty: Number(e.target.value) || 1 })}
+                  style={{ ...field, flex: "0 0 72px", minWidth: 0, width: "auto" }}
+                />
+              </div>
+
+              {/* BUILT BY STEMS (Katy, 2026-10-06: "select rose x 3 and that
+                  = the price... this exists in wedding! just needs to be
+                  under designers choice"). The wedding builder's arithmetic
+                  at the counter: pick a flower from her stem library, say
+                  how many, and the piece prices itself at her per-stem
+                  retail. Wendalyn is $75 and they want to spend $100: build
+                  the $100 here instead of guessing what fits. */}
+              {canBuild(l) && (
+                <div style={{ paddingLeft: 4, display: "grid", gap: 6 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--muted)" }}>
+                    <input
+                      type="checkbox"
+                      checked={l.byStems}
+                      onChange={(e) => setLine(i, { byStems: e.target.checked })}
+                      style={{ width: 18, height: 18, accentColor: "var(--green)" }}
+                    />
+                    Price it by stems
+                  </label>
+                  {building && (
+                    <>
+                      {l.parts.map((pt, j) => {
+                        const price = pt.variety.trim() ? stemPriceIn(library, pt.variety) : undefined;
+                        const stems = Math.round(Number(pt.stems) || 0);
+                        return (
+                          <div key={j} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", minWidth: 0 }}>
+                            <input
+                              aria-label={aria(`Item ${i + 1} flower ${j + 1}`)}
+                              list="wr-stem-library"
+                              placeholder="Flower, from the stem library"
+                              value={pt.variety}
+                              onChange={(e) => setPart(i, j, { variety: e.target.value })}
+                              style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
+                            />
+                            <span className="muted" style={{ fontSize: 14 }}>×</span>
+                            <input
+                              aria-label={aria(`Item ${i + 1} flower ${j + 1} stems`)}
+                              type="number"
+                              min={0}
+                              max={999}
+                              placeholder="stems"
+                              value={pt.stems}
+                              onChange={(e) => setPart(i, j, { stems: e.target.value })}
+                              style={{ ...field, flex: "0 0 84px", minWidth: 0, width: "auto" }}
+                            />
+                            <span style={{ fontSize: 14, minWidth: 110 }} className={price === undefined && pt.variety.trim() ? "" : "muted"}>
+                              {!pt.variety.trim()
+                                ? ""
+                                : price === undefined
+                                  ? <strong style={{ color: "var(--rose-ink)" }}>no stem price in the library</strong>
+                                  : `${money(price)} a stem${stems > 0 ? ` = ${money(price * stems)}` : ""}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
+                        <button type="button" onClick={() => setLine(i, { parts: [...l.parts, { variety: "", stems: "" }] })} style={{ ...textButton, fontSize: 13.5 }}>
+                          Another flower
+                        </button>
+                        {built && built.each > 0 && (
+                          <strong style={{ fontSize: 14.5 }}>
+                            {money(built.each)} each{l.qty > 1 ? ` · ${money(built.each * l.qty)} for ${l.qty}` : ""}
+                          </strong>
+                        )}
+                        {built && built.unpriced.length > 0 && (
+                          <span style={{ fontSize: 13.5, color: "var(--rose-ink)" }}>
+                            Add a per-stem price for {built.unpriced.join(", ")} on the Inventory tab, or it will not save.
+                          </span>
+                        )}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+              </div>
+            );
+          })}
+        </div>
+        <p style={{ margin: "8px 0 0" }}>
+          <button type="button" onClick={() => setLines((cur) => [...cur, blankLine()])} style={textButton}>
+            Another item
+          </button>
+        </p>
+      </div>
+
+      <label>
+        <span style={labelText}>Card message</span>
+        <textarea value={s.cardMessage} onChange={(e) => patch({ cardMessage: e.target.value })} rows={2} style={field} />
+      </label>
+      <label>
+        <span style={labelText}>Notes</span>
+        <textarea value={s.notes} onChange={(e) => patch({ notes: e.target.value })} rows={2} style={field} />
+      </label>
+
+      {m.items > 0 && (
+        <p className="muted" style={{ margin: 0, fontSize: 14.5 }}>
+          {many ? `Order ${index}: items` : "Items"} {money(m.items)}
+          {m.fee > 0 ? ` + delivery ${money(m.fee)}` : ""}
+          {taxExempt ? " · tax exempt" : ` + sales tax ${money(m.tax)}`}
+          {" = "}
+          <strong>{money(m.total)}</strong>
+        </p>
+      )}
+      {/* THE DELIVERY MINIMUM IS A WARNING HERE, NEVER A LOCK (Katy,
+          2026-10-14). The website refuses a delivery under her minimum
+          because nobody is there to say yes; the counter is exactly the
+          person who can. So the form says it, in the words the site would
+          have used, and saves anyway. Items only, the fee excluded, the
+          same reading the website enforces. */}
+      {m.underMinimum && (
+        <p role="status" style={{ margin: 0, fontSize: 14.5, fontWeight: 600, color: "var(--rose-ink)" }}>
+          Under the ${m.minimum} delivery minimum for {s.zip.trim()}: the items come to {money(m.items)}. The website would not
+          take this one. It saves here all the same, if you have agreed it with the customer.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The counter's order pad. Catalog lines price themselves from the catalog
+ * (same rule as the web checkout); custom lines take a typed price, because
+ * half of what a florist sells — a casket spray, a one-off vase — has no
+ * catalog entry. One customer at the top; below, one order, or several on
+ * the same call, each for its own recipient, all on one card at the end.
+ */
+function PhoneOrderForm({
+  contacts,
+  onSaved,
+  onRefresh,
+  editing = null,
+  addTo = null,
+}: {
+  contacts: Contact[];
+  /** The write-up is on the board (or the edit is saved); `placed` is what
+      went on, for the board's one-line confirmation. */
+  onSaved: (placed?: { number: string; name: string }[]) => void;
+  /** Something changed on the board under the form (a partial save). */
+  onRefresh?: () => void;
+  editing?: Order | null;
+  /** Another order for a customer already on the board, on the same card
+      (the card's "Another order, same card"): who they are and how they pay
+      come from this order; what this one is for starts blank. */
+  addTo?: Order | null;
+}) {
+  /** The group this write-up belongs to: an existing group's id when adding
+      to it; otherwise the route makes one when there are several. */
+  const batchId = editing?.batchId ?? (addTo ? addTo.batchId || addTo.id : "");
+  const seed = editing ?? addTo;
+  const [name, setName] = useState(seed?.name ?? "");
+  const [phone, setPhone] = useState(seed?.phone ?? "");
+  const [email, setEmail] = useState(seed?.email ?? "");
   const [picked, setPicked] = useState<Contact | null>(null);
   /**
    * Which of the two lookup fields the HUMAN has typed in since the last
@@ -1428,22 +2165,10 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
    * it writes are the machine's, not the caller's.
    */
   const [typed, setTyped] = useState({ name: false, phone: false });
-  /** Same rule for the recipient field: only what the human typed drives
-      the recipient suggestions, and a pick closes them. */
-  const [typedRecipient, setTypedRecipient] = useState(false);
-  const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">(editing?.fulfillment ?? "delivery");
-  const [email, setEmail] = useState(editing?.email ?? "");
-  const [recipient, setRecipient] = useState(editing?.recipient ?? "");
-  const [company, setCompany] = useState(editing?.company ?? "");
-  const [recipientPhone, setRecipientPhone] = useState(editing?.recipientPhone ?? "");
-  const [street, setStreet] = useState(editing?.street ?? "");
-  const [town, setTown] = useState(editing?.town ?? "");
-  const [zip, setZip] = useState(editing?.zip ?? "");
   /** Hits from the contacts on file (IRIS), fetched as the human types,
       a short pause after the last keystroke; merged under the order-history
       chips, which always come first because they are more recent truth. */
   const [fileHits, setFileHits] = useState<FileContact[]>([]);
-  const [fileRecipHits, setFileRecipHits] = useState<FileContact[]>([]);
   const [pickedFromFile, setPickedFromFile] = useState(false);
   const custQ = typed.name ? name.trim() : typed.phone ? phone.trim() : "";
   useEffect(() => {
@@ -1465,48 +2190,23 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
       clearTimeout(t);
     };
   }, [custQ, picked]);
-  const recipQ = typedRecipient ? recipient.trim() : "";
-  useEffect(() => {
-    let dead = false;
-    if (recipQ.length < 2) {
-      setFileRecipHits([]);
-      return;
-    }
-    const t = setTimeout(() => {
-      fetch(`/api/workroom/contacts?kind=recipient&q=${encodeURIComponent(recipQ)}`, { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (!dead) setFileRecipHits((d?.hits as FileContact[]) ?? []);
-        })
-        .catch(() => {});
-    }, 180);
-    return () => {
-      dead = true;
-      clearTimeout(t);
-    };
-  }, [recipQ]);
-  /** What was typed into the fee field, or null while it still follows the
-      zip sheet. Derived, not an effect: a typed fee survives retyping a zip
-      to fix a digit, and a never-touched field tracks the zip as it changes. */
-  const [feeOverride, setFeeOverride] = useState<string | null>(() => {
-    const dl = editing?.lines.find(isDeliveryLine);
-    return dl ? String(dl.each) : null;
-  });
-  const [date, setDate] = useState(editing?.date ?? todayISO());
-  const [neededBy, setNeededBy] = useState(editing?.neededBy ?? "");
-  const [occasion, setOccasion] = useState(editing?.occasion ?? "");
-  const [cardMessage, setCardMessage] = useState(editing?.cardMessage ?? "");
-  const [notes, setNotes] = useState(editing?.notes ?? "");
   /** Who is writing this up. Required (Katy, 2026-10-14); an edit keeps
       the original initials unless they are changed on purpose. */
   const [takenBy, setTakenBy] = useState(editing?.takenBy ?? "");
   /** HOUSE ACCOUNT and TAX EXEMPT (Katy, 2026-10-14), two boxes, either or
       both. Account: billed, not paid now; it lives on the Accounts tab until
-      settled. Tax exempt: the route writes no tax line. */
-  const [account, setAccount] = useState(editing?.account ?? false);
-  const [taxExempt, setTaxExempt] = useState(editing?.taxExempt ?? false);
-  const [taxId, setTaxId] = useState(editing?.taxId ?? "");
-  const [lines, setLines] = useState<DraftLine[]>(() => (editing ? fromLines(editing) : [blankLine()]));
+      settled. Tax exempt: the route writes no tax line. Both are the
+      customer's, so they apply to every order on the write-up. */
+  const [account, setAccount] = useState(seed?.account ?? false);
+  const [taxExempt, setTaxExempt] = useState(seed?.taxExempt ?? false);
+  const [taxId, setTaxId] = useState(seed?.taxId ?? "");
+  /** The orders on this write-up, one or more. */
+  const [stops, setStops] = useState<Stop[]>(() => [
+    editing ? stopFromOrder(editing) : addTo ? blankStop({ fulfillment: addTo.fulfillment, date: addTo.date, occasion: addTo.occasion }) : blankStop(),
+  ]);
+  /** The order just added, so its first field takes the cursor. */
+  const [focusKey, setFocusKey] = useState<number | null>(null);
+  const patchStop = (key: number, p: Partial<Stop>) => setStops((cur) => cur.map((s) => (s.key === key ? { ...s, ...p } : s)));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"" | "board" | "hold">("");
   /** The stem library's names and per-stem prices, for building a piece
@@ -1522,62 +2222,47 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
       })
       .catch(() => {});
   }, []);
-  const stemPrice = (variety: string): number | undefined => {
-    const v = library.find((x) => x.name === normalizeVariety(variety));
-    return v && v.sellStem != null && v.sellStem > 0 ? v.sellStem : undefined;
-  };
-  /** The built price of a line, in dollars, plus the varieties the library
-      cannot price (the route will refuse those by name). */
-  const builtPrice = (l: DraftLine): { each: number; unpriced: string[] } => {
-    let cents = 0;
-    const unpriced: string[] = [];
-    for (const pt of l.parts) {
-      const stems = Math.round(Number(pt.stems) || 0);
-      const name = pt.variety.trim();
-      if (!name || stems <= 0) continue;
-      const price = stemPrice(name);
-      if (price === undefined) unpriced.push(name);
-      else cents += Math.round(price * 100) * stems;
-    }
-    return { each: cents / 100, unpriced };
-  };
 
-  function setLine(i: number, patch: Partial<DraftLine>) {
-    setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...patch } : l)));
+  /** Another order on the same call: same day and occasion as the last one
+      typed (a hospital's five go out together), everything else blank,
+      the cursor in its recipient field. */
+  function addStop() {
+    const last = stops[stops.length - 1];
+    const s = blankStop({ fulfillment: last.fulfillment, date: last.date, occasion: last.occasion });
+    setStops((cur) => [...cur, s]);
+    setFocusKey(s.key);
   }
-  function setPart(i: number, j: number, patch: Partial<DraftPart>) {
-    setLines((cur) =>
-      cur.map((l, at) => (at === i ? { ...l, parts: l.parts.map((pt, k) => (k === j ? { ...pt, ...patch } : pt)) } : l)),
-    );
+  function removeStop(s: Stop, index: number) {
+    if (stopHasWork(s) && !window.confirm(`Remove order ${index}? What is typed in it goes away.`)) return;
+    setStops((cur) => cur.filter((x) => x.key !== s.key));
   }
-
-  const productBySlug = (slug: string): Product | undefined => sortedProducts.find((p) => p.slug === slug);
-  /** What one draft line costs each, by the rule the route will apply:
-      built by stems from the library, else the catalog price, else what
-      was typed. The warning and the items list read the same number. */
-  const lineEach = (l: DraftLine): number =>
-    l.byStems && canBuild(l) ? builtPrice(l).each : l.slug ? productBySlug(l.slug)?.price ?? 0 : Number(l.each) || 0;
 
   /** Save it. `hold` parks it (Katy, 2026-10-12: typed up with questions
       still open, not ready to make); otherwise it goes onto the board as
-      confirmed, or an existing one keeps its place. */
+      confirmed, or an existing one keeps its place. Several orders go on
+      together or not at all; the route says which one it stopped on. */
   async function save(hold: boolean) {
     setError("");
-    // A piece marked "by stems" with no flower and count typed would save
-    // at $0 with its price field hidden; refuse here, in words.
-    const halfBuilt = lines.find(
-      (l) => l.byStems && canBuild(l) && (l.slug || l.custom.trim()) && !l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0),
-    );
-    if (halfBuilt) {
-      setError(`"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`);
-      return;
+    const many = stops.length > 1;
+    for (let i = 0; i < stops.length; i++) {
+      // A piece marked "by stems" with no flower and count typed would save
+      // at $0 with its price field hidden; refuse here, in words.
+      const halfBuilt = stops[i].lines.find(
+        (l) => l.byStems && canBuild(l) && (l.slug || l.custom.trim()) && !l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0),
+      );
+      if (halfBuilt) {
+        setError(
+          `${many ? `Order ${i + 1}: ` : ""}"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`,
+        );
+        return;
+      }
     }
     if (!isInitials(takenBy)) {
       setError(INITIALS_ERROR);
       return;
     }
     setSaving(hold ? "hold" : "board");
-    const payload = {
+    const shared = {
       id: editing?.id,
       hold,
       takenBy: takenBy.trim().toUpperCase(),
@@ -1585,33 +2270,13 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
       account,
       taxExempt,
       taxId: taxExempt ? taxId.trim() : "",
-      name, phone, email, fulfillment, date, neededBy, occasion, cardMessage, notes,
-      recipient: fulfillment === "delivery" ? recipient : "",
-      recipientPhone: fulfillment === "delivery" ? recipientPhone.trim() : "",
-      company: company.trim(),
-      // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
-      // from the shop's meeting): it is the customer's own address, kept
-      // for their file, house accounts and mileage later.
-      street: street,
-      town: town,
-      zip: zip.trim(),
-      // The fee as shown, sheet or typed (Katy, 2026-10-06). Blank means
-      // "none typed and the zip is off the list": the route adds no line.
-      deliveryFee: delivering && deliveryFee.trim() !== "" && Number.isFinite(Number(deliveryFee)) ? Number(deliveryFee) : undefined,
-      lines: lines
-        .filter((l) => l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)))
-        .map((l) => {
-          // Built by stems: the route prices from the library, so only the
-          // parts travel, never a browser-computed price.
-          const parts =
-            l.byStems && canBuild(l)
-              ? l.parts.filter((pt) => pt.variety.trim() && Number(pt.stems) > 0).map((pt) => ({ variety: pt.variety.trim(), stems: Number(pt.stems) }))
-              : undefined;
-          return l.slug
-            ? { slug: l.slug, qty: l.qty, parts }
-            : { name: l.custom.trim(), each: parts ? 0 : Number(l.each) || 0, qty: l.qty, parts };
-        }),
+      name,
+      phone,
+      email,
     };
+    // An edit is one order, flat, as the PUT route has always read it; a
+    // new write-up is the customer once and a list, one entry per order.
+    const payload = editing ? { ...shared, ...stopPayload(stops[0], library) } : { ...shared, deliveries: stops.map((s) => stopPayload(s, library)) };
     const r = await fetch("/api/workroom/orders", {
       method: editing ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
@@ -1621,49 +2286,31 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
     setSaving("");
     if (!r.ok) {
       setError(d?.error || "That did not save. Look it over and try again.");
+      // Some of a group went on before the failure: the board behind the
+      // form shows them, so nobody writes those up twice.
+      if (Array.isArray(d?.orders) && d.orders.length) onRefresh?.();
       return;
     }
-    if (editing || hold) {
-      onSaved();
-      return;
-    }
-    // A new order: the board refreshes behind the form, and the form
-    // stays to offer another order for the same customer (Kevin,
-    // 2026-10-14: a hospital calling with five deliveries on one card).
-    setPlaced({ id: d.order.id, number: d.order.number });
-    onPlaced?.();
+    const placed = (Array.isArray(d?.orders) ? d.orders : d?.order ? [d.order] : []) as { number: string; name: string }[];
+    onSaved(placed);
   }
   function submit(e: React.FormEvent) {
     e.preventDefault();
     save(false).catch(() => setSaving(""));
   }
 
-  const delivering = fulfillment === "delivery";
-  const sheetFee = deliveryFeeFor(zip.trim());
-  const deliveryFee = feeOverride ?? (sheetFee !== undefined ? String(sheetFee) : "");
-
-  /* THE DELIVERY MINIMUM IS A WARNING HERE, NEVER A LOCK (Katy, 2026-10-14).
-     The website refuses a delivery under her minimum because nobody is
-     there to say yes; the counter is exactly the person who can. So the
-     form says it, in the words the site would have used, and saves anyway.
-     Items only, the fee excluded, the same reading the website enforces. */
-  const itemsTotal = lines.reduce((s, l) => s + lineEach(l) * l.qty, 0);
-  // A by-stems piece with a flower the library does not price would be
-  // summed short and could cry "under" at an order that is not; no warning
-  // until every piece can be priced.
-  const anyUnpriced = lines.some((l) => l.byStems && canBuild(l) && builtPrice(l).unpriced.length > 0);
-  // Any delivery zip, on the sheet or off it (a typed fee for an off-list
-  // zip is still a delivery, and the website would have refused it too).
-  const minimum = delivering && zip.trim().length >= 5 ? deliveryMinimumFor(zip.trim()) : 0;
-  const underMinimum = minimum > 0 && !anyUnpriced && itemsTotal > 0 && itemsTotal < minimum;
-  /* What the ticket will say, in the route's arithmetic: items, the fee as
-     shown, tax on the items (none when exempt). Display; the route writes. */
-  const feeShown = delivering && deliveryFee.trim() !== "" && Number.isFinite(Number(deliveryFee)) ? Number(deliveryFee) : 0;
-  const taxShown = taxFor(lines.map((l) => ({ name: l.custom.trim() || "item", qty: l.qty, each: lineEach(l) })), taxExempt);
-  const totalShown = Math.round((itemsTotal + feeShown + taxShown) * 100) / 100;
+  const many = stops.length > 1;
+  const maths = stops.map((s) => stopMath(s, library, taxExempt));
+  const sum = (pick: (m: ReturnType<typeof stopMath>) => number) => Math.round(maths.reduce((t, m) => t + pick(m), 0) * 100) / 100;
+  const grand = { items: sum((m) => m.items), fee: sum((m) => m.fee), tax: sum((m) => m.tax), total: sum((m) => m.total) };
 
   return (
     <form onSubmit={submit} className="panel" style={{ maxWidth: 640, marginBottom: 30, display: "grid", gap: 14 }}>
+      {addTo && (
+        <p role="status" style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--green)" }}>
+          Another order for {addTo.name}, on the same card as {addTo.number}. Who they are is filled in; what this one is for goes below.
+        </p>
+      )}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         <label>
           <span style={labelText}>Customer</span>
@@ -1757,6 +2404,9 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
           (f) => !hits.some(({ c }) => (phoneKey(c.phone) && phoneKey(c.phone) === phoneKey(f.phone)) || c.name.trim().toLowerCase() === f.name.trim().toLowerCase()),
         );
         if (hits.length === 0 && onFile.length === 0) return null;
+        // WHERE fills the first order on the form: the customer's usual
+        // address is the first stop's business, never the fourth's.
+        const first = stops[0].key;
         return (
           <div role="status" style={{ margin: "-6px 0 0", display: "flex", flexWrap: "wrap", gap: 8 }}>
             {onFile.map((f) => (
@@ -1770,21 +2420,9 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
                   setName(f.name);
                   setPhone(f.phone);
                   setEmail(f.email);
-                  setStreet(f.street);
-                  setTown(f.town);
-                  setZip(f.zip);
+                  patchStop(first, { street: f.street, town: f.town, zip: f.zip });
                 }}
-                style={{
-                  font: "inherit",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "var(--ink)",
-                  background: "var(--paper-2)",
-                  border: "1px dashed var(--line)",
-                  borderRadius: 2,
-                  padding: "6px 10px",
-                  cursor: "pointer",
-                }}
+                style={chipDashed}
               >
                 {f.name}{f.business ? ` (${f.business})` : ""} · {f.phone || f.email || f.town || "no phone on file"} · on file
               </button>
@@ -1803,40 +2441,32 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
                   // receipt silently stopped, because nobody redictates an
                   // email the shop already has (fine-tooth pass, 2026-09-09).
                   setEmail(c.email ?? "");
-                  if (c.fulfillment) setFulfillment(c.fulfillment);
-                  setRecipient(c.recipient ?? "");
-                  setRecipientPhone(c.recipientPhone ?? "");
-                  setCompany(c.company ?? "");
                   // An account customer stays one: their last order's
                   // account and tax-exempt settings come along, ID too.
                   setAccount(c.account === true);
                   setTaxExempt(c.taxExempt === true);
                   setTaxId(c.taxExempt ? c.taxId ?? "" : "");
-                  setStreet(c.street ?? "");
-                  setTown(c.town ?? "");
-                  setZip(c.zip ?? "");
+                  patchStop(first, {
+                    ...(c.fulfillment ? { fulfillment: c.fulfillment } : {}),
+                    recipient: c.recipient ?? "",
+                    recipientPhone: c.recipientPhone ?? "",
+                    company: c.company ?? "",
+                    street: c.street ?? "",
+                    town: c.town ?? "",
+                    zip: c.zip ?? "",
+                  });
                 }}
-                style={{
-                  font: "inherit",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "var(--green)",
-                  background: "var(--paper-2)",
-                  border: "1px solid var(--line)",
-                  borderRadius: 2,
-                  padding: "6px 10px",
-                  cursor: "pointer",
-                }}
+                style={chipSolid}
               >
-                {c.name || "On file"} · {c.phone || c.email} · {count} order{count === 1 ? "" : "s"}
+                {c.name} · {c.phone || c.email || "no phone"} · {count} order{count === 1 ? "" : "s"}
+                {c.fulfillment === "delivery" && c.recipient ? ` · last to ${c.recipient}` : ""}
               </button>
             ))}
           </div>
         );
       })()}
-
-      {/* After a pick, a quiet confirmation: the filled fields do the
-          talking, and the lines below start blank because this call's
+      {/* Said once, so a prefilled form is never mistaken for a blank one
+          and the chips' silence after a pick is understood: the rest of the
           order is its own. */}
       {picked && (
         <p role="status" style={{ margin: "-6px 0 0", fontSize: 14, fontWeight: 600, color: "var(--green)" }}>
@@ -1845,18 +2475,6 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
             : <>Filled from {picked.name || "their file"}&rsquo;s last order. What they want today is below.</>}
         </p>
       )}
-
-      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend style={labelText}>Delivery or pickup</legend>
-        <div style={{ display: "flex", gap: 22 }}>
-          {(["delivery", "pickup"] as const).map((f) => (
-            <label key={f} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0" }}>
-              <input type="radio" name="wr-fulfillment" checked={fulfillment === f} onChange={() => setFulfillment(f)} style={radio} />
-              {f === "delivery" ? "Deliver it" : "Pickup"}
-            </label>
-          ))}
-        </div>
-      </fieldset>
 
       <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
         <legend style={labelText}>Account and tax</legend>
@@ -1886,387 +2504,67 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
         )}
       </fieldset>
 
-      {delivering && (
-        <label>
-          <span style={labelText}>Recipient (if not the customer)</span>
-          <input
-            value={recipient}
-            onChange={(e) => {
-              setRecipient(e.target.value);
-              setTypedRecipient(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setTypedRecipient(false);
-            }}
-            style={field}
-          />
-        </label>
-      )}
-      {delivering && (
-        <label>
-          <span style={labelText}>Recipient&rsquo;s phone (optional, for the driver)</span>
-          <input value={recipientPhone} onChange={(e) => setRecipientPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="off" style={field} />
-        </label>
-      )}
+      {stops.map((s, i) => (
+        <StopFields
+          key={s.key}
+          s={s}
+          patch={(p) => patchStop(s.key, p)}
+          contacts={contacts}
+          library={library}
+          index={i + 1}
+          count={stops.length}
+          taxExempt={taxExempt}
+          focus={s.key === focusKey}
+          onRemove={many ? () => removeStop(s, i + 1) : undefined}
+        />
+      ))}
+      {/* One datalist for every flower field: the library's names, so a
+          typed name is a resident's name and not a near miss. */}
+      <datalist id="wr-stem-library">
+        {library.map((v) => (
+          <option key={v.name} value={v.name} />
+        ))}
+      </datalist>
 
-      {/* RECIPIENTS COME FROM THE SAME HISTORY (Katy's question, 2026-10-06:
-          "will the same happen with recipients?"). Yes: every delivery
-          order already carries who it went to and where, so typing a few
-          letters of a recipient offers the matching ones and a tap fills
-          the name and the address. Same autocomplete rules as the customer
-          chips above, same no-separate-list design: a funeral home or a
-          grandmother who gets flowers every month is in the orders. */}
-      {delivering &&
-        (() => {
-          const q = typedRecipient ? recipient.trim().toLowerCase() : "";
-          if (q.length < 2) return null;
-          const latest = new Map<string, { c: Contact; count: number }>();
-          for (const c of contacts) {
-            if (c.fulfillment !== "delivery" || !c.recipient) continue;
-            const key = `${c.recipient.trim().toLowerCase()}|${(c.street ?? "").trim().toLowerCase()}`;
-            const cur = latest.get(key);
-            if (!cur) latest.set(key, { c, count: 1 });
-            else {
-              cur.count += 1;
-              if (c.createdAt > cur.c.createdAt) cur.c = c;
-            }
-          }
-          const hits = [...latest.values()]
-            .filter(({ c }) => (c.recipient ?? "").toLowerCase().includes(q))
-            .sort((a, b) => b.c.createdAt - a.c.createdAt)
-            .slice(0, 4);
-          const onFile = fileRecipHits.filter(
-            (f) => !hits.some(({ c }) => (c.recipient ?? "").trim().toLowerCase() === f.name.trim().toLowerCase() && (c.street ?? "").trim().toLowerCase() === f.street.trim().toLowerCase()),
-          );
-          if (hits.length === 0 && onFile.length === 0) return null;
-          return (
-            <div role="status" style={{ margin: "-6px 0 0", display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {onFile.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => {
-                    setTypedRecipient(false);
-                    // A person at a place keeps both: the driver needs the
-                    // funeral home's name and the family's. The place goes
-                    // on its own line now (the company field).
-                    setRecipient(f.name);
-                    setCompany(f.business && f.business !== f.name ? f.business : "");
-                    setStreet([f.street, f.street2].filter(Boolean).join(", "));
-                    setTown(f.town);
-                    setZip(f.zip);
-                  }}
-                  style={{
-                    font: "inherit",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "var(--ink)",
-                    background: "var(--paper-2)",
-                    border: "1px dashed var(--line)",
-                    borderRadius: 2,
-                    padding: "6px 10px",
-                    cursor: "pointer",
-                  }}
-                >
-                  {f.name}{f.business && f.business !== f.name ? ` at ${f.business}` : ""} · {[f.street, f.town].filter(Boolean).join(", ") || "no address on file"} · on file
-                </button>
-              ))}
-              {hits.map(({ c, count }) => (
-                <button
-                  key={`${c.recipient}|${c.street}`}
-                  type="button"
-                  onClick={() => {
-                    setTypedRecipient(false);
-                    setRecipient(c.recipient ?? "");
-                    setRecipientPhone(c.recipientPhone ?? "");
-                    setStreet(c.street ?? "");
-                    setTown(c.town ?? "");
-                    setZip(c.zip ?? "");
-                  }}
-                  style={{
-                    font: "inherit",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "var(--green)",
-                    background: "var(--paper-2)",
-                    border: "1px solid var(--line)",
-                    borderRadius: 2,
-                    padding: "6px 10px",
-                    cursor: "pointer",
-                  }}
-                >
-                  {c.recipient} · {[c.street, c.town].filter(Boolean).join(", ") || "no address on file"} · {count} deliver{count === 1 ? "y" : "ies"}
-                </button>
-              ))}
-            </div>
-          );
-        })()}
-      {/* The address block renders for BOTH fulfillments since 2026-09-04
-          (Kevin, from the shop's meeting): on a delivery it is where the
-          flowers go; on a pickup it is the customer's own address, kept
-          for their file. The heading says which so nobody wonders. */}
-      <div>
-        <span style={labelText}>
-          {delivering ? "Delivery address" : "Customer address"}
-          {!delivering && <span className="muted" style={{ fontWeight: 400 }}> (optional, for their file)</span>}
-        </span>
-        {/* minWidth: 0 on every grid label, or the inputs' intrinsic ~170px
-            minimum wins over the fr columns and the whole form pushes the
-            page sideways at 390px. Caught by the authed-state audit. */}
-        {/* The place above the street (Kevin, 2026-10-14): a funeral home,
-            a school, a church, an office. Its own line on every order: the
-            driver reads it before the number on a delivery, and a business
-            picking up has a name worth keeping ("worst comes to worst they
-            don't use it"). */}
-        <label style={{ display: "block", marginBottom: 14 }}>
-          <span style={labelText}>Company or place (optional)</span>
-          <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Funeral home, school, church, office" style={field} />
-        </label>
-        <div style={{ display: "grid", gap: 14, gridTemplateColumns: "2fr 1fr minmax(70px, 110px)" }}>
-          <label style={{ minWidth: 0 }}>
-            <span style={labelText}>Street</span>
-            <input value={street} onChange={(e) => setStreet(e.target.value)} style={field} />
-          </label>
-          <label style={{ minWidth: 0 }}>
-            <span style={labelText}>Town</span>
-            <input value={town} onChange={(e) => setTown(e.target.value)} style={field} />
-          </label>
-          <label style={{ minWidth: 0 }}>
-            <span style={labelText}>Zip</span>
-            <input value={zip} onChange={(e) => setZip(e.target.value)} inputMode="numeric" style={field} />
-          </label>
-        </div>
-      </div>
-
-      {/* THE FEE, WHILE THE PRICE IS BEING QUOTED (Katy, 2026-10-06): the
-          zip sheet fills it in, and the person on the phone can change it
-          on the spot. It goes on the ticket as the Delivery line, so what
-          the customer was told is what the card is charged. */}
-      {delivering && (
-        <label style={{ maxWidth: 260 }}>
-          <span style={labelText}>Delivery fee</span>
-          <input
-            value={deliveryFee}
-            onChange={(e) => setFeeOverride(e.target.value)}
-            inputMode="decimal"
-            placeholder={zip.trim() ? "" : "type the zip first"}
-            style={field}
-          />
-          <span className="muted" style={{ fontSize: 13, display: "block", marginTop: 4 }}>
-            {sheetFee !== undefined
-              ? Number(deliveryFee) === sheetFee
-                ? `From the zip list for ${zip.trim()}. Change it if this one is different.`
-                : `The list says ${money(sheetFee)} for ${zip.trim()}; this order charges what you typed.`
-              : zip.trim()
-                ? "That zip is not on the list. Type a fee, or leave it blank to settle on the call."
-                : "The zip fills this in from the list; you can also just type a fee."}
+      {/* ANOTHER ORDER ON THE SAME CALL (Kevin, 2026-10-14). In the form,
+          under the last order, where the eye lands when the caller says
+          "and one more": not a button that appears only after saving,
+          which nobody found. Each order gets its own ticket; the board
+          takes one card for the lot. An edit is one order and has no
+          button; the card's "Another order, same card" covers the later
+          call. Twenty is the route's ceiling. */}
+      {!editing && stops.length < 20 && (
+        <button
+          type="button"
+          onClick={addStop}
+          style={{
+            font: "inherit",
+            fontSize: 15,
+            fontWeight: 600,
+            color: "var(--green)",
+            background: "var(--paper-2)",
+            border: "1.5px dashed var(--green)",
+            borderRadius: 2,
+            padding: "12px 14px",
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          + Another order for {name.trim() || "this customer"}
+          <span className="muted" style={{ display: "block", fontWeight: 400, fontSize: 13.5, marginTop: 2 }}>
+            A second recipient or stop on the same call. Each gets its own ticket; one card pays for all of them at the end.
           </span>
-        </label>
+        </button>
       )}
 
-      <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-        <label>
-          <span style={labelText}>{delivering ? "Delivery date" : "Pickup date"}</span>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required style={field} />
-        </label>
-        {/* "Needed by" (Kevin, 2026-10-14): a service at two, a party at
-            six. Optional; the board sorts the day by it and the ticket
-            prints it. */}
-        <label>
-          <span style={labelText}>Needed by (optional)</span>
-          <input type="time" value={neededBy} onChange={(e) => setNeededBy(e.target.value)} step={300} style={field} />
-        </label>
-        <label>
-          <span style={labelText}>Occasion</span>
-          <select value={occasion} onChange={(e) => setOccasion(e.target.value)} style={field}>
-            <option value="">None given</option>
-            {occasions.map((o) => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {/* minWidth: 0 down this whole chain. The product select's intrinsic
-          width is its longest option, ~350px, and without these the form's
-          grid track inherits it and every row stretches past a 390px phone.
-          With them, the select shrinks and clips its text instead. */}
-      <div style={{ minWidth: 0 }}>
-        {/* "Items", not "Lines": a session shipped order-ticket jargon and
-            Kevin could not parse the validation error, which means her staff
-            cannot either. The code keeps calling them lines; the shop never
-            sees the code. */}
-        <span style={labelText}>Items</span>
-        <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-          {lines.map((l, i) => {
-            const p = productBySlug(l.slug);
-            const building = l.byStems && canBuild(l);
-            const built = building ? builtPrice(l) : null;
-            return (
-              /* Flex with wrap, not a fixed grid: four cells at their minimums
-                 are ~440px, and a 390px phone needs the row to fold instead of
-                 shoving the page sideways. */
-              <div key={i} style={{ display: "grid", gap: 8, minWidth: 0 }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
-                <select
-                  aria-label={`Item ${i + 1} product`}
-                  value={l.slug}
-                  onChange={(e) => setLine(i, { slug: e.target.value })}
-                  style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
-                >
-                  <option value="">Custom item…</option>
-                  {sortedProducts.map((sp) => (
-                    <option key={sp.slug} value={sp.slug}>
-                      {sp.name} ({money(sp.price)})
-                    </option>
-                  ))}
-                </select>
-                {l.slug ? (
-                  <span style={{ alignSelf: "center", fontSize: 14.5, flex: "1 1 auto" }} className="muted">
-                    {built ? `${money(built.each)} each, by stems` : `${p ? money(p.price) : ""} each`}
-                  </span>
-                ) : (
-                  <input
-                    aria-label={`Item ${i + 1} custom item`}
-                    placeholder="What it is"
-                    value={l.custom}
-                    onChange={(e) => setLine(i, { custom: e.target.value })}
-                    style={{ ...field, flex: "1 1 140px", minWidth: 0, width: "auto" }}
-                  />
-                )}
-                {!l.slug && !building && (
-                  <input
-                    aria-label={`Item ${i + 1} price`}
-                    placeholder="$"
-                    inputMode="decimal"
-                    value={l.each}
-                    onChange={(e) => setLine(i, { each: e.target.value })}
-                    style={{ ...field, flex: "0 1 90px", minWidth: 0, width: "auto" }}
-                  />
-                )}
-                {!l.slug && building && built && (
-                  <span style={{ alignSelf: "center", fontSize: 14.5, flex: "0 1 auto" }} className="muted">
-                    {money(built.each)} each, by stems
-                  </span>
-                )}
-                <input
-                  aria-label={`Item ${i + 1} quantity`}
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={l.qty}
-                  onChange={(e) => setLine(i, { qty: Number(e.target.value) || 1 })}
-                  style={{ ...field, flex: "0 0 72px", minWidth: 0, width: "auto" }}
-                />
-              </div>
-
-              {/* BUILT BY STEMS (Katy, 2026-10-06: "select rose x 3 and that
-                  = the price... this exists in wedding! just needs to be
-                  under designers choice"). The wedding builder's arithmetic
-                  at the counter: pick a flower from her stem library, say
-                  how many, and the piece prices itself at her per-stem
-                  retail. Wendalyn is $75 and they want to spend $100: build
-                  the $100 here instead of guessing what fits. */}
-              {canBuild(l) && (
-                <div style={{ paddingLeft: 4, display: "grid", gap: 6 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--muted)" }}>
-                    <input
-                      type="checkbox"
-                      checked={l.byStems}
-                      onChange={(e) => setLine(i, { byStems: e.target.checked })}
-                      style={{ width: 18, height: 18, accentColor: "var(--green)" }}
-                    />
-                    Price it by stems
-                  </label>
-                  {building && (
-                    <>
-                      {l.parts.map((pt, j) => {
-                        const price = pt.variety.trim() ? stemPrice(pt.variety) : undefined;
-                        const stems = Math.round(Number(pt.stems) || 0);
-                        return (
-                          <div key={j} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", minWidth: 0 }}>
-                            <input
-                              aria-label={`Item ${i + 1} flower ${j + 1}`}
-                              list="wr-stem-library"
-                              placeholder="Flower, from the stem library"
-                              value={pt.variety}
-                              onChange={(e) => setPart(i, j, { variety: e.target.value })}
-                              style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
-                            />
-                            <span className="muted" style={{ fontSize: 14 }}>×</span>
-                            <input
-                              aria-label={`Item ${i + 1} flower ${j + 1} stems`}
-                              type="number"
-                              min={0}
-                              max={999}
-                              placeholder="stems"
-                              value={pt.stems}
-                              onChange={(e) => setPart(i, j, { stems: e.target.value })}
-                              style={{ ...field, flex: "0 0 84px", minWidth: 0, width: "auto" }}
-                            />
-                            <span style={{ fontSize: 14, minWidth: 110 }} className={price === undefined && pt.variety.trim() ? "" : "muted"}>
-                              {!pt.variety.trim()
-                                ? ""
-                                : price === undefined
-                                  ? <strong style={{ color: "var(--rose-ink)" }}>no stem price in the library</strong>
-                                  : `${money(price)} a stem${stems > 0 ? ` = ${money(price * stems)}` : ""}`}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => setLine(i, { parts: [...l.parts, { variety: "", stems: "" }] })} style={{ ...textButton, fontSize: 13.5 }}>
-                          Another flower
-                        </button>
-                        {built && built.each > 0 && (
-                          <strong style={{ fontSize: 14.5 }}>
-                            {money(built.each)} each{l.qty > 1 ? ` · ${money(built.each * l.qty)} for ${l.qty}` : ""}
-                          </strong>
-                        )}
-                        {built && built.unpriced.length > 0 && (
-                          <span style={{ fontSize: 13.5, color: "var(--rose-ink)" }}>
-                            Add a per-stem price for {built.unpriced.join(", ")} on the Inventory tab, or it will not save.
-                          </span>
-                        )}
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-              </div>
-            );
-          })}
-          {/* One datalist for every flower field: the library's names, so a
-              typed name is a resident's name and not a near miss. */}
-          <datalist id="wr-stem-library">
-            {library.map((v) => (
-              <option key={v.name} value={v.name} />
-            ))}
-          </datalist>
-        </div>
-        <p style={{ margin: "8px 0 0" }}>
-          <button type="button" onClick={() => setLines((cur) => [...cur, blankLine()])} style={textButton}>
-            Another item
-          </button>
-        </p>
-      </div>
-
-      <label>
-        <span style={labelText}>Card message</span>
-        <textarea value={cardMessage} onChange={(e) => setCardMessage(e.target.value)} rows={2} style={field} />
-      </label>
-      <label>
-        <span style={labelText}>Notes</span>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={field} />
-      </label>
-
-      {itemsTotal > 0 && (
-        <p className="muted" style={{ margin: 0, fontSize: 14.5 }}>
-          Items {money(itemsTotal)}
-          {feeShown > 0 ? ` + delivery ${money(feeShown)}` : ""}
-          {taxExempt ? " · tax exempt" : ` + sales tax ${money(taxShown)}`}
+      {many && grand.items > 0 && (
+        <p style={{ margin: 0, fontSize: 15 }}>
+          <strong>{stops.length} orders:</strong> items {money(grand.items)}
+          {grand.fee > 0 ? ` + delivery ${money(grand.fee)}` : ""}
+          {taxExempt ? " · tax exempt" : ` + sales tax ${money(grand.tax)}`}
           {" = "}
-          <strong>{money(totalShown)}</strong>
+          <strong>{money(grand.total)}</strong>
+          <span className="muted"> · one card for all of them</span>
         </p>
       )}
       {editing?.payment && (
@@ -2279,12 +2577,6 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
           Already {editing.status === "out" ? "out the door" : editing.status}. The changes save to the ticket; nothing is made again by itself.
         </p>
       )}
-      {underMinimum && (
-        <p role="status" style={{ margin: 0, fontSize: 14.5, fontWeight: 600, color: "var(--rose-ink)" }}>
-          Under the ${minimum} delivery minimum for {zip.trim()}: the items come to {money(itemsTotal)}. The website would not
-          take this one. It saves here all the same, if you have agreed it with the customer.
-        </p>
-      )}
 
       <label style={{ maxWidth: 260 }}>
         <span style={labelText}>Taken by (your initials)</span>
@@ -2294,40 +2586,7 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
         </span>
       </label>
 
-      {placed ? (
-        <div role="status" style={{ display: "grid", gap: 10 }}>
-          <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--green)" }}>
-            {placed.number} is on the board for {name || "them"}.
-          </p>
-          <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-            <button
-              className="btn btn--solid"
-              type="button"
-              onClick={() => {
-                // Same customer, same card at the end: who and how they
-                // pay stay; what and for whom start blank.
-                setBatchId(batchId || placed.id);
-                setPlaced(null);
-                setRecipient("");
-                setRecipientPhone("");
-                setLines([blankLine()]);
-                setCardMessage("");
-                setNotes("");
-                setNeededBy("");
-                setFeeOverride(null);
-                setError("");
-              }}
-            >
-              Add another order for {name || "this customer"}
-            </button>
-            <span className="muted" style={{ fontSize: 14 }}>Same card at the end: the board offers one payment for all of them.</span>
-            <button className="btn" type="button" onClick={onSaved}>
-              Done
-            </button>
-          </p>
-        </div>
-      ) : (
-      <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center" }}>
+      <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
         <button className="btn btn--solid" type="submit" disabled={saving !== ""}>
           {saving === "board"
             ? "Saving…"
@@ -2335,20 +2594,21 @@ function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { conta
               ? "Finish it: put it on the board"
               : editing
                 ? "Save the changes"
-                : "Put it on the board"}
+                : many
+                  ? `Put all ${stops.length} orders on the board`
+                  : "Put it on the board"}
         </button>
         {/* ON HOLD (Katy, 2026-10-12): the email came in, the order is typed,
             and two questions are open. Park it with everything typed; it
             waits in its own section, off the make list, until someone
-            finishes it. */}
+            finishes it. A group holds together. */}
         {!(editing && (editing.payment || !["hold", "new", "confirmed"].includes(editing.status))) && (
           <button className="btn" type="button" disabled={saving !== ""} onClick={() => save(true).catch(() => setSaving(""))}>
-            {saving === "hold" ? "Saving…" : editing && editing.status !== "hold" ? "Put it on hold" : "Save on hold"}
+            {saving === "hold" ? "Saving…" : editing && editing.status !== "hold" ? "Put it on hold" : many ? "Save them on hold" : "Save on hold"}
           </button>
         )}
         <span aria-live="polite" style={{ color: "var(--rose-ink)", fontWeight: 600, fontSize: 14.5 }}>{error}</span>
       </p>
-      )}
     </form>
   );
 }
