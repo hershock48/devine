@@ -22,13 +22,15 @@ export type StatementRow = { date: string; number: string; items: string; owed: 
 export async function sendStatement(s: {
   to: string;
   name: string;
+  /** The business the account belongs to, when there is one. */
+  business?: string;
   company: string;
   rows: StatementRow[];
   balance: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const mail = shopMail();
   if (!mail) return { ok: false, error: "The shop's email is not set up on the server, so nothing was sent." };
-  const who = [s.name, s.company].filter(Boolean).join(", ");
+  const who = [s.business, s.name, s.company].filter(Boolean).join(", ");
   // "October 21, 2026", as the receipts say it, when the row's date is ISO.
   const day = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : d);
   const asOf = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });

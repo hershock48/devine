@@ -20,7 +20,7 @@ export async function POST(req: Request) {
       })
     : [];
   if (rows.length === 0) return NextResponse.json({ error: "Nothing is owed on that account." }, { status: 400 });
-  const sent = await sendStatement({ to, name: str(p.name, 120), company: str(p.company, 120), rows, balance: str(p.balance, 20) });
+  const sent = await sendStatement({ to, name: str(p.name, 120), business: str(p.business, 120), company: str(p.company, 120), rows, balance: str(p.balance, 20) });
   if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: 502 });
   return NextResponse.json({ ok: true });
 }

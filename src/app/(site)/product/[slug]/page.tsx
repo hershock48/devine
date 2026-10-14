@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import ProductImage from "@/components/ProductImage";
 import ProductCard from "@/components/ProductCard";
 import { AddToCart } from "@/components/Cart";
-import { products, bySlug, catBySlug, inCategory, money } from "@/lib/catalog";
+import { menu, bySlug, catBySlug, inCategory, money } from "@/lib/catalog";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { photoFirst } from "@/lib/order";
@@ -12,7 +12,7 @@ import ogManifest from "@/lib/og-manifest.json";
 type Params = { params: Promise<{ slug: string }> };
 
 export function generateStaticParams() {
-  return products.map((p) => ({ slug: p.slug }));
+  return menu.map((p) => ({ slug: p.slug }));
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     name and price is enough to make each unique and is honest — it is the one
     thing that actually differs between them.
   */
-  const sharesDesc = products.some((o) => o.slug !== p.slug && o.desc === p.desc);
+  const sharesDesc = menu.some((o) => o.slug !== p.slug && o.desc === p.desc);
 
   const stem = `${p.name}, ${money(p.price)}.`;
   const body = p.desc.startsWith("PLACEHOLDER")
@@ -86,7 +86,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function ProductPage({ params }: Params) {
   const { slug } = await params;
   const p = bySlug.get(slug);
-  if (!p) notFound();
+  // Off the menu reads as gone: no page, no link anywhere to reach it.
+  if (!p || p.offMenu) notFound();
 
   const primary = catBySlug.get(p.cats[0]);
   const alsoIn = p.cats.slice(1).map((c) => catBySlug.get(c)).filter(Boolean);

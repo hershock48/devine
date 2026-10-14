@@ -44,6 +44,8 @@ type Order = {
   recipient: string;
   recipientPhone?: string;
   company?: string;
+  /** The business ordering, when one is (a funeral home for a family). */
+  business?: string;
   street: string;
   town: string;
   zip: string;
@@ -115,6 +117,7 @@ type Contact = {
   recipient?: string;
   recipientPhone?: string;
   company?: string;
+  business?: string;
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
@@ -348,6 +351,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       !q ||
       (qNorm.length >= 2 && o.number.toLowerCase().replace(/[^a-z0-9]/g, "").includes(qNorm)) ||
       o.name.toLowerCase().includes(q) ||
+      (o.business ?? "").toLowerCase().includes(q) ||
       (qDigits.length >= 3 && o.phone.replace(/\D/g, "").includes(qDigits));
     const shown = base.filter(matches);
     // Held orders are limbo (Katy, 2026-10-12): parked with questions open,
@@ -470,7 +474,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
             }
           }}
         >
-          {adding || editing ? "Close the form" : "Write up a phone order"}
+          {adding || editing ? "Close the form" : "Write up an order"}
         </button>
         <input
           type="search"
@@ -546,7 +550,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 
           {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
-              Nothing open. Web orders land here on their own; phone orders get written up above.
+              Nothing open. Web orders land here on their own; counter and phone orders get written up above.
             </p>
           )}
 
@@ -596,7 +600,7 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
             >
               <span aria-hidden="true" style={{ color: "var(--muted)", fontSize: 11 }}>&#9656;</span>
               <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)", whiteSpace: "nowrap" }}>{o.number}</span>
-              <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.name}</span>
+              <span style={{ fontWeight: 600, flex: "1 1 140px", minWidth: 0, overflowWrap: "anywhere" }}>{o.business ? `${o.business} · ${o.name}` : o.name}</span>
               <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{o.date}{o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}</span>
               <span style={{ whiteSpace: "nowrap" }}>{o.status === "canceled" ? "canceled" : "done"}</span>
               <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{moneyWord(o)}</span>
@@ -1159,7 +1163,10 @@ function OrderCard({
       }}
     >
       <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
-        <strong style={{ fontSize: 17 }}>{o.name}</strong>
+        <strong style={{ fontSize: 17 }}>
+          {o.business || o.name}
+          {o.business && o.name ? <span style={{ fontWeight: 400 }}> · {o.name}</span> : null}
+        </strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
           <span
             style={{
@@ -2182,6 +2189,11 @@ function PhoneOrderForm({
   const [batchId, setBatchId] = useState(editing?.batchId ?? (addTo ? addTo.batchId || addTo.id : ""));
   const seed = editing ?? addTo;
   const [name, setName] = useState(seed?.name ?? "");
+  /** THE BUSINESS ORDERING (Kevin, 2026-10-14): Kempf's funeral home calls
+      for a family, a school's office orders for a teacher. The name stays
+      the person on the phone (or the family); the business is who the
+      order is really for, on the card, the ticket and the Accounts tab. */
+  const [business, setBusiness] = useState(seed?.business ?? "");
   const [phone, setPhone] = useState(seed?.phone ?? "");
   const [email, setEmail] = useState(seed?.email ?? "");
   const [picked, setPicked] = useState<Contact | null>(null);
@@ -2301,6 +2313,7 @@ function PhoneOrderForm({
       taxExempt,
       taxId: taxExempt ? taxId.trim() : "",
       name,
+      business: business.trim(),
       phone,
       email,
     };
@@ -2369,6 +2382,12 @@ function PhoneOrderForm({
           />
         </label>
         <label>
+          <span style={labelText}>
+            Business <span className="muted" style={{ fontWeight: 400 }}>(if a company is ordering)</span>
+          </span>
+          <input value={business} onChange={(e) => setBusiness(e.target.value)} placeholder="Funeral home, school, office" style={field} />
+        </label>
+        <label>
           <span style={labelText}>Phone</span>
           <input
             type="tel"
@@ -2429,7 +2448,7 @@ function PhoneOrderForm({
         const hits = [...latestByKey.values()]
           .filter(
             ({ c }) =>
-              (q.length >= 2 && c.name.toLowerCase().includes(q)) ||
+              (q.length >= 2 && (c.name.toLowerCase().includes(q) || (c.business ?? "").toLowerCase().includes(q))) ||
               (pq.length >= 3 && phoneKey(c.phone).includes(pq)),
           )
           .sort((a, b) => b.c.createdAt - a.c.createdAt)
@@ -2454,6 +2473,7 @@ function PhoneOrderForm({
                   setPickedFromFile(true);
                   setTyped({ name: false, phone: false });
                   setName(f.name);
+                  setBusiness(f.business && f.business !== f.name ? f.business : "");
                   setPhone(f.phone);
                   setEmail(f.email);
                   patchStop(first, { street: f.street, town: f.town, zip: f.zip });
@@ -2472,6 +2492,7 @@ function PhoneOrderForm({
                   setPickedFromFile(false);
                   setTyped({ name: false, phone: false });
                   setName(c.name);
+                  setBusiness(c.business ?? "");
                   setPhone(c.phone);
                   // Email is part of WHO: without this line a regular's
                   // receipt silently stopped, because nobody redictates an
@@ -2494,7 +2515,7 @@ function PhoneOrderForm({
                 }}
                 style={chipSolid}
               >
-                {c.name} · {c.phone || c.email || "no phone"} · {count} order{count === 1 ? "" : "s"}
+                {c.business ? `${c.business} · ` : ""}{c.name} · {c.phone || c.email || "no phone"} · {count} order{count === 1 ? "" : "s"}
                 {c.fulfillment === "delivery" && c.recipient ? ` · last to ${c.recipient}` : ""}
               </button>
             ))}

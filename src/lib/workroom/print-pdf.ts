@@ -406,7 +406,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
   {
     const b = box(0, 0);
     const c = new Cursor(pen, CARD_X, CARD_TOP, PANEL_W - CARD_X - PANEL_INSET, b.bottom);
-    c.line(o.recipient || o.name, 12, pen.bold);
+    c.line(o.recipient || o.business || o.name, 12, pen.bold);
     if (deliver) for (const w of where) c.line(w, 10.5, pen.bold);
     else {
       if (o.company) c.line(o.company, 10.5, pen.bold);
@@ -463,14 +463,15 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     const colW = (b.w - 12) / 2;
     const left = new Cursor(pen, b.x, c.y, colW, c.floor);
     left.heading("Customer");
-    left.line(o.name, 10.5, pen.bold);
+    if (o.business) left.line(o.business, 10.5, pen.bold);
+    left.line(o.name, 10.5, o.business ? pen.reg : pen.bold);
     if (!deliver) for (const w of where) left.line(w, 9.5);
     if (o.phone) left.line(`Phone: ${o.phone}`, 9.5);
     if (o.email) left.line(`Email: ${o.email}`, 9.5);
     left.line(o.source === "web" ? "Website order" : "Phone order", 9.5, pen.reg, { color: grey });
     const right = new Cursor(pen, b.x + colW + 12, c.y, colW, c.floor);
     right.heading("Recipient");
-    right.line(o.recipient || o.name, 10.5, pen.bold);
+    right.line(o.recipient || o.business || o.name, 10.5, pen.bold);
     if (deliver && o.recipientPhone) right.line(`Phone: ${o.recipientPhone}`, 9.5);
     if (deliver) for (const w of where) right.line(w, 9.5);
     else {
@@ -497,7 +498,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     c.line(`Order ${o.number} - ${site.shortName}`, 9.5, pen.bold);
     c.line(`${deliver ? "DELIVERY" : "PICKUP"}: ${day} | ${weekday}`, 11, pen.bold);
     c.gap(6);
-    c.line(o.recipient || o.name, 10.5, pen.bold);
+    c.line(o.recipient || o.business || o.name, 10.5, pen.bold);
     if (deliver && o.recipientPhone) c.line(`Phone: ${o.recipientPhone}`, 9.5);
     if (deliver) for (const w of where) c.line(w, 9.5);
     else {
@@ -505,7 +506,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
       c.line("Pickup at the shop", 9.5);
     }
     c.gap(6);
-    c.line(`Sold to: ${o.name}`, 9.5);
+    c.line(`Sold to: ${[o.business, o.name].filter(Boolean).join(", ")}`, 9.5);
     if (o.phone) c.line(`Phone: ${o.phone}`, 9.5);
     c.gap(6);
     for (const l of items(o)) c.line(`${l.name} x ${l.qty}`, 9.5);
@@ -558,12 +559,13 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
   const colW = (W - 24) / 2;
   const left = new Cursor(pen, M, c.y, colW, c.floor);
   left.heading(pickup ? "Picking up" : "Ordered by");
-  left.line(o.name, 12, pen.bold);
+  if (o.business) left.line(o.business, 12, pen.bold);
+  left.line(o.name, 12, o.business ? pen.reg : pen.bold);
   if (o.phone) left.line(o.phone, 10.5);
   if (o.email) left.line(o.email, 10.5);
   const right = new Cursor(pen, M + colW + 24, c.y, colW, c.floor);
   right.heading(pickup ? "Their address, for the file" : "Deliver to");
-  if (!pickup) right.line(o.recipient || o.name, 11, pen.bold);
+  if (!pickup) right.line(o.recipient || o.business || o.name, 11, pen.bold);
   if (!pickup && o.recipientPhone) right.line(o.recipientPhone, 10.5);
   if (where.length) for (const w of where) right.line(w, 10.5);
   else right.line(pickup ? "none given" : "No address yet", 10.5, pen.reg, { color: grey });
@@ -621,11 +623,12 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
     s.gap(4);
     const sl = new Cursor(pen, M, s.y, colW, M + 26);
     sl.heading("Customer");
-    sl.line(o.name, 10.5, pen.bold);
+    if (o.business) sl.line(o.business, 10.5, pen.bold);
+    sl.line(o.name, 10.5, o.business ? pen.reg : pen.bold);
     if (o.phone) sl.line(o.phone, 10);
     const sr = new Cursor(pen, M + colW + 24, s.y, colW, M + 26);
     sr.heading("Recipient");
-    sr.line(o.recipient || o.name, 10.5, pen.bold);
+    sr.line(o.recipient || o.business || o.name, 10.5, pen.bold);
     if (!pickup && o.recipientPhone) sr.line(o.recipientPhone, 10);
     if (where.length) sr.line(where[0], 10);
     s.y = Math.min(sl.y, sr.y);

@@ -114,7 +114,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
   const name = str(p.name, 120);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(str(p.date, 10)) ? str(p.date, 10) : "";
   if (!name || !date || lines.length === 0) {
-    return { error: "A phone order needs a name, a date, and at least one item (pick a product or type a custom one with a price)." };
+    return { error: "An order needs a name, a date, and at least one item (pick a product or type a custom one with a price)." };
   }
   /*
     THE DELIVERY FEE IS A LINE ON THE TICKET, set while the order is rung up
@@ -169,6 +169,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
       taxExempt,
       taxId: taxExempt ? str(p.taxId, 40) : "",
       name,
+      business: str(p.business, 120),
       phone: str(p.phone, 40),
       email: str(p.email, 160),
       fulfillment,
@@ -240,7 +241,7 @@ export async function POST(req: Request) {
   // The customer's own fields come from the body, never from an entry:
   // one sale is one customer, one way of paying, one receipt address.
   const shared: Record<string, unknown> = {};
-  for (const k of ["name", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold"]) {
+  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold"]) {
     if (k in p) shared[k] = p[k];
   }
   const cache: PriceCache = { stemPrices: null };

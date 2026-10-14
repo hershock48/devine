@@ -1,4 +1,4 @@
-import { products, type Product } from "@/lib/catalog";
+import { menu, type Product } from "@/lib/catalog";
 import { hasPhoto } from "@/lib/order";
 
 /**
@@ -44,7 +44,7 @@ export const TIERS: Tier[] = [
 ];
 
 export function neededPhotos(): { tier: Tier; items: NeededPhoto[] }[] {
-  const missing = products.filter((p) => !hasPhoto(p.slug) && !DESIGNERS_CHOICE.has(p.slug));
+  const missing = menu.filter((p) => !hasPhoto(p.slug) && !DESIGNERS_CHOICE.has(p.slug));
   const taken = new Set<string>();
 
   const pick = (test: (p: Product) => boolean) =>

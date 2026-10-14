@@ -57,12 +57,12 @@ const MISSIONS: Mission[] = [
     payoff: "Tap Made, then Out the door, and walk it through a whole shop day.",
   },
   {
-    title: "Write up a phone order",
+    title: "Write up an order",
     where: "Workroom · Orders",
     href: "/workroom",
     body: (
       <>
-        Tap <em>Write up a phone order</em> and take an imaginary call: a name, a day, an
+        Tap <em>Write up an order</em> and take an imaginary call: a name, a day, an
         arrangement off the catalog or a custom piece with its price. It lands on the board
         beside the web ones, already marked confirmed, because you were just talking to them.
       </>

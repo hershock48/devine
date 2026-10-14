@@ -1,5 +1,5 @@
 import { site } from "@/lib/site";
-import { products } from "@/lib/catalog";
+import { menu } from "@/lib/catalog";
 
 /**
  * THE DEMO'S LINK CARD, AS A REAL PAGE.
@@ -90,7 +90,7 @@ export default function OgCard() {
             margin: "24px 0 0",
           }}
         >
-          {site.town} &middot; {products.length} designs
+          {site.town} &middot; {menu.length} designs
         </p>
       </div>
     </div>

@@ -99,6 +99,12 @@ export type WorkroomOrder = {
       (Kevin, 2026-10-14: "an optional company name line above the
       address"). Printed above the street; the driver reads it first. */
   company?: string;
+  /** THE BUSINESS THAT IS ORDERING (Kevin, 2026-10-14: Kempf funeral home
+      orders on behalf of a family). The customer's own company, as against
+      `company`, which is the place at the delivery address. Shown with the
+      name on the card, the ticket and the Accounts tab; a business's
+      orders group under it there. Optional; most orders have none. */
+  business?: string;
   street: string;
   town: string;
   zip: string;
@@ -460,6 +466,7 @@ export type OrderContact = {
   recipient: string;
   recipientPhone?: string;
   company?: string;
+  business?: string;
   street: string;
   town: string;
   zip: string;
@@ -739,6 +746,7 @@ const memoryStore: Store = {
         recipient: o.recipient,
         recipientPhone: o.recipientPhone ?? "",
         company: o.company ?? "",
+        business: o.business ?? "",
         account: o.account === true,
         taxExempt: o.taxExempt === true,
         taxId: o.taxId ?? "",
@@ -1088,6 +1096,7 @@ const postgresStore: Store = {
       `SELECT data->>'name' AS name, data->>'phone' AS phone, data->>'email' AS email,
               data->>'fulfillment' AS fulfillment, data->>'recipient' AS recipient,
               COALESCE(data->>'company', '') AS company,
+              COALESCE(data->>'business', '') AS business,
               COALESCE(data->>'recipientPhone', '') AS recipient_phone,
               COALESCE(data->>'account', 'false') AS account, COALESCE(data->>'taxExempt', 'false') AS tax_exempt, COALESCE(data->>'taxId', '') AS tax_id,
               data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, created_at
@@ -1101,6 +1110,7 @@ const postgresStore: Store = {
       fulfillment: row.fulfillment === "pickup" ? ("pickup" as const) : ("delivery" as const),
       recipient: (row.recipient as string) ?? "",
       company: (row.company as string) ?? "",
+      business: (row.business as string) ?? "",
       recipientPhone: (row.recipient_phone as string) ?? "",
       account: row.account === "true",
       taxExempt: row.tax_exempt === "true",

@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { categories, products } from "@/lib/catalog";
+import { categories, menu } from "@/lib/catalog";
 import { NAV, FOOTER_ONLY, href } from "@/lib/nav";
 import { CANONICAL_HOST } from "@/lib/seo";
 
@@ -30,7 +30,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: url(""), priority: 1 },
     ...[...NAV, ...FOOTER_ONLY].map((n) => ({ url: url(n.path), priority: 0.8 })),
     ...categories.map((c) => ({ url: url(`/shop/${c.slug}`), priority: 0.7 })),
-    ...products.map((p) => ({ url: url(`/product/${p.slug}`), priority: 0.6 })),
+    ...menu.map((p) => ({ url: url(`/product/${p.slug}`), priority: 0.6 })),
   ];
 
   // The cart is a UI state, not a page anyone should arrive at from a search.

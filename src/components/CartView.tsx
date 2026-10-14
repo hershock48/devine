@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/components/Cart";
 import ProductImage from "@/components/ProductImage";
-import { bySlug, money, products } from "@/lib/catalog";
+import { bySlug, money, menu } from "@/lib/catalog";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
@@ -99,7 +99,7 @@ type CardConfig = { cards: boolean; applicationId?: string; locationId?: string;
  */
 const ADD_ON_PRIORITY = ["petite-box-of-chocolates", "bohemian-breakfast-tea", "lil-lovey"];
 const ADD_ON_POOL = (() => {
-  const gifts = products.filter((p) => p.cats.includes("gifts-add-ons"));
+  const gifts = menu.filter((p) => p.cats.includes("gifts-add-ons"));
   return [
     ...ADD_ON_PRIORITY.map((s) => gifts.find((g) => g.slug === s)).filter((p): p is NonNullable<typeof p> => !!p),
     ...gifts.filter((g) => !ADD_ON_PRIORITY.includes(g.slug)).sort((a, b) => a.price - b.price),
