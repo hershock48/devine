@@ -3,7 +3,7 @@ import { deliveryFeeFor } from "@/lib/site";
 import { deliveryLineName, isDeliveryLine } from "@/lib/workroom/derive";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
-import { chargeBoardOrder } from "@/lib/square/payments";
+import { chargeBoardOrder, isIdempotencyReuse } from "@/lib/square/payments";
 import { getStore, type OrderPayment, type WorkroomLine } from "@/lib/workroom/store";
 
 /**
@@ -110,6 +110,9 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error(`[devine] pay ${order.number} (${method}) failed:`, err);
+    if (isIdempotencyReuse(err)) {
+      return NextResponse.json({ error: "That charge already went through. Reload the board before doing anything else." }, { status: 409 });
+    }
     return NextResponse.json({ error: String(err instanceof Error ? err.message : err).slice(0, 300) }, { status: 502 });
   }
   // MONEY HAS MOVED. From here nothing may answer "it did not go through":
@@ -125,11 +128,22 @@ export async function POST(req: Request) {
     totalCents: charged.totalCents,
     feeCents: charged.feeCents,
   };
-  try {
-    if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
-    await store.setOrderPayment(order.id, payment);
-  } catch (err) {
-    console.error(`[devine] CRITICAL: pay ${order.number}: Square payment ${charged.paymentId} succeeded but the board was not updated:`, err);
+  // Three tries at the board, a breath apart: a blip is usually over by
+  // the second. If it still misses, the answer says so (boardMissed), the
+  // pane shows it in red instead of a clean PAID, and the webhook for this
+  // very payment marks the order within seconds anyway.
+  let boardMissed = false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
+      await store.setOrderPayment(order.id, payment);
+      boardMissed = false;
+      break;
+    } catch (err) {
+      boardMissed = true;
+      console.error(`[devine] ${attempt === 3 ? "CRITICAL: " : ""}pay ${order.number}: Square payment ${charged.paymentId} succeeded but the board write failed (try ${attempt}):`, err);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
   }
-  return NextResponse.json({ ok: true, payment, receiptUrl: charged.receiptUrl });
+  return NextResponse.json({ ok: true, payment, receiptUrl: charged.receiptUrl, boardMissed });
 }

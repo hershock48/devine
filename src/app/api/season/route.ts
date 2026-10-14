@@ -22,15 +22,15 @@ export function GET(req: Request) {
   if (ref) {
     try {
       const r = new URL(ref);
-      // Same origin, and never a path beginning "//", which new URL would
-      // read as another host.
-      if (r.origin === url.origin && !r.pathname.startsWith("//")) to = r.pathname + r.search;
+      if (r.origin === url.origin) to = r.pathname + r.search;
     } catch {
       /* an unparseable referer just falls back to /demo */
     }
   }
 
   // 303: this is a GET acting like a form submit, and the redirect must be a GET.
+  // Resolved, then checked: a referer path like "//host/x" would resolve
+  // to another origin, and goes home instead.
   const dest = new URL(to, url.origin);
   const res = NextResponse.redirect(dest.origin === url.origin ? dest : new URL("/demo", url.origin), 303);
   if (set === "today") {

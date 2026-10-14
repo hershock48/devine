@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { priceOrder, sendOrder, type PaidOnline, type PricedOrder } from "@/lib/intake";
 import { deliveryFeeFor, site } from "@/lib/site";
 import { cardsEnabled } from "@/lib/square/cards";
-import { chargeBoardOrder, appFeeCents } from "@/lib/square/payments";
+import { chargeBoardOrder, isIdempotencyReuse, webFeeCents } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type SquareSale, type WorkroomOrder } from "@/lib/workroom/store";
 import { deliveryLineName } from "@/lib/workroom/derive";
 
@@ -124,11 +124,8 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
      It rides to the Glazed account as app_fee_money. The browser shows the
      same number (CartView, from /api/checkout/config) and Square's
      order-total check would catch any drift between the two. */
-  // The platform fee rides only when it can reach the platform: through
-  // her OAuth grant. On the env-token path (sandbox, local dev) no fee is
-  // charged at all, so the shop never holds Glazed's cents by accident.
-  // The checkout's config route says the same number to the cart.
-  const convenienceCents = cfg.viaOAuth ? appFeeCents() : 0;
+  // One rule for the fee, shared with the checkout's config route.
+  const convenienceCents = webFeeCents(cfg);
   let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
   try {
     charged = await chargeBoardOrder(cfg, {
@@ -138,10 +135,20 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
       method: "card",
       sourceId,
       cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: convenienceCents },
-      idempotencyKey: `${id}:${sourceId}`,
+      // The card token is single-use and unique to this attempt, so a
+      // browser that sends the same POST twice reaches Square once.
+      idempotencyKey: `web:${sourceId}`,
     });
   } catch (err) {
     console.error(`[devine] online payment for ${order.number} failed:`, err);
+    if (isIdempotencyReuse(err)) {
+      // The same attempt arrived twice; the first one charged. Say so,
+      // rather than "not charged", which would invite a third.
+      return NextResponse.json(
+        { ok: false, error: `That payment already went through; your receipt is on its way. If it does not arrive, call the shop at ${site.phone}.` },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       { ok: false, error: `The card was not charged. Check the number and try again, or call the shop at ${site.phone}.` },
       { status: 402 },
@@ -175,10 +182,15 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
       wr.subtotal = Math.round((wr.subtotal + deliveryFee) * 100) / 100;
     }
     await getStore().createOrder(wr);
-    // The sale, linked, written here too: Square's webhook can fire before
-    // the board row above exists, and a sale stored unlinked in that gap
-    // would count as a walk-out in the stem numbers forever (Square does
-    // not redeliver on a 200). This write wins either order of arrival.
+  } catch (err) {
+    console.error(`[devine] CRITICAL: paid order ${order.number} (payment ${charged.paymentId}) not written to the board:`, err);
+  }
+  try {
+    // The sale, linked, written here too, and on its own: Square's webhook
+    // can fire before the board row above exists, and a sale stored
+    // unlinked in that gap would count as a walk-out in the stem numbers
+    // forever (Square does not redeliver on a 200). This write wins either
+    // order of arrival, and a failed board write above does not skip it.
     const sale: SquareSale = {
       id: charged.paymentId,
       workroomOrderId: id,
@@ -192,7 +204,7 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
     };
     await getStore().upsertSquareSale(sale);
   } catch (err) {
-    console.error(`[devine] CRITICAL: paid order ${order.number} (payment ${charged.paymentId}) not written to the board:`, err);
+    console.error(`[devine] paid order ${order.number}: sale ${charged.paymentId} not written; the webhook's copy will stand`, err);
   }
   try {
     await sendOrder(order, paid);

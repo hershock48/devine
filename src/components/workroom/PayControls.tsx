@@ -125,9 +125,14 @@ export default function PayControls({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: orderId, method, sourceId }),
       });
-      const d = (await r.json()) as { ok?: boolean; error?: string };
+      const d = (await r.json()) as { ok?: boolean; error?: string; boardMissed?: boolean };
       if (!r.ok || !d.ok) throw new Error(d.error || "The payment did not go through.");
       setMode("idle");
+      if (d.boardMissed) {
+        // The charge is real; only the board missed it. Said loudly, so
+        // nobody takes the card again. The webhook catches up by itself.
+        setError("CHARGED, but the board did not save it. Do NOT charge again. Reload in a minute; the payment will appear.");
+      }
       onPaid();
     } catch (err) {
       setError(err instanceof Error ? err.message : "The payment did not go through.");

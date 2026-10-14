@@ -402,7 +402,7 @@ export type Seasonal = {
  * on top of the season the holiday lives in, dated to its next occurrence.
  */
 export function resolveSeasonal(today: YMD, override?: string | null): Seasonal {
-  if (override && Object.hasOwn(SEASONS, override)) {
+  if (override && Object.prototype.hasOwnProperty.call(SEASONS, override)) {
     return { season: SEASONS[override as SeasonSlug], holiday: null, preview: override };
   }
   const def = override ? HOLIDAYS.find((h) => h.slug === override) : undefined;
@@ -415,7 +415,7 @@ export function resolveSeasonal(today: YMD, override?: string | null): Seasonal 
 }
 
 export const isPreviewSlug = (s: string): boolean =>
-  Object.hasOwn(SEASONS, s) || HOLIDAYS.some((h) => h.slug === s);
+  Object.prototype.hasOwnProperty.call(SEASONS, s) || HOLIDAYS.some((h) => h.slug === s);
 
 /**
  * What the footer offers. All four seasons, then the three holidays that sell

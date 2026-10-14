@@ -173,6 +173,6 @@ export function formatHours(h: (typeof site.hours)[number]): string {
     must read as "not on the sheet", not as an inherited function. Every
     fee lookup on the server and the client goes through here. */
 export const deliveryFeeFor = (zip: string): number | undefined =>
-  Object.hasOwn(site.deliveryFees, zip) ? (site.deliveryFees as Record<string, number>)[zip] : undefined;
+  Object.prototype.hasOwnProperty.call(site.deliveryFees, zip) ? (site.deliveryFees as Record<string, number>)[zip] : undefined;
 
 export const addressOneLine = `${site.address.street}, ${site.address.city}, ${site.address.state} ${site.address.zip}`;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cardsEnabled } from "@/lib/square/cards";
-import { appFeeCents } from "@/lib/square/payments";
+import { webFeeCents } from "@/lib/square/payments";
 
 /**
  * What the public checkout needs to know about card payment. Unauthenticated
@@ -28,6 +28,6 @@ export async function GET() {
     env: cards.cfg.env,
     // The whole Convenience fee since 2026-10-06: the 99 cent platform fee
     // alone, the shop's 3% card fee being retired (site.ts).
-    feeCents: cards.cfg.viaOAuth ? appFeeCents() : 0,
+    feeCents: webFeeCents(cards.cfg),
   });
 }

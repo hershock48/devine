@@ -155,7 +155,7 @@ export async function POST(req: Request) {
   // that a busy holiday would repeat one, so the number is checked against
   // the board before it is used.
   let number = "";
-  for (let tries = 0; tries < 12 && !number; tries++) {
+  for (let tries = 0; tries < 4 && !number; tries++) {
     const candidate = `DV-${mmdd}-P${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
     if (!(await getStore().getOrderByNumber(candidate).catch(() => null))) number = candidate;
   }

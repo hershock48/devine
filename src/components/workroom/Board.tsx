@@ -1219,13 +1219,11 @@ function OrderCard({
           /* Mirrors the pay route's own computation: a delivery ticket with
              no delivery line yet gets the zip's fee appended at charge time,
              and the buttons must quote what will actually be charged. */
-          deliveryCents={
-            o.fulfillment === "delivery" &&
-            !o.lines.some(isDeliveryLine) &&
-            deliveryFeeFor(o.zip) !== undefined
-              ? Math.round((deliveryFeeFor(o.zip) as number) * 100)
-              : 0
-          }
+          deliveryCents={(() => {
+            if (o.fulfillment !== "delivery" || o.lines.some(isDeliveryLine)) return 0;
+            const sheet = deliveryFeeFor(o.zip);
+            return sheet !== undefined ? Math.round(sheet * 100) : 0;
+          })()}
           payment={o.payment}
           onPaid={() => onPaid().catch(() => {})}
         />

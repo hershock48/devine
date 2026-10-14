@@ -74,8 +74,17 @@ export async function GET(req: Request) {
     const claimed = new Set(await store.claimForPrint(batch.map((o) => o.id), printedAt));
     if (claimed.size === 0) return already();
     if (claimed.size !== batch.length) {
-      batch = batch.filter((o) => claimed.has(o.id));
-      pdf = await draw(batch);
+      // Only the orders this request won. If the redraw itself fails, the
+      // first document goes out as drawn: a page the other phone also
+      // printed is a spare sheet; a claimed order with no sheet is a
+      // lost order.
+      const won = batch.filter((o) => claimed.has(o.id));
+      try {
+        pdf = await draw(won);
+        batch = won;
+      } catch (err) {
+        console.error("[devine] print queue: redraw after a partial claim failed; sending the full document", err);
+      }
     }
     return new NextResponse(Buffer.from(pdf), {
       headers: {
