@@ -437,16 +437,11 @@ export default function CartView() {
                   about timing needs a word, we&rsquo;ll call you.
                 </>
               )}
+              {/* No link to Square's hosted receipt (Kevin, 2026-10-13): its
+                  page carries Square's own rate-your-experience smileys, which
+                  record nothing for the shop, and the branded receipt with the
+                  card total now goes by email. */}
               {email.trim() ? " Your receipt and a copy of the order are on their way to your email." : ""}
-              {outcome.paid.receiptUrl ? (
-                <>
-                  {" "}
-                  <a href={outcome.paid.receiptUrl} target="_blank" rel="noopener noreferrer">
-                    Card receipt
-                  </a>
-                  .
-                </>
-              ) : null}
             </p>
           ) : (
             <p style={{ maxWidth: "58ch" }}>
@@ -643,7 +638,7 @@ export default function CartView() {
               </p>
             ) : (
               <form onSubmit={submit} style={{ marginTop: 28, maxWidth: 560 }}>
-                <h2 style={{ fontSize: 24, margin: "0 0 4px" }}>Where it&rsquo;s going</h2>
+                <h2 style={{ fontSize: 24, margin: "0 0 4px" }}>{delivering ? <>Where it&rsquo;s going</> : <>Picking up at the shop</>}</h2>
                 <p className="muted" style={{ fontSize: 14.5, margin: "0 0 18px" }}>
                   {cfg.cards
                     ? "Paid by card below; we call only if something about the order needs a word."
