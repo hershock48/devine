@@ -228,16 +228,10 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
     // IS the quoted total, to the penny. Delivery goes as the route's own
     // delivery line (deliveryFee below), which the board recognises.
     if (pricing.setup > 0) lines.push({ name: "Setup & installation", each: pricing.setup, qty: 1 });
-    const onBoard = lines.reduce((s, l) => s + Math.round(l.each * l.qty * 100), 0);
-    const rest = Math.round(pricing.total * 100) - onBoard - Math.round(pricing.delivery * 100);
-    if (pricing.tax > 0 && rest > 0) lines.push({ name: `Sales tax (${pricing.taxPct}%)`, each: rest / 100, qty: 1 });
-    else if (rest > 0) lines.push({ name: "Rounding", each: rest / 100, qty: 1 });
-    else if (rest < 0) {
-      // The route clamps a negative line to $0, so a shortfall is taken
-      // off one single-quantity line instead of sent as its own row.
-      const at = lines.findIndex((l) => l.qty === 1 && Math.round(l.each * 100) + rest > 0);
-      if (at >= 0) lines[at] = { ...lines[at], each: (Math.round(lines[at].each * 100) + rest) / 100 };
-    }
+    // Tax is the board's to add (one rule, in the orders route, on the
+    // rounded piece prices), so the board can sit a cent or two from the
+    // quote's total, which taxes the unrounded sum. A quote priced with
+    // no tax goes over as tax exempt so the two agree on that at least.
     setPlacing(true);
     const r = await fetch("/api/workroom/orders", {
       method: "POST",
@@ -256,6 +250,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
         notes: draft.notes,
         lines,
         deliveryFee: pricing.delivery,
+        taxExempt: !(pricing.taxPct > 0),
         takenBy: takenBy.trim().toUpperCase(),
       }),
     });

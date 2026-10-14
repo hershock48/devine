@@ -218,7 +218,7 @@ export default function PayControls({
               card is charged exactly the ticket. */}
           <ul style={{ listStyle: "none", padding: 0, margin: "0 0 10px", fontSize: 14.5 }}>
             <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <span>Subtotal</span>
+              <span>Ticket (items and tax)</span>
               <span>{dollars(Math.round(subtotal * 100))}</span>
             </li>
             {deliveryCents > 0 && (

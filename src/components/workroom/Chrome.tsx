@@ -30,6 +30,8 @@ const TABS = [
   // (walk, count, read the list to the supplier), one tab.
   { href: "/workroom/weekly-order", label: "Weekly order" },
   { href: "/workroom/quotes", label: "Quotes" },
+  // House accounts (Katy, 2026-10-14): who owes what, settled from here.
+  { href: "/workroom/accounts", label: "Accounts" },
 ];
 
 export default function WorkroomChrome() {

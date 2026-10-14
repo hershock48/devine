@@ -299,7 +299,10 @@ export default function CartView() {
      retired; see site.ts). The server charges the same number in the
      order route; Square's own order-total check would catch any drift. */
   const deliveryCents = deliveryFee !== undefined ? Math.round(deliveryFee * 100) : 0;
-  const baseCents = Math.round(subtotal * 100) + (delivering0 ? deliveryCents : 0);
+  // Michigan sales tax on the items, the server's own arithmetic
+  // (intake.ts taxFor): never on delivery, never on the fee.
+  const taxCents = Math.round(Math.round(subtotal * 100) * site.taxRate);
+  const baseCents = Math.round(subtotal * 100) + taxCents + (delivering0 ? deliveryCents : 0);
   const convenienceCents = cfg.feeCents ?? 99;
   const cardTotalCents = baseCents + convenienceCents;
 
@@ -433,7 +436,8 @@ export default function CartView() {
   const orderSummary = items.map((i) => `${i.qty} x ${i.product.name} (${money(i.product.price)})`).join("\n");
   const mailtoBody = [
     "Hello,", "", "I would like to order:", "", orderSummary, "",
-    `Subtotal: ${money(subtotal)}`, "",
+    `Subtotal: ${money(subtotal)}`,
+    `Sales tax: ${money(taxCents / 100)}`, "",
     `My name: ${name}`,
     `My phone: ${phone}`,
     delivering ? `Deliver to: ${recipient || name}` : "Pickup",
@@ -604,9 +608,13 @@ export default function CartView() {
               );
             })()}
 
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "22px 0", fontSize: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "22px 0 4px", fontSize: 20 }}>
               <span style={{ fontFamily: "var(--serif)" }}>Subtotal</span>
               <strong>{money(subtotal)}</strong>
+            </div>
+            <div className="muted" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 0 18px", fontSize: 15 }}>
+              <span>Sales tax ({Math.round(site.taxRate * 100)}%)</span>
+              <span>{money(taxCents / 100)}</span>
             </div>
             <p className="muted" style={{ fontSize: 14.5, marginTop: -8 }}>
               {cfg.cards
@@ -814,6 +822,10 @@ export default function CartView() {
                           <span>Subtotal</span>
                           <span>{money(subtotal)}</span>
                         </li>
+                        <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <span>Sales tax ({Math.round(site.taxRate * 100)}%)</span>
+                          <span>{money(taxCents / 100)}</span>
+                        </li>
                         {delivering && deliveryFee !== undefined && (
                           <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                             <span>Delivery ({zipTrim})</span>
@@ -822,7 +834,7 @@ export default function CartView() {
                         )}
                         <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
                           <span>Total due</span>
-                          <span>{money(Math.round((subtotal + (delivering ? deliveryFee ?? 0 : 0)) * 100) / 100)}</span>
+                          <span>{money(baseCents / 100)}</span>
                         </li>
                       </ul>
                       {cfg.cards && (
@@ -878,6 +890,10 @@ export default function CartView() {
                         <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                           <span>Subtotal</span>
                           <span>{money(subtotal)}</span>
+                        </li>
+                        <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <span>Sales tax ({Math.round(site.taxRate * 100)}%)</span>
+                          <span>{money(taxCents / 100)}</span>
                         </li>
                         {delivering && deliveryFee !== undefined && (
                           <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>

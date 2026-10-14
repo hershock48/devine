@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, isDeliveryLine, normalizeVariety, printPaperFor, waitingToPrint } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, taxFor, waitingToPrint } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -56,6 +56,8 @@ type Order = {
   canceledFrom?: string;
   madeBy?: string;
   takenBy?: string;
+  account?: boolean;
+  taxExempt?: boolean;
   printedAt?: number;
 };
 
@@ -550,6 +552,8 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
                   : ""}
                 {o.phone ? ` · ${o.phone}` : ""}
                 {o.email ? ` · ${o.email}` : ""}
+                {o.account ? " · on account" : ""}
+                {o.taxExempt ? " · tax exempt" : ""}
                 {o.takenBy ? ` · taken by ${o.takenBy}` : ""}
                 {o.madeBy ? ` · made by ${o.madeBy}` : ""}
               </p>
@@ -1080,6 +1084,8 @@ function OrderCard({
             the ticket email, where its Occasion: label explains it. */}
         {o.occasion && o.occasion !== "Everyday" ? ` · ${o.occasion}` : ""}
         {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
+        {o.account ? <strong> · ON ACCOUNT</strong> : ""}
+        {o.taxExempt ? " · tax exempt" : ""}
       </p>
       {o.takenBy && <InitialsLine o={o} which="takenBy" onMove={onMove} />}
       {o.madeBy && <InitialsLine o={o} which="madeBy" onMove={onMove} />}
@@ -1119,7 +1125,9 @@ function OrderCard({
           </li>
         ))}
         <li style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 600 }}>
-          <span>Subtotal</span>
+          {/* The ticket's total: items, the delivery line and the tax line
+              are all rows above, so "Subtotal" was the wrong word. */}
+          <span>Total</span>
           <span>{money(o.subtotal)}</span>
         </li>
         {/* Once paid by card, the fee and the true total join the ticket
@@ -1265,7 +1273,7 @@ type StemPrice = { name: string; sellStem: number | null };
 /** A stored line back into the form's shape, for editing. The Delivery
     line is not an item; it becomes the fee field. */
 const fromLines = (o: Order): DraftLine[] => {
-  const items = o.lines.filter((l) => !isDeliveryLine(l));
+  const items = o.lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l));
   if (items.length === 0) return [blankLine()];
   return items.map((l) => ({
     slug: l.slug ?? "",
@@ -1360,6 +1368,11 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   /** Who is writing this up. Required (Katy, 2026-10-14); an edit keeps
       the original initials unless they are changed on purpose. */
   const [takenBy, setTakenBy] = useState(editing?.takenBy ?? "");
+  /** HOUSE ACCOUNT and TAX EXEMPT (Katy, 2026-10-14), two boxes, either or
+      both. Account: billed, not paid now; it lives on the Accounts tab until
+      settled. Tax exempt: the route writes no tax line. */
+  const [account, setAccount] = useState(editing?.account ?? false);
+  const [taxExempt, setTaxExempt] = useState(editing?.taxExempt ?? false);
   const [lines, setLines] = useState<DraftLine[]>(() => (editing ? fromLines(editing) : [blankLine()]));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"" | "board" | "hold">("");
@@ -1435,6 +1448,8 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       id: editing?.id,
       hold,
       takenBy: takenBy.trim().toUpperCase(),
+      account,
+      taxExempt,
       name, phone, email, fulfillment, date, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
       // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
@@ -1496,6 +1511,11 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   // zip is still a delivery, and the website would have refused it too).
   const minimum = delivering && zip.trim().length >= 5 ? deliveryMinimumFor(zip.trim()) : 0;
   const underMinimum = minimum > 0 && !anyUnpriced && itemsTotal > 0 && itemsTotal < minimum;
+  /* What the ticket will say, in the route's arithmetic: items, the fee as
+     shown, tax on the items (none when exempt). Display; the route writes. */
+  const feeShown = delivering && deliveryFee.trim() !== "" && Number.isFinite(Number(deliveryFee)) ? Number(deliveryFee) : 0;
+  const taxShown = taxFor([{ name: "items", qty: 1, each: itemsTotal }], taxExempt);
+  const totalShown = Math.round((itemsTotal + feeShown + taxShown) * 100) / 100;
 
   return (
     <form onSubmit={submit} className="panel" style={{ maxWidth: 640, marginBottom: 30, display: "grid", gap: 14 }}>
@@ -1683,6 +1703,20 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
               {f === "delivery" ? "Deliver it" : "Pickup"}
             </label>
           ))}
+        </div>
+      </fieldset>
+
+      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend style={labelText}>Account and tax</legend>
+        <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0" }}>
+            <input type="checkbox" checked={account} onChange={(e) => setAccount(e.target.checked)} style={radio} />
+            On account (billed, not paid now)
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0" }}>
+            <input type="checkbox" checked={taxExempt} onChange={(e) => setTaxExempt(e.target.checked)} style={radio} />
+            Tax exempt (no sales tax)
+          </label>
         </div>
       </fieldset>
 
@@ -2035,6 +2069,15 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={field} />
       </label>
 
+      {itemsTotal > 0 && (
+        <p className="muted" style={{ margin: 0, fontSize: 14.5 }}>
+          Items {money(itemsTotal)}
+          {feeShown > 0 ? ` + delivery ${money(feeShown)}` : ""}
+          {taxExempt ? " · tax exempt" : ` + sales tax ${money(taxShown)}`}
+          {" = "}
+          <strong>{money(totalShown)}</strong>
+        </p>
+      )}
       {underMinimum && (
         <p role="status" style={{ margin: 0, fontSize: 14.5, fontWeight: 600, color: "var(--rose-ink)" }}>
           Under the ${minimum} delivery minimum for {zip.trim()}: the items come to {money(itemsTotal)}. The website would not

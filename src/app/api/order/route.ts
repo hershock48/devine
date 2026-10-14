@@ -4,7 +4,7 @@ import { deliveryFeeFor, site } from "@/lib/site";
 import { cardsEnabled } from "@/lib/square/cards";
 import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure, webFeeCents } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type SquareSale, type WorkroomOrder } from "@/lib/workroom/store";
-import { deliveryLineName } from "@/lib/workroom/derive";
+import { taxLineName, deliveryLineName } from "@/lib/workroom/derive";
 
 /**
  * POST /api/order. The only route on the site with a side effect.
@@ -120,6 +120,7 @@ async function paidFlow(order: PricedOrder, sourceId: string, attempt: string) {
   const id = newId("wr");
   const chargeLines = [
     ...order.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
+    ...(order.tax > 0 ? [{ name: taxLineName, qty: 1, each: order.tax }] : []),
     ...(deliveryFee > 0 ? [{ name: deliveryLineName(order.zip), qty: 1, each: deliveryFee }] : []),
   ];
   /* The website's fee line is the 99 cent platform fee alone since the
@@ -257,8 +258,14 @@ function toWorkroomOrder(o: PricedOrder, id: string, status: WorkroomOrder["stat
     occasion: o.occasion,
     cardMessage: o.cardMessage,
     notes: o.notes,
-    lines: o.lines.map((l) => ({ slug: l.slug, name: l.name, qty: l.qty, each: l.each })),
-    subtotal: o.subtotal,
+    // The tax rides as a line, the board's convention (derive.ts), and the
+    // ticket's subtotal is the whole ticket: items plus tax (plus the
+    // delivery line, appended by the paid flow).
+    lines: [
+      ...o.lines.map((l) => ({ slug: l.slug, name: l.name, qty: l.qty, each: l.each })),
+      ...(o.tax > 0 ? [{ slug: null, name: taxLineName, qty: 1, each: o.tax }] : []),
+    ],
+    subtotal: Math.round((o.subtotal + o.tax) * 100) / 100,
     createdAt: Date.now(),
     payment,
   };

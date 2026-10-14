@@ -295,9 +295,11 @@ const paidWord = (o: WorkroomOrder, atPickup: boolean) =>
       }`
     : o.status === "canceled"
       ? "CANCELED"
-      : atPickup
-        ? "NOT PAID - collect at pickup"
-        : "NOT PAID";
+      : o.account
+        ? "ON ACCOUNT - billed, not paid"
+        : atPickup
+          ? "NOT PAID - collect at pickup"
+          : "NOT PAID";
 
 function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
   const cols = [0, c.w * 0.58, c.w * 0.68, c.w * 0.83];
@@ -346,6 +348,10 @@ function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
       c.y -= (size - 1.5) * 1.2;
       pen.page.drawText(clean(r.sub), { x: c.x + 8, y: c.y, size: size - 1.5, font: pen.reg, color: grey });
     }
+  }
+  if (o.taxExempt && c.fits(size)) {
+    c.y -= size * 1.25;
+    pen.page.drawText("TAX EXEMPT - no sales tax", { x: c.x, y: c.y, size: size - 1, font: pen.bold, color: grey });
   }
   c.rule(0.6);
   c.row("TOTAL", money(o.subtotal), size, pen.bold);

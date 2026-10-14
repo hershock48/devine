@@ -104,6 +104,12 @@ export const site = {
       at a readable size with room to spare; the cart counts down to it and
       the server cuts at it. */
   cardMessageMax: 250,
+  /** MICHIGAN SALES TAX, on every order since 2026-10-14 (Kevin: "we need
+      to add tax to these orders - all of them"). On the items only, never
+      on the delivery fee and never on the online ordering fee: her own
+      wedding sheet's rule (quote-math.ts). A tax-exempt account order
+      (a school, a church) carries no tax line; the counter ticks the box. */
+  taxRate: 0.06,
 
   /*
     NO CARD FEE, since the 2026-10-06 meeting: Katy is baking processing

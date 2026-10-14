@@ -115,6 +115,13 @@ export type WorkroomOrder = {
       or they need to go back and ask the person questions"). Two or three
       letters, uppercased on the way in. Web orders have none. */
   takenBy?: string;
+  /** HOUSE ACCOUNT (Katy, 2026-10-14): billed, not paid at the counter.
+      Lives in the owed list and on the Accounts tab until "Paid another
+      way" (or a card) settles it. */
+  account?: boolean;
+  /** No sales tax line: a school, a church, a reseller with a certificate.
+      Ticked by the counter; the route then writes no tax line. */
+  taxExempt?: boolean;
   /** When the counter's print helper printed it (web orders). Server-side
       so a restart or a second machine never prints it twice. */
   printedAt?: number;

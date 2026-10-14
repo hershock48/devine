@@ -1,3 +1,4 @@
+import { site } from "@/lib/site";
 /**
  * The workroom's shared arithmetic. One copy of every rule that more than
  * one screen computes, because the 2026-09-01 review caught the cost of
@@ -58,6 +59,23 @@ export const HISTORY_DAYS = 400;
 export const deliveryLineName = (zip: string) => `Delivery (${zip || "no zip"})`;
 export const isDeliveryLine = (l: { name: string }) => l.name.startsWith("Delivery (");
 export const isTaxLine = (l: { name: string }) => l.name.startsWith("Sales tax");
+export const taxLineName = `Sales tax (${Math.round(site.taxRate * 100)}%)`;
+/** The tax, in dollars, on a ticket's items: every line that is not the
+    delivery line and not an earlier tax line, at site.taxRate, rounded to
+    the cent once on the sum. Zero when exempt. */
+export const taxFor = (lines: { name: string; qty: number; each: number }[], exempt = false): number => {
+  if (exempt) return 0;
+  const cents = lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l)).reduce((s, l) => s + Math.round(l.each * l.qty * 100), 0);
+  return Math.round(cents * site.taxRate) / 100;
+};
+/** The same lines with exactly one tax line, computed here, or none when
+    exempt (or when nothing is taxable). Whatever tax line came in (a quote
+    carries its own) is replaced, so the rule lives once. */
+export const withTaxLine = <L extends { slug?: string | null; name: string; qty: number; each: number }>(lines: L[], exempt = false): (L | { slug: null; name: string; qty: number; each: number })[] => {
+  const kept = lines.filter((l) => !isTaxLine(l));
+  const tax = taxFor(kept, exempt);
+  return tax > 0 ? [...kept, { slug: null, name: taxLineName, qty: 1, each: tax }] : kept;
+};
 
 /**
  * WHICH PAPER AN ORDER PRINTS ON (Kevin's notes from the shop, 2026-10-12):
