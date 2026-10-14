@@ -51,8 +51,10 @@
      wash, a pickup card on a green one, each with its word in the header
      so the colour is never the only signal. Both are a step off --paper-2
      so the status accent on the left edge still reads. */
-  --wash-delivery: #f7ebe6;
-  --wash-pickup: #e9f0e7;
+  --wash-delivery: #efe9f4; /* lavender */
+  --wash-pickup: #e8efe5; /* sage */
+  --tag-delivery: #6a5a85;
+  --tag-pickup: var(--green);
 
   /* ---- rhythm ---- */
   --u: 8px;

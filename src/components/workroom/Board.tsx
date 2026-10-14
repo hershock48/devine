@@ -42,6 +42,7 @@ type Order = {
   email: string;
   fulfillment: "delivery" | "pickup";
   recipient: string;
+  company?: string;
   street: string;
   town: string;
   zip: string;
@@ -105,6 +106,7 @@ type Contact = {
       ruling, same day). */
   fulfillment?: "delivery" | "pickup";
   recipient?: string;
+  company?: string;
   street?: string;
   town?: string;
   zip?: string;
@@ -548,7 +550,7 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
               <p className="muted" style={{ margin: 0 }}>
                 {o.source} order &middot; {o.fulfillment}
                 {o.fulfillment === "delivery" && (o.street || o.recipient)
-                  ? ` to ${[o.recipient, o.street, o.town].filter(Boolean).join(", ")}`
+                  ? ` to ${[o.recipient, o.company, o.street, o.town].filter(Boolean).join(", ")}`
                   : ""}
                 {o.phone ? ` · ${o.phone}` : ""}
                 {o.email ? ` · ${o.email}` : ""}
@@ -1041,8 +1043,8 @@ function OrderCard({
               marginRight: 8,
               padding: "1px 7px",
               borderRadius: 2,
-              border: `1px solid ${o.fulfillment === "delivery" ? "var(--rose-ink)" : "var(--green)"}`,
-              color: o.fulfillment === "delivery" ? "var(--rose-ink)" : "var(--green)",
+              border: `1px solid ${o.fulfillment === "delivery" ? "var(--tag-delivery)" : "var(--tag-pickup)"}`,
+              color: o.fulfillment === "delivery" ? "var(--tag-delivery)" : "var(--tag-pickup)",
               fontSize: 11.5,
               fontWeight: 700,
               letterSpacing: "0.08em",
@@ -1117,7 +1119,7 @@ function OrderCard({
       {o.fulfillment === "delivery" && (
         <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>
           {(() => {
-            const where = [o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+            const where = [o.company, o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
             if (where) return `${o.recipient || o.name} · ${where}`;
             return o.recipient || "No delivery address yet";
           })()}
@@ -1320,6 +1322,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">(editing?.fulfillment ?? "delivery");
   const [email, setEmail] = useState(editing?.email ?? "");
   const [recipient, setRecipient] = useState(editing?.recipient ?? "");
+  const [company, setCompany] = useState(editing?.company ?? "");
   const [street, setStreet] = useState(editing?.street ?? "");
   const [town, setTown] = useState(editing?.town ?? "");
   const [zip, setZip] = useState(editing?.zip ?? "");
@@ -1467,6 +1470,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       taxExempt,
       name, phone, email, fulfillment, date, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
+      company: fulfillment === "delivery" ? company.trim() : "",
       // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
       // from the shop's meeting): it is the customer's own address, kept
       // for their file, house accounts and mileage later.
@@ -1675,6 +1679,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
                   setEmail(c.email ?? "");
                   if (c.fulfillment) setFulfillment(c.fulfillment);
                   setRecipient(c.recipient ?? "");
+                  setCompany(c.company ?? "");
                   setStreet(c.street ?? "");
                   setTown(c.town ?? "");
                   setZip(c.zip ?? "");
@@ -1791,8 +1796,10 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
                   onClick={() => {
                     setTypedRecipient(false);
                     // A person at a place keeps both: the driver needs the
-                    // funeral home's name and the family's.
-                    setRecipient(f.business && f.business !== f.name ? `${f.name}, ${f.business}` : f.name);
+                    // funeral home's name and the family's. The place goes
+                    // on its own line now (the company field).
+                    setRecipient(f.name);
+                    setCompany(f.business && f.business !== f.name ? f.business : "");
                     setStreet([f.street, f.street2].filter(Boolean).join(", "));
                     setTown(f.town);
                     setZip(f.zip);
@@ -1853,6 +1860,15 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
         {/* minWidth: 0 on every grid label, or the inputs' intrinsic ~170px
             minimum wins over the fr columns and the whole form pushes the
             page sideways at 390px. Caught by the authed-state audit. */}
+        {/* The place above the street (Kevin, 2026-10-14): a funeral home,
+            a school, a church, an office. Its own line, delivery only; the
+            driver reads it before the number. */}
+        {delivering && (
+          <label style={{ display: "block", marginBottom: 14 }}>
+            <span style={labelText}>Company or place (optional)</span>
+            <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Funeral home, school, church, office" style={field} />
+          </label>
+        )}
         <div style={{ display: "grid", gap: 14, gridTemplateColumns: "2fr 1fr minmax(70px, 110px)" }}>
           <label style={{ minWidth: 0 }}>
             <span style={labelText}>Street</span>
