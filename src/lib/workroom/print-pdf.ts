@@ -17,7 +17,7 @@ import {
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { clock12, isDeliveryLine, isTaxLine, type PrintLayout } from "./derive";
+import { balanceCents, clock12, isDeliveryLine, isTaxLine, type PrintLayout } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -547,10 +547,10 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
   c.gap(6);
   const pickup = o.fulfillment === "pickup";
   const where = whereLines(o);
-  const balance = o.payment ? 0 : o.status === "canceled" ? 0 : o.subtotal;
+  const balance = o.status === "canceled" ? 0 : balanceCents(o) / 100;
   c.row(pickup ? "PICKUP" : "DELIVERY", `Order ${o.number}`, 20, pen.bold);
   // What the counter reads first (IRIS put it top right too).
-  c.row(`${longDate(o.date)}, ${weekdayOf(o.date)}${o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}`, `Balance due: ${money(balance)}`, 13, pen.bold);
+  c.row(`${longDate(o.date)}, ${weekdayOf(o.date)}${o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}`, `${balance < 0 ? "Refund due" : "Balance due"}: ${money(Math.abs(balance))}`, 13, pen.bold);
   c.line(o.source === "web" ? "Website order" : "Phone order", 10.5, pen.reg, { align: "right" });
   if (o.occasion && o.occasion !== "Everyday") c.line(o.occasion, 10.5);
   if (o.status === "hold") c.line("ON HOLD", 16, pen.bold);

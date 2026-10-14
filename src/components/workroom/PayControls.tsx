@@ -30,6 +30,7 @@ export default function PayControls({
   subtotal,
   deliveryCents = 0,
   payment,
+  balanceCents = 0,
   onPaid,
 }: {
   orderId: string;
@@ -39,6 +40,10 @@ export default function PayControls({
       the server computes its own copy and the two must agree. */
   deliveryCents?: number;
   payment?: Payment | null;
+  /** Cents still due after the payments taken (derive.ts balanceCents).
+      With a payment on the order this is what the buttons charge; a
+      zero or negative balance shows no buttons. */
+  balanceCents?: number;
   onPaid: () => void;
 }) {
   const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual">("idle");
@@ -58,7 +63,8 @@ export default function PayControls({
 
   /* Display only; the pay route computes its own copy and Square's total
      check keeps the two honest. */
-  const total = Math.round(subtotal * 100) + deliveryCents;
+  const topUp = !!payment;
+  const total = topUp ? balanceCents : Math.round(subtotal * 100) + deliveryCents;
 
   // Mount Square's card field when card mode opens; tear it down when it
   // closes, because a destroyed iframe beats a leaked one on a page that
@@ -160,25 +166,26 @@ export default function PayControls({
     }
   }
 
-  if (payment) {
-    return (
-      <p
-        style={{
-          margin: "8px 0 0",
-          fontSize: 13,
-          fontWeight: 700,
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-          color: "var(--green)",
-        }}
-      >
-        Paid · {payment.method === "other" ? "another way" : payment.method} · {dollars(payment.totalCents)}
-      </p>
-    );
-  }
+  const paidLine = payment ? (
+    <p
+      style={{
+        margin: "8px 0 0",
+        fontSize: 13,
+        fontWeight: 700,
+        letterSpacing: "0.05em",
+        textTransform: "uppercase",
+        color: balanceCents > 0 ? "var(--rose-ink)" : "var(--green)",
+      }}
+    >
+      Paid · {payment.method === "other" ? "another way" : payment.method} · {dollars(payment.totalCents)}
+      {balanceCents > 0 ? ` · ${dollars(balanceCents)} still due after changes` : balanceCents < 0 ? ` · ${dollars(-balanceCents)} to refund (Square dashboard)` : ""}
+    </p>
+  ) : null;
+  if (payment && balanceCents <= 0) return paidLine;
 
   return (
     <div style={{ margin: "10px 0 0" }}>
+      {paidLine}
       {mode === "idle" && (
         <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           <button type="button" className="btn" onClick={() => setMode("card")}>
@@ -218,8 +225,8 @@ export default function PayControls({
               card is charged exactly the ticket. */}
           <ul style={{ listStyle: "none", padding: 0, margin: "0 0 10px", fontSize: 14.5 }}>
             <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <span>Ticket (items and tax)</span>
-              <span>{dollars(Math.round(subtotal * 100))}</span>
+              <span>{topUp ? "Still due after changes" : "Ticket (items and tax)"}</span>
+              <span>{dollars(topUp ? balanceCents : Math.round(subtotal * 100))}</span>
             </li>
             {deliveryCents > 0 && (
               <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>

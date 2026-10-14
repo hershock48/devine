@@ -240,13 +240,18 @@ export async function PUT(req: Request) {
   if (!p || !id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
   const existing = await getStore().getOrder(id);
   if (!existing) return NextResponse.json({ error: "No such order." }, { status: 404 });
-  if (existing.payment) return NextResponse.json({ error: "Already paid; the ticket is settled. Write up a new one for changes." }, { status: 409 });
-  if (!["hold", "new", "confirmed"].includes(existing.status)) {
-    return NextResponse.json({ error: `Already ${existing.status}; too late to edit. Write up a new one for changes.` }, { status: 409 });
-  }
+  // EDITABLE UNTIL CANCELED (Kevin, 2026-10-14): a paid, made or
+  // delivered order can still take a tax ID, a new address, a longer
+  // card message or another item. The payment taken stays what it was;
+  // the balance after the edit is derive.ts's to say, and the board and
+  // the ticket show it. Only a canceled order is a closed book.
+  if (existing.status === "canceled") return NextResponse.json({ error: "That order is canceled. Uncancel it first, or write up a new one." }, { status: 409 });
   const parsed = await parseBody(p);
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
-  const status: OrderStatus = p.hold === true ? "hold" : existing.status === "hold" ? "confirmed" : existing.status;
+  // Hold is for a ticket nobody has made or paid yet; anywhere else the
+  // status stays where it is.
+  const canHold = !existing.payment && ["hold", "new", "confirmed"].includes(existing.status);
+  const status: OrderStatus = p.hold === true && canHold ? "hold" : existing.status === "hold" ? "confirmed" : existing.status;
   const order: WorkroomOrder = { ...existing, ...parsed.fields, status };
   await getStore().replaceOrder(order);
   if (existing.status === "hold" && status === "confirmed" && order.email) await sendWorkroomReceipt(order);
