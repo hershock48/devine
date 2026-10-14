@@ -163,7 +163,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [quick, setQuick] = useState(false);
   /** The stem library, for the write-up and the quick sale alike, read
       again each time either opens. */
-  const library = useStemLibrary(adding || !!editing || quick);
+  const library = useStemLibrary(adding || !!editing || quick, `${adding}|${editing?.id ?? ""}|${quick}`);
   const [showDone, setShowDone] = useState(false);
   /** The find box: a caller says "order DV-0901-4226" or "it's under
       Wanda" and the counter should not have to scan a busy board by eye.
@@ -1611,6 +1611,10 @@ const carryOver = (last: Stop): Partial<Stop> => ({
   occasion: last.occasion,
   ...(last.fulfillment === "pickup" ? { company: last.company, street: last.street, town: last.town, zip: last.zip } : {}),
 });
+/** A line with anything typed in it: a product picked, a custom name, or
+    a by-stems build with a flower and a count. The payload sends these
+    and only these; the quick sale counts and prices the same set. */
+const lineStarted = (l: DraftLine) => !!(l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)));
 /** Anything typed into it that deserves an "are you sure" before Remove. */
 const stopHasWork = (s: Stop) =>
   !!(
@@ -1690,7 +1694,7 @@ function stopPayload(s: Stop, library: StemPrice[]) {
     // "none typed and the zip is off the list": the route adds no line.
     deliveryFee: m.feeTyped ? m.fee : undefined,
     lines: s.lines
-      .filter((l) => l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)))
+      .filter(lineStarted)
       .map((l) => {
         // Built by stems: the route prices from the library, so only the
         // parts travel, never a browser-computed price.
@@ -2057,8 +2061,11 @@ function StopFields({
  * library at write time, so these numbers only show what the counter is
  * about to promise.
  */
-function useStemLibrary(active: boolean): StemPrice[] {
+function useStemLibrary(active: boolean, opening: string): StemPrice[] {
   const [library, setLibrary] = useState<StemPrice[]>([]);
+  // Re-read whenever something opens (the form, another order in it, the
+  // quick sale), not only when the first thing opened: a per-stem price
+  // added on the Inventory tab mid-morning is seen by the next opening.
   useEffect(() => {
     if (!active) return;
     fetch("/api/workroom/varieties", { cache: "no-store" })
@@ -2067,7 +2074,7 @@ function useStemLibrary(active: boolean): StemPrice[] {
         if (d?.varieties) setLibrary((d.varieties as StemPrice[]).map((v) => ({ name: v.name, sellStem: v.sellStem })));
       })
       .catch(() => {});
-  }, [active]);
+  }, [active, opening]);
   return library;
 }
 
@@ -2310,7 +2317,7 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
       (a catalog product, a typed price, or a build the library prices):
       a $0 quick sale would be born done and never paid, and so vanish
       from the board. The route refuses the same thing in the same words. */
-  const started = lines.filter((l) => l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)));
+  const started = lines.filter(lineStarted);
   const unpriced = started.some((l) => !(lineEachIn(library, l) > 0));
 
   function clear() {
@@ -2334,6 +2341,28 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
     setDone(`Done: ${money(paidCents / 100)} ${word}.`);
     clear();
   };
+
+  /** After a charge the board missed: record it by hand for the charged
+      amount. "Already paid" back means Square's notice got there first,
+      which is the same good news. */
+  async function markCharged(id: string, cents: number) {
+    setBusy("manual");
+    try {
+      const pr = await fetch("/api/workroom/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, method: "manual", amountCents: cents }),
+      });
+      const pd = (await pr.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (pr.ok && pd?.ok) finish("card", cents, { settled: true, boardMissed: false });
+      else if (/already paid/i.test(pd?.error ?? "")) finish("card", cents, { settled: true, boardMissed: false });
+      else setError(pd?.error || "That did not save. Reload the board and mark it from its card.");
+    } catch {
+      setError("The connection dropped. Reload the board and mark it from its card.");
+    } finally {
+      setBusy("");
+    }
+  }
 
   /** Ring it up: the order goes on the board (done, unpaid), then is paid
       the chosen way. Cash and the by-hand mark go straight to the pay
@@ -2373,6 +2402,13 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
         body: JSON.stringify({ quick: true, lines: payload, taxExempt, takenBy: takenBy.trim().toUpperCase() }),
       });
       const d = (await r.json().catch(() => null)) as { error?: string; order?: { id: string; number: string; subtotal: number } } | null;
+      if (r.ok && !d) {
+        // Saved, answer lost: the sale is on the board; never ring it twice.
+        setLines([blankLine()]);
+        onChanged();
+        setError("The sale saved but the answer did not arrive. It is on the board under Walk-in: take the payment from its card. Do not ring it up again.");
+        return;
+      }
       if (!r.ok || !d?.order) {
         setError(d?.error || "That did not save. Look it over and try again.");
         return;
@@ -2420,7 +2456,7 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
         <div style={{ display: "grid", gap: 8 }}>
           <p role="status" style={{ margin: 0, fontSize: 15, fontWeight: 600, color: placed.why || placed.paid ? "var(--rose-ink)" : "var(--ink)" }}>
             {placed.paid?.boardMissed
-              ? `The card WAS CHARGED ${money(placed.paid.cents / 100)} for ${placed.number}, but the board did not save it. Do NOT charge again. Give Square's notice a minute; if ${placed.number} still shows as not paid under Walk-in, mark it "Paid another way" for ${money(placed.paid.cents / 100)}.`
+              ? `The card WAS CHARGED ${money(placed.paid.cents / 100)} for ${placed.number}, but the board did not save it. Do NOT charge again. Square's own notice usually marks it within a minute; if ${placed.number} still shows as not paid under Walk-in after that, tap the button below.`
               : placed.paid
                 ? `${money(placed.paid.cents / 100)} taken by ${placed.paid.method === "manual" ? "another way" : placed.paid.method}; ${money((Math.round(placed.subtotal * 100) - placed.paid.cents) / 100)} still due on ${placed.number} under Walk-in. Take the rest here.`
                 : placed.why
@@ -2431,17 +2467,29 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
               pays in full, so no part-payment link. After a part payment
               all the same (the flag is read defensively), the balance is
               what the buttons charge, as on the card. */}
-          <PayControls
-            key={placed.paid?.cents ?? 0}
-            orderId={placed.id}
-            subtotal={placed.subtotal}
-            start={placed.start}
-            partPay={false}
-            payment={placed.paid && !placed.paid.boardMissed ? { at: 0, method: placed.paid.method, totalCents: placed.paid.cents, feeCents: 0 } : undefined}
-            balanceCents={placed.paid && !placed.paid.boardMissed ? Math.round(placed.subtotal * 100) - placed.paid.cents : undefined}
-            collectedCents={placed.paid && !placed.paid.boardMissed ? placed.paid.cents : undefined}
-            onPaid={finish}
-          />
+          {placed.paid?.boardMissed ? (
+            /* No card entry here: the money is already taken. The only
+               move is to record it, and the webhook turns that mark into
+               the real record if it lands later (or has already marked
+               it, which the route reports as "already paid": done). */
+            <p style={{ margin: 0 }}>
+              <button type="button" className="btn" disabled={busy !== ""} onClick={() => markCharged(placed.id, placed.paid!.cents)}>
+                {busy ? "Marking…" : `Mark "Paid another way" for ${money(placed.paid.cents / 100)}`}
+              </button>
+            </p>
+          ) : (
+            <PayControls
+              key={placed.paid?.cents ?? 0}
+              orderId={placed.id}
+              subtotal={placed.subtotal}
+              start={placed.start}
+              partPay={false}
+              payment={placed.paid ? { at: 0, method: placed.paid.method, totalCents: placed.paid.cents, feeCents: 0 } : undefined}
+              balanceCents={placed.paid ? Math.round(placed.subtotal * 100) - placed.paid.cents : undefined}
+              collectedCents={placed.paid ? placed.paid.cents : undefined}
+              onPaid={finish}
+            />
+          )}
           <p style={{ margin: 0 }}>
             <button type="button" onClick={clear} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
               Leave it on the board, next customer

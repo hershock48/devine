@@ -68,8 +68,9 @@ function desired(p: Product) {
   return {
     name: p.name,
     // Their own copy, same as the site. Square caps descriptions well above
-    // the longest one here (Gayle's Garden, ~500 chars).
-    description: p.desc,
+    // the longest one here (Gayle's Garden, ~500 chars). A PLACEHOLDER
+    // note is ours, not hers: the register gets no description for it.
+    description: p.desc.startsWith("PLACEHOLDER") ? "" : p.desc,
     priceCents: cents(p.price),
   };
 }

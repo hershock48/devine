@@ -210,7 +210,7 @@ export const products: Product[] = [
      owner's note until her description arrives, and a photo named
      lucy.jpg through /photos becomes hers by slug. */
   { slug: "lucy", name: "Lucy", price: 105, cats: ["birthday"], img: "",
-    desc: "PLACEHOLDER: a new arrangement, added 2026-10-14 at $105; the owner's description is still to come." },
+    desc: "PLACEHOLDER: a new arrangement (2026-10-14); the owner's description is still to come." },
   { slug: "clementine", name: "Clementine", price: 85, cats: ["birthday"], img: "2026/06/Screenshot-2026-06-01-105732.png",
     desc: "The warmth of summer, in double petaled gerbera daisies, snapdragons, sunset orange daisies, whimsical yellow butterfly ranunculus, purple statice and solidago, in a gray ceramic container with seasonal summer greenery." },
   { slug: "nicole", name: "Nicole", price: 110, cats: ["birthday"], img: "2025/04/Nicole-2-1.jpg",

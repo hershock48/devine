@@ -322,7 +322,9 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                     </span>
                     <span style={{ whiteSpace: "nowrap" }}>
                       {o.payment && owed === 0
-                        ? <span style={{ color: "var(--green)", fontWeight: 600 }}>{o.payment.refundedAt ? `Refunded ${money(refundableCents(o) / 100)}` : `Paid ${money(collectedCents(o) / 100)}`} · {when(o.payment.at)}</span>
+                        ? o.status === "canceled" && !o.payment.refundedAt
+                          ? <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Paid {money(refundableCents(o) / 100)}, canceled: refund due · {when(o.payment.at)}</span>
+                          : <span style={{ color: "var(--green)", fontWeight: 600 }}>{o.payment.refundedAt ? `Refunded ${money(refundableCents(o) / 100)}` : `Paid ${money(collectedCents(o) / 100)}`} · {when(o.payment.at)}</span>
                         : owed > 0
                           ? <strong>{money(owed / 100)} owed</strong>
                           : <span className="muted">nothing owed</span>}

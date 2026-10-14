@@ -89,10 +89,7 @@ export async function POST(req: Request) {
     sheet charges the lines as they stand; that fee is the confirm call's
     business, the way it always was.
   */
-  const ticket = topUp ? { lines: order.lines, subtotal: order.subtotal, appended: false } : ticketWithZipFee(order);
-  const feeAppended = ticket.appended;
-  const ticketLines: WorkroomLine[] = ticket.lines;
-  const ticketSubtotal = ticket.subtotal;
+  const { lines: ticketLines, subtotal: ticketSubtotal, appended: feeAppended } = topUp ? { lines: order.lines, subtotal: order.subtotal, appended: false } : ticketWithZipFee(order);
   // What is due now: the whole ticket (fee included) on a first payment,
   // the balance on a top-up. A part payment may be any amount up to it;
   // the fee still joins the ticket on the first payment, part or whole.
@@ -302,16 +299,22 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
   // fee line appended to it until its own first payment.
   if (amountCents !== undefined && amountCents < dueCents) {
     let left = amountCents;
+    // Strictly in order: once the amount runs out on one order, every
+    // order after it is unreached too, a $0 ticket included, so the
+    // group settles front to back and nothing later closes while an
+    // earlier one is still owed.
+    let reached = true;
     for (const x of parts) {
-      const share = Math.min(left, x.amountCents);
+      const share = reached ? Math.min(left, x.amountCents) : 0;
       left -= share;
-      if (share < x.amountCents) {
-        x.lines = share > 0 ? groupLines(x.o, `Part payment on order ${x.o.number}`, share, x.ticket) : [];
+      if (share < x.amountCents) reached = false;
+      if (!reached && share === 0) {
         // Not reached by this amount: no record at all, not a $0 one.
-        if (share === 0) {
-          x.appended = undefined;
-          x.unreached = true;
-        }
+        x.lines = [];
+        x.appended = undefined;
+        x.unreached = true;
+      } else if (share < x.amountCents) {
+        x.lines = groupLines(x.o, `Part payment on order ${x.o.number}`, share, x.ticket);
       }
       x.amountCents = share;
     }
