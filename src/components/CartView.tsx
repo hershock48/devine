@@ -189,21 +189,37 @@ export default function CartView() {
       how much more qualifies it. Applies whatever the zip; the sheet's
       two numbers are the only two. */
   const belowMin = delivering0 && subtotal < deliveryMin;
-  /** Said twice (Kevin, 2026-10-13): right under the Deliver-it choice,
-      where the decision is made, and again by the button, because by the
-      bottom of the form the buyer has already committed in their head.
-      Before a zip is typed it names both numbers and the smaller gap. */
-  const minNote = belowMin ? (
-    <p style={{ fontSize: 14.5, margin: "-6px 0 0", color: "var(--rose-ink)", fontWeight: 600 }} aria-live="polite">
-      {zipTrim === site.marshallZip ? (
-        <>Delivery orders are {money(site.deliveryMinimums.marshall)} and up before the delivery fee in Marshall. Add {money(site.deliveryMinimums.marshall - subtotal)} more to qualify for delivery, or choose pickup.</>
-      ) : zipTrim.length === 5 ? (
-        <>Delivery orders are {money(site.deliveryMinimums.outside)} and up before the delivery fee outside Marshall. Add {money(site.deliveryMinimums.outside - subtotal)} more to qualify for delivery, or choose pickup.</>
-      ) : (
-        <>Delivery orders are {money(site.deliveryMinimums.marshall)} and up in Marshall and {money(site.deliveryMinimums.outside)} and up elsewhere, before the delivery fee. Add at least {money(site.deliveryMinimums.marshall - subtotal)} more to qualify for delivery, or choose pickup.</>
-      )}
-    </p>
-  ) : null;
+  /** THE GAP, NOT THE POLICY (Kevin, 2026-10-13, after reading the
+      research): the shops that do this well never state the rule, they
+      state the customer's own number, early, with a bar: "$33 more for
+      delivery to 49068". The zip is asked in the cart, before checkout,
+      because everything hangs on it. The minimums stay Katy's business;
+      the gap implies them. One element, shown in the cart and again
+      under the zip at checkout. */
+  const deliveryNote = !delivering0 ? null : zipTrim.length < 5 ? (
+    <p className="muted" style={{ fontSize: 14.5, margin: 0 }}>Enter the zip and we&rsquo;ll price the delivery.</p>
+  ) : deliveryFee === undefined ? (
+    cfg.cards ? (
+      <p style={{ fontSize: 14.5, margin: 0, color: "var(--rose-ink)", fontWeight: 600 }} aria-live="polite">
+        We can&rsquo;t deliver to {zipTrim} online. Call the shop at <a href={site.phoneHref}>{site.phone}</a> and we&rsquo;ll tell you if we can get there, or choose pickup.
+      </p>
+    ) : (
+      <p className="muted" style={{ fontSize: 14.5, margin: 0 }} aria-live="polite">
+        {zipTrim} isn&rsquo;t on our published delivery list. Send the order anyway and we&rsquo;ll tell you honestly on the confirm call, or ask us first on <a href={site.phoneHref}>{site.phone}</a>.
+      </p>
+    )
+  ) : (
+    <div aria-live="polite">
+      <div style={{ height: 6, borderRadius: 3, background: "var(--line)", overflow: "hidden", maxWidth: 360 }}>
+        <div style={{ height: "100%", width: `${Math.min(100, Math.round((subtotal / deliveryMin) * 100))}%`, background: belowMin ? "var(--rose-ink)" : "var(--green)", transition: "width .3s" }} />
+      </div>
+      <p style={{ fontSize: 14.5, margin: "6px 0 0", fontWeight: 600, color: belowMin ? "var(--rose-ink)" : "var(--green)" }}>
+        {belowMin
+          ? <>{money(deliveryMin - subtotal)} more for delivery to {zipTrim}, or choose pickup.</>
+          : <>Delivery to {zipTrim}: {money(deliveryFee)}.</>}
+      </p>
+    </div>
+  );
   /** Card payment is offered for pickups always, and for deliveries with a
       priceable zip that clears the minimum (owner's confirmed sheet). */
   const cardAllowed = cfg.cards && (!delivering0 || (deliveryFee !== undefined && !belowMin));
@@ -268,7 +284,6 @@ export default function CartView() {
   const today = new Date().toISOString().slice(0, 10);
 
   const delivering = fulfillment === "delivery";
-  const zipKnown = (site.deliveryZips as readonly string[]).includes(zip.trim());
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -552,13 +567,42 @@ export default function CartView() {
             </div>
             <p className="muted" style={{ fontSize: 14.5, marginTop: -8 }}>
               {cfg.cards
-                ? "Paid by card at checkout. Delivery is priced by zip at checkout."
+                ? "Paid by card at checkout."
                 : "No payment is taken online. We call to confirm every order, arrange delivery, and take payment then."}
             </p>
-            <p className="muted" style={{ fontSize: 14.5, marginTop: 4 }}>
-              Delivery orders are {money(site.deliveryMinimums.marshall)} and up in Marshall and{" "}
-              {money(site.deliveryMinimums.outside)} and up elsewhere, before the delivery fee. Pickup has no minimum.
-            </p>
+
+            {/* Delivery or pickup, and the zip, HERE, before checkout: the
+                one fact the price and the gap hang on, asked first. */}
+            <fieldset style={{ border: 0, padding: 0, margin: "18px 0 0" }}>
+              <legend style={labelText}>Delivery or pickup</legend>
+              <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
+                {(["delivery", "pickup"] as const).map((f) => (
+                  <label key={f} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15.5, padding: "4px 0" }}>
+                    <input type="radio" name="fulfillment-cart" checked={fulfillment === f} onChange={() => setFulfillment(f)} style={{ width: 20, height: 20, accentColor: "var(--green)" }} />
+                    {f === "delivery" ? "Deliver it" : "Pickup at the shop"}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            {delivering0 ? (
+              <div style={{ display: "grid", gap: 10, marginTop: 10, maxWidth: 560 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ ...labelText, display: "inline", margin: 0 }}>Delivery zip</span>
+                  <input
+                    name="zip-cart"
+                    value={zip}
+                    onChange={(e) => setZip(e.target.value)}
+                    inputMode="numeric"
+                    autoComplete="postal-code"
+                    maxLength={5}
+                    style={{ ...field, width: 120 }}
+                  />
+                </label>
+                {deliveryNote}
+              </div>
+            ) : (
+              <p className="muted" style={{ fontSize: 14.5, margin: "8px 0 0" }}>Pickup at {site.address.street}. No minimum.</p>
+            )}
 
             <label style={{ display: "block", marginTop: 20 }}>
               <span style={labelText}>
@@ -589,50 +633,16 @@ export default function CartView() {
               <form onSubmit={submit} style={{ marginTop: 28, maxWidth: 560 }}>
                 <h2 style={{ fontSize: 24, margin: "0 0 4px" }}>Where it&rsquo;s going</h2>
                 <p className="muted" style={{ fontSize: 14.5, margin: "0 0 18px" }}>
-                  We&rsquo;ll call to confirm before anything is made or charged.
+                  {cfg.cards
+                    ? "Paid by card below; we call only if something about the order needs a word."
+                    : "We’ll call to confirm before anything is made or charged."}
                 </p>
 
                 <div style={{ display: "grid", gap: 16 }}>
-                  <label>
-                    <span style={labelText}>Your name</span>
-                    <input name="name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" style={field} />
-                  </label>
-
-                  <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
-                    <label>
-                      <span style={labelText}>Phone</span>
-                      <input name="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoComplete="tel" style={field} />
-                    </label>
-                    <label>
-                      <span style={labelText}>
-                        Email <span className="muted" style={{ fontWeight: 400 }}>(for your receipt)</span>
-                      </span>
-                      <input name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" style={field} />
-                    </label>
-                  </div>
-
-                  {/* Radios, not a select: two options, both visible, one tap. */}
-                  <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-                    <legend style={labelText}>Delivery or pickup</legend>
-                    <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
-                      {(["delivery", "pickup"] as const).map((f) => (
-                        <label key={f} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15.5, padding: "4px 0" }}>
-                          {/* 20px, not the 13px browser default: this gets
-                              tapped on a phone at least as often as clicked */}
-                          <input
-                            type="radio"
-                            name="fulfillment"
-                            checked={fulfillment === f}
-                            onChange={() => setFulfillment(f)}
-                            style={{ width: 20, height: 20, accentColor: "var(--green)" }}
-                          />
-                          {f === "delivery" ? "Deliver it" : `Pickup at the shop`}
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                  {minNote}
-
+                  {/* Delivery or pickup, and the zip, were asked in the cart
+                      just above; the same state drives this form, so the
+                      address block opens straight away. Who is ordering
+                      comes after where it is going. */}
                   {delivering && (
                     <>
                       <label>
@@ -656,31 +666,6 @@ export default function CartView() {
                           <input ref={zipRef} name="zip" value={zip} onChange={(e) => setZip(e.target.value)} required={cfg.cards} inputMode="numeric" autoComplete="postal-code" style={field} />
                         </label>
                       </div>
-                      {/* ZipCheck's rule: a near miss is a phone call, not a wall.
-                          The order still submits; the ticket carries a flag. */}
-                      {zip.trim().length === 5 && !zipKnown && (
-                        <p style={{ fontSize: 14.5, margin: "-6px 0 0", ...(cfg.cards ? { color: "var(--rose-ink)", fontWeight: 600 } : {}) }} className={cfg.cards ? undefined : "muted"} aria-live="polite">
-                          {cfg.cards ? (
-                            <>
-                              {zip.trim()} isn&rsquo;t on our delivery list, so we can&rsquo;t price delivery online.
-                              Call the shop at <a href={site.phoneHref}>{site.phone}</a> and we&rsquo;ll tell you if we can get there, or choose pickup.
-                            </>
-                          ) : (
-                            <>
-                              {zip.trim()} isn&rsquo;t on our published delivery list. Send the order
-                              anyway and we&rsquo;ll tell you honestly on the confirm call, or ask us
-                              first on <a href={site.phoneHref}>{site.phone}</a>.
-                            </>
-                          )}
-                        </p>
-                      )}
-                      {/* The fee is a fact now (the owner's own zip sheet), so a
-                          priceable delivery says its price the moment the zip does. */}
-                      {deliveryFee !== undefined && (
-                        <p style={{ fontSize: 14.5, margin: "-6px 0 0", fontWeight: 600 }} aria-live="polite">
-                          Delivery to {zipTrim}: {money(deliveryFee)}.
-                        </p>
-                      )}
                     </>
                   )}
 
@@ -699,6 +684,24 @@ export default function CartView() {
                           <option key={o} value={o}>{o}</option>
                         ))}
                       </select>
+                    </label>
+                  </div>
+
+                  <label>
+                    <span style={labelText}>Your name</span>
+                    <input name="name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" style={field} />
+                  </label>
+
+                  <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+                    <label>
+                      <span style={labelText}>Phone</span>
+                      <input name="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoComplete="tel" style={field} />
+                    </label>
+                    <label>
+                      <span style={labelText}>
+                        Email <span className="muted" style={{ fontWeight: 400 }}>(for your receipt)</span>
+                      </span>
+                      <input name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" style={field} />
                     </label>
                   </div>
 
@@ -754,7 +757,6 @@ export default function CartView() {
                   {/* No payment choice: with cards on, every online order
                       is paid by card here (Kevin, 2026-10-13); with cards
                       off, every order is a call. */}
-                  {minNote}
 
                   {/* Pay-on-call gets its breakdown too (Kevin's ask): the
                       buyer deserves the same arithmetic whichever way the
@@ -858,7 +860,7 @@ export default function CartView() {
                     {outcome.state === "sending"
                       ? payMethod === "card" ? "Charging…" : "Sending…"
                       : belowMin
-                        ? "Add more to qualify for delivery"
+                        ? `${money(deliveryMin - subtotal)} more for delivery`
                         : zipBlocked
                           ? zipTrim.length >= 5 ? "We can’t price that delivery online" : "Enter a delivery zip"
                           : cardFailed
@@ -869,7 +871,7 @@ export default function CartView() {
                   </button>
                   <span className="muted" style={{ fontSize: 14.5 }}>
                     {belowMin
-                      ? `${money(deliveryMin - subtotal)} more, or pickup.`
+                      ? `${money(deliveryMin - subtotal)} more for delivery, or pickup.`
                       : zipBlocked
                         ? `Call ${site.phone}, or choose pickup.`
                         : payMethod === "card" && cardAllowed
