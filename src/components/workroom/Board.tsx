@@ -60,6 +60,7 @@ type Order = {
   takenBy?: string;
   account?: boolean;
   taxExempt?: boolean;
+  taxId?: string;
   printedAt?: number;
 };
 
@@ -1142,7 +1143,7 @@ function OrderCard({
         {o.occasion && o.occasion !== "Everyday" ? ` · ${o.occasion}` : ""}
         {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
         {o.account ? <strong> · ON ACCOUNT</strong> : ""}
-        {o.taxExempt ? " · tax exempt" : ""}
+        {o.taxExempt ? ` · tax exempt${o.taxId ? ` (ID ${o.taxId})` : ""}` : ""}
       </p>
       {o.takenBy && <InitialsLine o={o} which="takenBy" onMove={onMove} />}
       {o.madeBy && <InitialsLine o={o} which="madeBy" onMove={onMove} />}
@@ -1432,6 +1433,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       settled. Tax exempt: the route writes no tax line. */
   const [account, setAccount] = useState(editing?.account ?? false);
   const [taxExempt, setTaxExempt] = useState(editing?.taxExempt ?? false);
+  const [taxId, setTaxId] = useState(editing?.taxId ?? "");
   const [lines, setLines] = useState<DraftLine[]>(() => (editing ? fromLines(editing) : [blankLine()]));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"" | "board" | "hold">("");
@@ -1509,6 +1511,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       takenBy: takenBy.trim().toUpperCase(),
       account,
       taxExempt,
+      taxId: taxExempt ? taxId.trim() : "",
       name, phone, email, fulfillment, date, neededBy, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
       company: company.trim(),
@@ -1779,6 +1782,20 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
             Tax exempt (no sales tax)
           </label>
         </div>
+        {/* The exemption number, asked for once the box is ticked (Kevin,
+            2026-10-14). Kept with the order and printed on the ticket. */}
+        {taxExempt && (
+          <label style={{ display: "block", marginTop: 10, maxWidth: 320 }}>
+            <span style={labelText}>Tax exempt ID number</span>
+            <input
+              value={taxId}
+              onChange={(e) => setTaxId(e.target.value)}
+              placeholder="From their exemption certificate"
+              autoComplete="off"
+              style={field}
+            />
+          </label>
+        )}
       </fieldset>
 
       {delivering && (

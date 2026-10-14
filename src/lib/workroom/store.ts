@@ -130,6 +130,11 @@ export type WorkroomOrder = {
   /** No sales tax line: a school, a church, a reseller with a certificate.
       Ticked by the counter; the route then writes no tax line. */
   taxExempt?: boolean;
+  /** The customer's tax-exempt number, asked for when the box is ticked
+      (Kevin, 2026-10-14); kept with the order and printed on the ticket
+      so the exemption can be shown later. Optional: the counter may not
+      have it to hand, and the sale still happens. */
+  taxId?: string;
   /** When the counter's print helper printed it (web orders). Server-side
       so a restart or a second machine never prints it twice. */
   printedAt?: number;
