@@ -1137,7 +1137,7 @@ function OrderCard({
   const owedFor = (x: Order) => Math.max(0, balanceCents(x)) + (x.payment ? 0 : Math.round((zipFeeToAppend(x) ?? 0) * 100));
   const batch =
     group && group.length > 1 && group.some((x) => x.id === o.id)
-      ? { ids: group.map((x) => x.id), count: group.length, index: group.findIndex((x) => x.id === o.id) + 1, totalCents: group.reduce((s, x) => s + owedFor(x), 0), name: o.name, owed: group.map((x) => ({ number: x.number, cents: owedFor(x) })) }
+      ? { ids: group.map((x) => x.id), count: group.length, index: group.findIndex((x) => x.id === o.id) + 1, totalCents: group.reduce((s, x) => s + owedFor(x), 0), name: o.business || o.name, owed: group.map((x) => ({ number: x.number, cents: owedFor(x) })) }
       : undefined;
   const zipFlag = o.fulfillment === "delivery" && o.zip && !(site.deliveryZips as readonly string[]).includes(o.zip);
   const sympathy = o.occasion === "Sympathy or funeral";

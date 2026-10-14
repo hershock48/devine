@@ -73,7 +73,9 @@ export const categories: Category[] = [
   { slug: "celebration-of-life", name: "Celebration of Life", blurb: "Arrangements for a service, a graveside, or a kitchen table that needs softening." },
   { slug: "plants", name: "Plants", blurb: "Living things that stay long after cut flowers are done." },
   { slug: "new-baby", name: "New Baby", blurb: "Something for the parents, and something the child keeps." },
-  { slug: "gifts-add-ons", name: "Gifts & Add Ons", blurb: "Tea, chocolate from Albion, and something soft to hold. Add one to any arrangement." },
+  // "chocolate from Albion" left the blurb with the chocolates (off the
+  // menu for now, 2026-10-14); put it back with them.
+  { slug: "gifts-add-ons", name: "Gifts & Add Ons", blurb: "Tea and something soft to hold. Add one to any arrangement." },
   { slug: "wedding", name: "Wedding", blurb: "Our four classics, ready to order. Everything else is designed with you." },
 ];
 

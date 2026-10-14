@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidInParts, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -93,7 +93,8 @@ function groupAccounts(orders: Order[]): Account[] {
     // director's cell, the office line); a person is their phone, else
     // their name. Prefixed so a Mr. Kempf never lands in the funeral home.
     const biz = (o.business ?? "").trim().toLowerCase();
-    const key = biz ? `biz:${biz}` : phoneKey(o.phone) || `name:${o.name.trim().toLowerCase()}` || o.id;
+    const name = o.name.trim().toLowerCase();
+    const key = biz ? `biz:${biz}` : phoneKey(o.phone) || (name ? `name:${name}` : o.id);
     const a = map.get(key) ?? {
       key, name: o.name, business: o.business ?? "", company: o.company ?? "", phone: o.phone, email: o.email,
       orders: [], owedCents: 0, paidCents: 0, open: 0, oldestOpenAt: 0, lastAt: 0,
@@ -321,7 +322,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                     </span>
                     <span style={{ whiteSpace: "nowrap" }}>
                       {o.payment && owed === 0
-                        ? <span style={{ color: "var(--green)", fontWeight: 600 }}>Paid {money(collectedCents(o) / 100)}{o.payment.refundedAt ? ", refunded" : ""} · {when(o.payment.at)}</span>
+                        ? <span style={{ color: "var(--green)", fontWeight: 600 }}>{o.payment.refundedAt ? `Refunded ${money(refundableCents(o) / 100)}` : `Paid ${money(collectedCents(o) / 100)}`} · {when(o.payment.at)}</span>
                         : owed > 0
                           ? <strong>{money(owed / 100)} owed</strong>
                           : <span className="muted">nothing owed</span>}
