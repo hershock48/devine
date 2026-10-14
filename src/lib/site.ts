@@ -27,6 +27,9 @@ export const site = {
       (a slip's "Printed", the board's "printed 7:02 AM", today's season)
       is in this zone. */
   timeZone: "America/Detroit",
+  /** Today on the shop's calendar, as YYYY-MM-DD. Servers run in UTC, and
+      a 9 pm sale on the 14th must not be dated the 15th. */
+  todayISO: () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()),
   /**
    * The capital V is theirs and it is load-bearing. Their current site spells the
    * name four different ways across eight pages and only two of them keep it. The

@@ -313,7 +313,7 @@ export default function CartView() {
   // the wrong year (glaze.md failure log). This runs per visit, in the browser,
   // on the SHOP'S calendar: the board's "today" is Marshall's, and an evening
   // order read in UTC was a day ahead of it.
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: site.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const today = site.todayISO();
 
   const delivering = fulfillment === "delivery";
 

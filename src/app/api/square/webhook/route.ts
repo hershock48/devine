@@ -192,9 +192,15 @@ export async function POST(req: Request) {
         // A held order is not chargeable (2026-10-12); a register ring
         // naming its number stays an unlinked sale rather than settling a
         // ticket that still has open questions.
+        // The method as the board would have written it: a payment the
+        // board itself started carries the order's id as the reference
+        // (card entry on a card or in the quick sale, cash recorded
+        // there), so it is "card" or "cash"; one matched only by a DV
+        // number typed into a register ring stays "register".
+        const viaReference = !!detail.referenceId;
         const record = {
           at: Date.now(),
-          method: (payment.source_type === "CASH" ? "cash" : "register") as "cash" | "register",
+          method: (payment.source_type === "CASH" ? "cash" : viaReference ? "card" : "register") as "cash" | "card" | "register",
           squarePaymentId: payment.id,
           totalCents: payment.total_money?.amount ?? 0,
           feeCents: 0,
@@ -202,12 +208,23 @@ export async function POST(req: Request) {
         if (order && !order.payment && order.status !== "hold") {
           await getStore().setOrderPayment(workroomOrderId, record);
         } else if (order && order.payment && order.status !== "hold") {
-          // Paid once already: a payment the board does not know (a
-          // top-up whose board write failed, or a second ring at the
-          // register) is added as a top-up, never dropped, so the balance
-          // the card shows is what was really collected.
           const known = order.payment.squarePaymentId === payment.id || (order.topUps ?? []).some((t) => t.squarePaymentId === payment.id);
-          if (!known) await getStore().addOrderTopUp(workroomOrderId, record);
+          const byHand = order.payment.method === "other" && !order.payment.squarePaymentId;
+          if (known) {
+            // already on the order
+          } else if (byHand && order.payment.totalCents === record.totalCents && !(order.topUps ?? []).length) {
+            // The counter marked it "Paid another way" for exactly this
+            // amount after a charge the board missed (the quick sale and
+            // the card both say to): this IS that charge, so the mark
+            // becomes the real record instead of a second payment.
+            await getStore().setOrderPayment(workroomOrderId, record);
+          } else {
+            // Paid once already: a payment the board does not know (a
+            // top-up whose board write failed, or a second ring at the
+            // register) is added as a top-up, never dropped, so the
+            // balance the card shows is what was really collected.
+            await getStore().addOrderTopUp(workroomOrderId, record);
+          }
         }
       } catch (err) {
         console.error(`square webhook: sale ${payment.id} stored but order ${workroomOrderId} not marked paid`, err);

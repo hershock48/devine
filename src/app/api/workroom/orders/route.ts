@@ -116,12 +116,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
   if (!name || !date || lines.length === 0) {
     // A quick sale has its name and date filled in by the route, so its
     // only possible miss is the items.
-    return {
-      error:
-        p.quick === true
-          ? "A quick sale needs at least one item (pick a product or type a custom one with a price)."
-          : "An order needs a name, a date, and at least one item (pick a product or type a custom one with a price).",
-    };
+    return { error: "An order needs a name, a date, and at least one item (pick a product or type a custom one with a price)." };
   }
   /*
     THE DELIVERY FEE IS A LINE ON THE TICKET, set while the order is rung up
@@ -222,11 +217,6 @@ async function freshNumber(date: string, taken: Set<string>): Promise<string> {
   }
 }
 
-/** Today on the shop's calendar (America/Detroit), yyyy-mm-dd, for the
-    quick sale's date: serverless runs in UTC, and a 9 pm sale on the 14th
-    is the 14th's sale. Same reading as the web checkout's. */
-const shopToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: site.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-
 /**
  * ONE SALE, ONE OR MORE ORDERS (Kevin, 2026-10-14: "oaklawn hospital calls
  * and they want to place multiple orders, but use one card"). The form
@@ -256,8 +246,13 @@ export async function POST(req: Request) {
   // things the panel asks for ride through, so a stated tax, a tax ID, a
   // delivery fee or any field added later cannot slip onto a walk-in.
   const quick = raw.quick === true;
+  // A quick sale's name and date are the route's; its only possible miss
+  // is the items, said in its own words before the shared parse.
+  if (quick && (!Array.isArray(raw.lines) || raw.lines.length === 0)) {
+    return NextResponse.json({ error: "A quick sale needs at least one item (pick a product or type a custom one with a price)." }, { status: 400 });
+  }
   const p: Record<string, unknown> = quick
-    ? { quick: true, lines: raw.lines, taxExempt: raw.taxExempt, takenBy: raw.takenBy, name: "Walk-in", fulfillment: "pickup", date: shopToday() }
+    ? { lines: raw.lines, taxExempt: raw.taxExempt, takenBy: raw.takenBy, name: "Walk-in", fulfillment: "pickup", date: site.todayISO() }
     : raw;
   const stops: Record<string, unknown>[] = Array.isArray(p.deliveries)
     ? p.deliveries.map((d) => (d && typeof d === "object" ? (d as Record<string, unknown>) : {}))
@@ -270,7 +265,7 @@ export async function POST(req: Request) {
   // The customer's own fields come from the body, never from an entry:
   // one sale is one customer, one way of paying, one receipt address.
   const shared: Record<string, unknown> = {};
-  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold", "quick"]) {
+  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold"]) {
     if (k in p) shared[k] = p[k];
   }
   const cache: PriceCache = { stemPrices: null };
@@ -373,7 +368,11 @@ export async function PUT(req: Request) {
   // status stays where it is.
   const canHold = !existing.payment && ["hold", "new", "confirmed"].includes(existing.status);
   const status: OrderStatus = p.hold === true && canHold ? "hold" : existing.status === "hold" ? "confirmed" : existing.status;
-  const order: WorkroomOrder = { ...existing, ...parsed.fields, status };
+  // A quick sale stays one only while it is still anonymous: give the
+  // walk-in a name, a phone, an email, or make it a delivery, and it is
+  // an ordinary order again (printable, suggestible, groupable).
+  const stillQuick = existing.quick && parsed.fields.name === "Walk-in" && !parsed.fields.phone && !parsed.fields.email && parsed.fields.fulfillment === "pickup";
+  const order: WorkroomOrder = { ...existing, ...parsed.fields, status, quick: stillQuick ? true : undefined };
   await getStore().replaceOrder(order);
   if (existing.status === "hold" && status === "confirmed" && order.email) await sendWorkroomReceipt(order);
   return NextResponse.json({ ok: true, order });
