@@ -387,7 +387,14 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
                       cur.map((x, at) => {
                         if (at !== i) return x;
                         const spb = spbByName.get(normalizeVariety(name));
-                        return { ...x, variety: name, stemsPerBunch: x.stemsPerBunch || (spb ? String(spb) : "") };
+                        // A count the library filled in for the OLD variety
+                        // (or no count) follows the new variety; a count
+                        // someone typed by hand is theirs and stays. Without
+                        // this, a line copied from last week and retyped to
+                        // another flower kept the first flower's stems.
+                        const oldSpb = spbByName.get(normalizeVariety(x.variety));
+                        const typedByHand = !!x.stemsPerBunch && String(oldSpb ?? "") !== x.stemsPerBunch;
+                        return { ...x, variety: name, stemsPerBunch: typedByHand ? x.stemsPerBunch : spb ? String(spb) : "" };
                       }),
                     );
                   const lineName = normalizeVariety(l.variety);

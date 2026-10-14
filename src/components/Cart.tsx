@@ -90,9 +90,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const add = useCallback((slug: string, qty = 1) => {
     setLines((cur) => {
       const at = cur.findIndex((l) => l.slug === slug);
-      if (at === -1) return [...cur, { slug, qty }];
+      // The same 99 cap the quantity box, the loader and the server
+      // hold, so repeated "Order now" taps cannot show a total the
+      // server will quietly reprice.
+      if (at === -1) return [...cur, { slug, qty: Math.min(99, qty) }];
       const next = [...cur];
-      next[at] = { ...next[at], qty: next[at].qty + qty };
+      next[at] = { ...next[at], qty: Math.min(99, next[at].qty + qty) };
       return next;
     });
   }, []);

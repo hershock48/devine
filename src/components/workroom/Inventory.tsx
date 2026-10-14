@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { products } from "@/lib/catalog";
 import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, VarietyGate } from "@/components/workroom/ui";
 import { HISTORY_DAYS, consumption, isoDate, lotCosting, normalizeVariety, recipeUnitCost, saleInstantMs } from "@/lib/workroom/derive";
@@ -892,9 +892,14 @@ function RecipeForm({
     [recipes],
   );
 
+  // Runs when the pick changes, and only then: `pick` is rebuilt on every
+  // refetch of recipes (any toss or buy logged on the page), and re-running
+  // it then wiped stem rows being typed into the form.
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
   useEffect(() => {
-    if (pickSlug) pick(pickSlug);
-  }, [pickSlug, pick]);
+    if (pickSlug) pickRef.current(pickSlug);
+  }, [pickSlug]);
 
   const price = slug ? productPrice.get(slug) ?? null : null;
   let liveCost: number | null = 0;

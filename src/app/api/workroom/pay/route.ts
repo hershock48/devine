@@ -3,7 +3,7 @@ import { deliveryFeeFor } from "@/lib/site";
 import { deliveryLineName, isDeliveryLine } from "@/lib/workroom/derive";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
-import { chargeBoardOrder, isIdempotencyReuse } from "@/lib/square/payments";
+import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure } from "@/lib/square/payments";
 import { getStore, type OrderPayment, type WorkroomLine } from "@/lib/workroom/store";
 
 /**
@@ -36,6 +36,9 @@ export async function POST(req: Request) {
   const id = typeof p.id === "string" ? p.id : "";
   const method = p.method === "card" || p.method === "cash" || p.method === "manual" ? p.method : null;
   const sourceId = typeof p.sourceId === "string" ? p.sourceId : undefined;
+  // The pane's id for this card attempt; kept across a retry whose
+  // answer was lost, so the retry cannot be a second charge (below).
+  const attempt = typeof p.attempt === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(p.attempt) ? p.attempt : "";
 
   if (!id || !method) return NextResponse.json({ error: "Order id and method are required." }, { status: 400 });
   if (method === "card" && !sourceId) return NextResponse.json({ error: "No card token arrived." }, { status: 400 });
@@ -104,16 +107,25 @@ export async function POST(req: Request) {
       method,
       sourceId,
       cardFee: { name: "", cents: 0, appFeeCents: 0 },
-      // A double tap, or two phones with the same token, is one payment:
-      // the key is the order plus what makes this attempt unique.
-      idempotencyKey: `${order.id}:${method === "card" ? sourceId : "cash"}`,
+      // One payment per (order, attempt): a double tap, or a retry after
+      // a lost answer, carries the same attempt id with a fresh token and
+      // is refused by Square as a key reuse (409 below). Cash is keyed on
+      // the order alone; a cash ticket is paid once.
+      idempotencyKey: `${order.id}:${method === "card" ? attempt || sourceId : "cash"}`,
     });
   } catch (err) {
     console.error(`[devine] pay ${order.number} (${method}) failed:`, err);
     if (isIdempotencyReuse(err)) {
       return NextResponse.json({ error: "That charge already went through. Reload the board before doing anything else." }, { status: 409 });
     }
-    return NextResponse.json({ error: String(err instanceof Error ? err.message : err).slice(0, 300) }, { status: 502 });
+    if (isPaymentUnsure(err)) {
+      return NextResponse.json(
+        { unsure: true, error: "No answer came back from Square, so the card MAY have been charged. Do not take the card again elsewhere. Tap Charge once more here: if the first charge went through, it will say so and not charge twice." },
+        { status: 502 },
+      );
+    }
+    // Square said no (a decline, a bad token): a definite not-charged.
+    return NextResponse.json({ error: String(err instanceof Error ? err.message : err).slice(0, 300) }, { status: 402 });
   }
   // MONEY HAS MOVED. From here nothing may answer "it did not go through":
   // a store blip after a successful charge is logged CRITICAL and the

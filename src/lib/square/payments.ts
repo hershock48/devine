@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
-import { square } from "./client";
+import { square, SquareError } from "./client";
 import type { ResolvedSquare } from "./oauth";
 
 /**
@@ -41,6 +41,21 @@ export const webFeeCents = (cfg: { viaOAuth: boolean }): number => (cfg.viaOAuth
 /** Square's "this key was already used" answer, for callers that must
     tell a retried charge from a failed one. */
 export const isIdempotencyReuse = (err: unknown): boolean => err instanceof Error && /IDEMPOTENCY_KEY_REUSED/.test(err.message);
+
+/**
+ * The payment call was SENT and no answer came back (the connection to
+ * Square dropped, a timeout). Square may have charged the card. A caller
+ * must never translate this into "the card was not charged": the honest
+ * word is "unsure", and the retry, carrying the same idempotency key, is
+ * how the truth comes out (a second charge is refused as a key reuse).
+ */
+export class PaymentUnsureError extends Error {
+  constructor(cause: unknown) {
+    super(`No answer from Square after the payment was sent: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "PaymentUnsureError";
+  }
+}
+export const isPaymentUnsure = (err: unknown): boolean => err instanceof PaymentUnsureError;
 
 export function appFeeCents(): number {
   const raw = process.env.SQUARE_APP_FEE_CENTS?.trim();
@@ -210,7 +225,15 @@ export async function chargeBoardOrder(
     body.cash_details = { buyer_supplied_money: { amount: totalCents, currency: "USD" } };
   }
 
-  const res = await square<PaymentResponse>(cfg, "POST", "/v2/payments", body);
+  let res: PaymentResponse;
+  try {
+    res = await square<PaymentResponse>(cfg, "POST", "/v2/payments", body);
+  } catch (err) {
+    // Square answered (a decline, a refused key): a definite no, rethrown
+    // as is. Anything else is the wire failing after the request left.
+    if (err instanceof SquareError) throw err;
+    throw new PaymentUnsureError(err);
+  }
   if (!res.payment?.id) throw new Error("Square did not return a payment.");
   return {
     paymentId: res.payment.id,

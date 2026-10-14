@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { priceOrder, sendOrder, type PaidOnline, type PricedOrder } from "@/lib/intake";
 import { deliveryFeeFor, site } from "@/lib/site";
 import { cardsEnabled } from "@/lib/square/cards";
-import { chargeBoardOrder, isIdempotencyReuse, webFeeCents } from "@/lib/square/payments";
+import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure, webFeeCents } from "@/lib/square/payments";
 import { getStore, newId, type OrderPayment, type SquareSale, type WorkroomOrder } from "@/lib/workroom/store";
 import { deliveryLineName } from "@/lib/workroom/derive";
 
@@ -53,10 +53,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: priced.error }, { status: 400 });
   }
 
-  const card = (raw as { card?: { sourceId?: unknown } }).card;
+  const card = (raw as { card?: { sourceId?: unknown; attempt?: unknown } }).card;
   const sourceId = typeof card?.sourceId === "string" ? card.sourceId : "";
+  // The browser's own id for this checkout attempt (see paidFlow). Shape
+  // checked, never trusted for anything but the idempotency key.
+  const attempt = typeof card?.attempt === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(card.attempt) ? card.attempt : "";
 
-  if (sourceId) return paidFlow(priced.order, sourceId);
+  if (sourceId) return paidFlow(priced.order, sourceId, attempt);
   // ONLINE ORDERS ARE PAID ONLINE (Kevin, 2026-10-13): while cards are
   // on, by the same test the cart's config uses, an unpaid order is
   // refused here too, not only hidden in the cart, so no request shape
@@ -88,7 +91,7 @@ export async function POST(req: Request) {
   );
 }
 
-async function paidFlow(order: PricedOrder, sourceId: string) {
+async function paidFlow(order: PricedOrder, sourceId: string, attempt: string) {
   const cards = await cardsEnabled();
   if (!cards.on) {
     return NextResponse.json({ ok: false, error: "Card payment is not available online right now; the card was not charged. Please call the shop to order." }, { status: 503 });
@@ -135,9 +138,18 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
       method: "card",
       sourceId,
       cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: convenienceCents },
-      // The card token is single-use and unique to this attempt, so a
-      // browser that sends the same POST twice reaches Square once.
-      idempotencyKey: `web:${sourceId}`,
+      // ONE KEY PER ATTEMPT, NOT PER TOKEN. The browser keeps one attempt
+      // id for as long as it is unsure whether a payment went through
+      // (its response was lost), and every card token is single-use, so
+      // a retry arrives with a new token and the same attempt. Keyed on
+      // the attempt plus what is being bought, the retry of a charge that
+      // did go through is refused by Square as a key reuse and answered
+      // 409 below; a changed cart is a different purchase and charges.
+      // A browser that sends no attempt falls back to the token itself,
+      // which still folds a doubled POST into one payment.
+      idempotencyKey: attempt
+        ? `web:${attempt}:${JSON.stringify(chargeLines)}:${convenienceCents}`
+        : `web:${sourceId}`,
     });
   } catch (err) {
     console.error(`[devine] online payment for ${order.number} failed:`, err);
@@ -147,6 +159,14 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
       return NextResponse.json(
         { ok: false, error: `That payment already went through; your receipt is on its way. If it does not arrive, call the shop at ${site.phone}.` },
         { status: 409 },
+      );
+    }
+    if (isPaymentUnsure(err)) {
+      // Sent, unanswered. Not "not charged": the browser keeps its attempt
+      // id and the retry settles it either way.
+      return NextResponse.json(
+        { ok: false, unsure: true, error: `We did not hear back from the card processor, so your card may or may not have been charged. You can try once more: if the first payment went through, we will say so and not charge again. Or call the shop at ${site.phone}.` },
+        { status: 502 },
       );
     }
     return NextResponse.json(

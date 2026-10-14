@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MemoryWarning, PinGate, field, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
-import { HISTORY_DAYS, consumption, isoDate, lotCosting, mondayOf, saleInstantMs, type SoldCost } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, consumption, isDeliveryLine, isoDate, lotCosting, mondayOf, saleInstantMs, type SoldCost } from "@/lib/workroom/derive";
+import { deliveryFeeFor } from "@/lib/site";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
@@ -54,6 +55,7 @@ type Order = {
   source: "web" | "phone";
   status: string;
   fulfillment: "delivery" | "pickup";
+  zip: string;
   date: string;
   occasion: string;
   phone: string;
@@ -918,7 +920,13 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
     // Owed is NOW, never windowed: money owed does not care which week it
     // started being owed in.
     const owed = orders.filter((o) => o.status === "done" && !o.payment);
-    const owedCents = owed.reduce((sum, o) => sum + Math.round(o.subtotal * 100), 0);
+    // What Take-card will actually charge: a delivery ticket with no
+    // delivery line yet gets the zip's sheet fee appended at payment, so
+    // the tile counts it too (the pay route's rule, mirrored).
+    const owedCents = owed.reduce((sum, o) => {
+      const fee = o.fulfillment === "delivery" && !o.lines.some(isDeliveryLine) ? deliveryFeeFor(o.zip) ?? 0 : 0;
+      return sum + Math.round((o.subtotal + fee) * 100);
+    }, 0);
 
     return { now, prev, owedCount: owed.length, owedCents };
   }, [events, recipes, orders, sales, contacts, win, sourceFilter]);

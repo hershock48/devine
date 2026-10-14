@@ -51,6 +51,10 @@ export default function PayControls({
   const [ready, setReady] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
+  /** One id per card attempt, kept until Square answers for sure (paid or
+      declined), so a second Charge after a lost answer cannot be a second
+      charge: the pay route keys Square's idempotency on it. */
+  const attemptRef = useRef<string>("");
 
   /* Display only; the pay route computes its own copy and Square's total
      check keeps the two honest. */
@@ -119,14 +123,29 @@ export default function PayControls({
           throw new Error(t.errors?.[0]?.message || "The card did not tokenize. Check the number.");
         }
         sourceId = t.token;
+        if (!attemptRef.current) attemptRef.current = crypto.randomUUID();
       }
-      const r = await fetch("/api/workroom/pay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: orderId, method, sourceId }),
-      });
-      const d = (await r.json()) as { ok?: boolean; error?: string; boardMissed?: boolean };
-      if (!r.ok || !d.ok) throw new Error(d.error || "The payment did not go through.");
+      let r: Response;
+      let d: { ok?: boolean; error?: string; boardMissed?: boolean; unsure?: boolean };
+      try {
+        r = await fetch("/api/workroom/pay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: orderId, method, sourceId, attempt: attemptRef.current || undefined }),
+        });
+        d = (await r.json().catch(() => ({}))) as typeof d;
+      } catch {
+        // The request may have arrived and charged. Not "did not go
+        // through": the attempt id stays, and Charge again settles it.
+        throw new Error("The connection dropped after the charge was sent, so the card MAY have been charged. Tap Charge once more: if it went through, it will say so and not charge twice.");
+      }
+      if (!r.ok || !d.ok) {
+        // A definite answer (declined, refused, already paid) ends this
+        // attempt; an unsure one keeps it for the retry.
+        if (!d.unsure) attemptRef.current = "";
+        throw new Error(d.error || "The payment did not go through.");
+      }
+      attemptRef.current = "";
       setMode("idle");
       if (d.boardMissed) {
         // The charge is real; only the board missed it. Said loudly, so

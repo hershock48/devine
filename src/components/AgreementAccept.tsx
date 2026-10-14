@@ -103,7 +103,7 @@ export default function AgreementAccept({ business }: { business: string }) {
     } catch {
       setState({
         step: "form",
-        error: `The connection dropped before anything was recorded. Try again, or email ${MAILTO}.`,
+        error: `The connection dropped before we heard back, so we cannot tell whether it was recorded. If no signed copy reaches your inbox in a few minutes, try again or email ${MAILTO}.`,
       });
     }
   }
