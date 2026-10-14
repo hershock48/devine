@@ -875,7 +875,7 @@ export default function CartView() {
                     {outcome.state === "sending"
                       ? payMethod === "card" ? "Charging…" : "Sending…"
                       : belowMin
-                        ? "Add flowers to qualify for delivery"
+                        ? "Add more to qualify for delivery"
                         : payMethod === "card" && cardAllowed
                           ? cardReady ? `Pay ${money(cardTotalCents / 100)} and place the order` : "Opening card field…"
                           : "Send the order"}
