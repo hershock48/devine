@@ -438,7 +438,7 @@ export async function sendWorkroomReceipt(o: {
           ),
           block(
             o.fulfillment === "delivery" ? "Delivery" : "Pickup",
-            `${esc(longDay(o.date))}${
+            `${esc(longDay(o.date))}${o.neededBy ? ` by ${esc(clock12(o.neededBy))}` : ""}${
               o.recipient && o.recipient !== o.name ? `<br>For ${esc(o.recipient)}` : ""
             }${o.fulfillment === "pickup" ? `<br>${esc(addressOneLine)}` : ""}`,
           ),

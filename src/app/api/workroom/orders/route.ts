@@ -129,6 +129,15 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
     const fee = typed !== undefined ? Math.round(typed * 100) / 100 : deliveryFeeFor(zip);
     if (fee !== undefined) lines.push({ slug: null, name: deliveryLineName(zip), qty: 1, each: fee });
   }
+  // NEEDED BY: HH:MM on the clock, "9:30" padded to "09:30", anything
+  // else refused in words rather than dropped, so a time the form showed
+  // cannot quietly vanish from the saved order.
+  const neededByRaw = str(p.neededBy, 8);
+  const neededByMatch = /^(\d{1,2}):(\d{2})$/.exec(neededByRaw);
+  const neededBy = neededByMatch ? `${neededByMatch[1].padStart(2, "0")}:${neededByMatch[2]}` : "";
+  if (neededByRaw && (!neededByMatch || Number(neededByMatch[1]) > 23 || Number(neededByMatch[2]) > 59)) {
+    return { error: "The needed-by time did not read as a time. Use the clock picker, or clear it." };
+  }
   // SALES TAX, as a line (Kevin, 2026-10-14: on every order). Computed
   // here from the items, so the quote pads, the phone form and an edit
   // all tax by one rule; a tax line that arrived with a quote is replaced.
@@ -164,7 +173,7 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
       town: str(p.town, 80),
       zip,
       date,
-      neededBy: /^([01]\d|2[0-3]):[0-5]\d$/.test(str(p.neededBy, 5)) ? str(p.neededBy, 5) : "",
+      neededBy,
       occasion: str(p.occasion, 40),
       cardMessage: str(p.cardMessage, site.cardMessageMax),
       notes: str(p.notes, 600),
