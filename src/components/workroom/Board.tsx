@@ -551,7 +551,7 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
                 {o.source} order &middot; {o.fulfillment}
                 {o.fulfillment === "delivery" && (o.street || o.recipient)
                   ? ` to ${[o.recipient, o.company, o.street, o.town].filter(Boolean).join(", ")}`
-                  : ""}
+                  : o.company ? ` · ${o.company}` : ""}
                 {o.phone ? ` · ${o.phone}` : ""}
                 {o.email ? ` · ${o.email}` : ""}
                 {o.account ? " · on account" : ""}
@@ -869,6 +869,39 @@ function InitialsLine({ o, which, onMove }: { o: Order; which: "madeBy" | "taken
   );
 }
 
+/** ON ACCOUNT, after the fact (Katy, 2026-10-14): the box was missed at
+    write-up, or the customer asked to be billed after the order was made,
+    when Edit is no longer offered. One tap either way, unpaid orders only;
+    the Accounts tab picks it up on its next load. */
+function AccountToggle({ o, onDone }: { o: Order; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function flip() {
+    setBusy(true);
+    setErr("");
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: o.id, account: !o.account }),
+    });
+    const d = await r.json().catch(() => null);
+    setBusy(false);
+    if (!r.ok) {
+      setErr(d?.error || "That did not save.");
+      return;
+    }
+    onDone();
+  }
+  return (
+    <p style={{ margin: "0 0 6px", fontSize: 13.5 }} className="muted">
+      <button type="button" disabled={busy} onClick={() => flip().catch(() => setBusy(false))} style={{ ...textButton, fontSize: 13 }}>
+        {o.account ? "Take off account" : "Put on account"}
+      </button>
+      {err && <span style={{ color: "var(--rose-ink)", marginLeft: 8 }}>{err}</span>}
+    </p>
+  );
+}
+
 /** The way back from a cancel (Katy, 2026-10-06). The route decides what
     it goes back to and refuses a refunded one; this just asks and shows. */
 function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Promise<void> }) {
@@ -1116,6 +1149,9 @@ function OrderCard({
           recipient with no street is a real case too, not a missing one — a
           funeral quote sends flowers to "Kempf Funeral Home" and the driver
           knows where that is. */}
+      {o.fulfillment === "pickup" && o.company && (
+        <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>{o.company}</p>
+      )}
       {o.fulfillment === "delivery" && (
         <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>
           {(() => {
@@ -1171,6 +1207,7 @@ function OrderCard({
       </ul>
 
       {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
+      {!o.payment && o.status !== "canceled" && <AccountToggle o={o} onDone={() => onPaid().catch(() => {})} />}
 
       {/* Labeled, because unlabeled they read as mystery text: an employee
           has to KNOW the italic line goes on the card and the other one is
@@ -1470,7 +1507,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       taxExempt,
       name, phone, email, fulfillment, date, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
-      company: fulfillment === "delivery" ? company.trim() : "",
+      company: company.trim(),
       // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
       // from the shop's meeting): it is the customer's own address, kept
       // for their file, house accounts and mileage later.
@@ -1863,7 +1900,9 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
         {/* The place above the street (Kevin, 2026-10-14): a funeral home,
             a school, a church, an office. Its own line, delivery only; the
             driver reads it before the number. */}
-        {delivering && (
+        {/* Pickups too (Kevin): a business picking up has a name worth
+            keeping; "worst comes to worst they don't use it". */}
+        {(
           <label style={{ display: "block", marginBottom: 14 }}>
             <span style={labelText}>Company or place (optional)</span>
             <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Funeral home, school, church, office" style={field} />
