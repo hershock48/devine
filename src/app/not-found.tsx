@@ -39,11 +39,8 @@ export default function NotFound() {
         The page may have moved, or the link had a typo in it.
       </p>
       <p className="btnrow" style={{ justifyContent: "center" }}>
-        <Link className="btn btn--solid" href="/demo">
-          The shop
-        </Link>
-        <Link className="btn" href="/">
-          The proposal
+        <Link className="btn btn--solid" href="/">
+          Back to the shop
         </Link>
       </p>
     </main>

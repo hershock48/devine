@@ -20,7 +20,7 @@ import { BASE } from "@/lib/nav";
  *   THE DAY DEVINE'S SIGNS, CANONICAL_HOST becomes their own domain. It is on
  *   the README checklist. Do not lift the noindex without doing this first.
  */
-export const CANONICAL_HOST = "https://devine.glazedweb.com";
+export const CANONICAL_HOST = "https://devinesflowersandbotanicals.com";
 
 /** The demo's own link card. Theirs, not ours — see link-cards.md's two-card table. */
 export const OG_IMAGE = "/og.jpg";
@@ -50,7 +50,7 @@ export function localBusinessJsonLd() {
     "@type": "Florist",
     name: site.name,
     description: site.tagline,
-    url: `${CANONICAL_HOST}${BASE}`,
+    url: `${CANONICAL_HOST}${BASE}/`,
     telephone: site.phone,
     email: site.email,
     image: `${CANONICAL_HOST}${OG_IMAGE}`,

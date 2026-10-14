@@ -26,11 +26,15 @@ const body = Karla({
 });
 
 export const metadata: Metadata = {
-  title: "Glazed Web",
-  description: "Internal placeholder.",
-  // NOINDEX WHILE THIS IS A PITCH. Goes away with the header in next.config.ts and
-  // src/app/robots.ts, together, on the day this becomes their site.
-  robots: { index: false, follow: false },
+  // Overridden by every real page: the shop's layout sets its own, the
+  // workroom and the Glazed pages set theirs. This is what a bare page
+  // (the 404) falls back to.
+  title: "DeVine's Flowers & Botanicals",
+  description: "A full-service flower and plant shop in Marshall, Michigan.",
+  // No noindex here since launch day: the shop's domain is meant to be found.
+  // The pitch host (devine.glazedweb.com) stays out of search by a host-scoped
+  // X-Robots-Tag header in next.config.ts, and the owner-only pages carry
+  // their own robots metadata.
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

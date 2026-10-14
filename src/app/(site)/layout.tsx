@@ -55,9 +55,9 @@ export const metadata: Metadata = {
 
     The image is THEIRS, not ours. link-cards.md's two-card table: the proposal
     card at /pitch/devine/og.jpg wears Glazed Web's argument in Glazed Web's
-    colours, and the demo card wears the client's brand entirely, because the
-    demo is a full copy of their site and should look like it in every surface
-    including this one.
+    colours, and the shop's card wears the client's brand entirely, because
+    this is their site and should look like it in every surface including
+    this one.
   */
   openGraph: {
     type: "website",
@@ -80,8 +80,6 @@ export const metadata: Metadata = {
     description: `Flowers, plants and gifts arranged by hand in ${site.town}.`,
     images: [OG_IMAGE],
   },
-
-  robots: { index: false, follow: false },
 };
 
 export default async function DemoLayout({ children }: { children: React.ReactNode }) {

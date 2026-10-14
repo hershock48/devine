@@ -3,13 +3,17 @@
 Glazed Web pitch and concept build for **DeVine's Flowers & Botanicals**, Marshall,
 Michigan. Read `glaze.md` in the `glazedweb` repo before touching any of this.
 
-Five things live here, on one host:
+Five things live here, in one deployment that answers to two names (the routing is
+in `next.config.ts`): `devinesflowersandbotanicals.com` is the shop, at the root,
+since launch day 2026-10-14; `devine.glazedweb.com` is the proposal at its root,
+with the shop reachable beside it.
 
 - **the proposal**, at the root of `devine.glazedweb.com`, with its four owner-facing
   pages beside it: `/agreement` (Exhibit A and the clickwrap acceptance), `/launch`
   (the delivery tracker, lights read live), `/photos` (her product-photo drop) and
   `/test-drive` (eight guided missions on the real system).
-- **the concept site**, at `/demo` — a full rebuild of their site, 57 real products,
+- **the site**, at the root of her domain (`src/app/(site)/**`; the old `/demo`
+  addresses redirect there, and rewrite on the pitch host) — a full rebuild of their site, 57 real products,
   a working cart, and a real order intake: checkout posts to `/api/order`, which
   emails a ticket to the shop over SMTP and lands the order on the workroom board.
   Payment is on the confirming call by default; card payment at checkout exists
@@ -123,9 +127,10 @@ photograph.
 2. Add the domain **`devine.glazedweb.com`**. Apex form only. Adding `www.` gives you a
    hostname with no certificate, which has already burned one prospect link.
 3. Confirm by fetching the deployed URL rather than assuming:
-   - `https://devine.glazedweb.com/` serves the proposal, not the site.
-   - `https://devine.glazedweb.com/demo` serves the site.
-   - Both carry `X-Robots-Tag: noindex, nofollow`.
+   - `https://devinesflowersandbotanicals.com/` serves the site, with no
+     `X-Robots-Tag`, and `/demo/shop` there redirects to `/shop`.
+   - `https://devine.glazedweb.com/` serves the proposal, `/demo` there serves the
+     site, and both carry `X-Robots-Tag: noindex, nofollow`.
 
    If a URL looks stale in your browser, check `x-vercel-cache` before touching code.
    `MISS` means the origin is fresh and the stale copy is yours. This cost a round trip.
@@ -344,19 +349,17 @@ homepage hero, shop-3 the homepage band, shop-2 greening, shop-1 about.
 
 ## Before this becomes their site
 
-- [ ] Delete `public/pitch/` and the `rewrites()` block in `next.config.ts`, and retire
+- [x] Launch day, 2026-10-14: the site moved to the root of her domain and the
+      proposal stayed on the pitch host (the routing note in `next.config.ts`).
+- [ ] Delete `public/pitch/` and the pitch-host rules in `next.config.ts`, and retire
       `/test-drive` with it. `/photos` retires when the list is empty. `/launch` and
       `/agreement` stay until every light on the launch plan is lit, then go the same
       way; neither becomes a permanent page.
 - [ ] Set `LAUNCH_FLAGS=domain` in Vercel at cutover so the launch plan's last light
       turns on.
-- [ ] Delete `src/app/robots.ts` and the `X-Robots-Tag` header, together.
-- [ ] Move `src/app/demo/*` to `src/app/` and drop `BASE` in `src/lib/nav.ts`.
-- [ ] **Point `CANONICAL_HOST` in `src/lib/seo.ts` at their real domain BEFORE
-      lifting the noindex.** It is `devine.glazedweb.com` today. Right now that is
-      harmless because every path on this host sends `noindex, nofollow`; the moment
-      that comes off, every canonical and every sitemap entry would be advertising a
-      copy of their site as the original. Do these two in this order, or not at all.
+- [x] The `X-Robots-Tag` header is scoped to the pitch host; her domain is indexable.
+- [x] `src/app/demo/*` is `src/app/(site)/*` and `BASE` is empty.
+- [x] `CANONICAL_HOST` in `src/lib/seo.ts` is their real domain, since launch day.
 - [x] ~~Change the credit line to "Double Dipped by"~~ Done early, on Kevin's
       2026-08-31 ruling retiring "Concept build by" account-wide (brand.md's
       Retired list carries it). The default wording is the wording, spec build

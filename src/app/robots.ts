@@ -5,7 +5,8 @@ import { CANONICAL_HOST } from "@/lib/seo";
  * NO SEARCH RESULTS, BUT CRAWLING IS ALLOWED. THOSE ARE DIFFERENT SWITCHES.
  *
  * This host serves a proposal about a real business, written from their own published
- * pages, plus a full copy of their site at /demo. Neither may ever compete with the
+ * pages, and (since launch day, at the root of her own domain) their site. The pitch
+ * host may never compete with the
  * shop for their own name.
  *
  * THIS FILE USED TO SAY `Disallow: /` FOR EVERYONE, with fourteen social crawlers

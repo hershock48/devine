@@ -40,7 +40,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
     Every internal link on this site is a plain <a>, so every navigation is a full
     document load and this provider remounts. Held in useState alone the cart was
-    emptied by the first click after adding to it, which made /demo/cart incapable
+    emptied by the first click after adding to it, which made the cart page incapable
     of ever showing a line item. The audit caught it; I had never navigated between
     pages while testing the cart, which is exactly the kind of thing a green build
     does not tell you.
