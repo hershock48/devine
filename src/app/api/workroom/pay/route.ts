@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { site } from "@/lib/site";
-import { isDeliveryLine } from "@/lib/workroom/derive";
+import { deliveryFeeFor } from "@/lib/site";
+import { deliveryLineName, isDeliveryLine } from "@/lib/workroom/derive";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { chargeBoardOrder } from "@/lib/square/payments";
@@ -61,10 +61,10 @@ export async function POST(req: Request) {
     business, the way it always was.
   */
   const hasDeliveryLine = order.lines.some(isDeliveryLine);
-  const zipFee = order.fulfillment === "delivery" && !hasDeliveryLine ? site.deliveryFees[order.zip] : undefined;
+  const zipFee = order.fulfillment === "delivery" && !hasDeliveryLine ? deliveryFeeFor(order.zip) : undefined;
   const lines: WorkroomLine[] =
     zipFee !== undefined
-      ? [...order.lines, { slug: null, name: `Delivery (${order.zip})`, qty: 1, each: zipFee }]
+      ? [...order.lines, { slug: null, name: deliveryLineName(order.zip), qty: 1, each: zipFee }]
       : order.lines;
   const subtotal = zipFee !== undefined ? Math.round((order.subtotal + zipFee) * 100) / 100 : order.subtotal;
 
@@ -92,30 +92,44 @@ export async function POST(req: Request) {
     );
   }
 
+  /* No fee at the board since the 2026-10-06 meeting: the shop's 3% card
+     fee is retired (site.ts), and the 99 cent platform fee rides website
+     orders only. Card and cash both charge exactly the lines. */
+  let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
   try {
-    /* No fee at the board since the 2026-10-06 meeting: the shop's 3% card
-       fee is retired (site.ts), and the 99 cent platform fee rides website
-       orders only. Card and cash both charge exactly the lines. */
-    const charged = await chargeBoardOrder(cfg, {
+    charged = await chargeBoardOrder(cfg, {
       workroomOrderId: order.id,
       orderNumber: order.number,
       lines: lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
       method,
       sourceId,
       cardFee: { name: "", cents: 0, appFeeCents: 0 },
+      // A double tap, or two phones with the same token, is one payment:
+      // the key is the order plus what makes this attempt unique.
+      idempotencyKey: `${order.id}:${method === "card" ? sourceId : "cash"}`,
     });
-    const payment: OrderPayment = {
-      at: Date.now(),
-      method,
-      squarePaymentId: charged.paymentId,
-      totalCents: charged.totalCents,
-      feeCents: charged.feeCents,
-    };
-    if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
-    await store.setOrderPayment(order.id, payment);
-    return NextResponse.json({ ok: true, payment, receiptUrl: charged.receiptUrl });
   } catch (err) {
     console.error(`[devine] pay ${order.number} (${method}) failed:`, err);
     return NextResponse.json({ error: String(err instanceof Error ? err.message : err).slice(0, 300) }, { status: 502 });
   }
+  // MONEY HAS MOVED. From here nothing may answer "it did not go through":
+  // a store blip after a successful charge is logged CRITICAL and the
+  // answer is still ok with the payment, because an error here reads as
+  // "try again" at the counter, and a second tap would charge twice. The
+  // Square payment carries the order id either way; the board can be
+  // reconciled from it.
+  const payment: OrderPayment = {
+    at: Date.now(),
+    method,
+    squarePaymentId: charged.paymentId,
+    totalCents: charged.totalCents,
+    feeCents: charged.feeCents,
+  };
+  try {
+    if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
+    await store.setOrderPayment(order.id, payment);
+  } catch (err) {
+    console.error(`[devine] CRITICAL: pay ${order.number}: Square payment ${charged.paymentId} succeeded but the board was not updated:`, err);
+  }
+  return NextResponse.json({ ok: true, payment, receiptUrl: charged.receiptUrl });
 }

@@ -126,7 +126,8 @@ async function matchWorkroomOrder(referenceId: string, note: string): Promise<st
     const o = await store.getOrder(referenceId).catch(() => null);
     if (o) return o.id;
   }
-  const dv = note.match(/DV-\d{4}-\d{4}/)?.[0];
+  // Both number shapes: website DV-MMDD-#### and phone DV-MMDD-P###.
+  const dv = note.match(/DV-\d{4}-(?:P\d{3,4}|\d{4})/i)?.[0]?.toUpperCase();
   if (dv) {
     const o = await store.getOrderByNumber(dv).catch(() => null);
     if (o) return o.id;
@@ -135,14 +136,15 @@ async function matchWorkroomOrder(referenceId: string, note: string): Promise<st
 }
 
 export async function POST(req: Request) {
-  const cfg = await resolveSquare();
-  if (!cfg) return NextResponse.json({ error: "Square is not configured." }, { status: 503 });
-
+  // Signature first, always: nothing below (a database read, a possible
+  // token refresh against Square) runs for a POST that is not Square's.
   const raw = await req.text();
   const url = process.env.SQUARE_WEBHOOK_URL?.trim() || req.url;
   if (!verified(raw, req.headers.get("x-square-hmacsha256-signature"), url)) {
     return NextResponse.json({ error: "Bad signature." }, { status: 401 });
   }
+  const cfg = await resolveSquare();
+  if (!cfg) return NextResponse.json({ error: "Square is not configured." }, { status: 503 });
 
   const event = JSON.parse(raw) as PaymentEvent;
   if (event.type !== "payment.created" && event.type !== "payment.updated") {

@@ -28,6 +28,6 @@ export async function GET() {
     env: cards.cfg.env,
     // The whole Convenience fee since 2026-10-06: the 99 cent platform fee
     // alone, the shop's 3% card fee being retired (site.ts).
-    feeCents: appFeeCents(),
+    feeCents: cards.cfg.viaOAuth ? appFeeCents() : 0,
   });
 }

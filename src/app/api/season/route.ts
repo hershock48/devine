@@ -22,14 +22,17 @@ export function GET(req: Request) {
   if (ref) {
     try {
       const r = new URL(ref);
-      if (r.origin === url.origin) to = r.pathname + r.search;
+      // Same origin, and never a path beginning "//", which new URL would
+      // read as another host.
+      if (r.origin === url.origin && !r.pathname.startsWith("//")) to = r.pathname + r.search;
     } catch {
       /* an unparseable referer just falls back to /demo */
     }
   }
 
   // 303: this is a GET acting like a form submit, and the redirect must be a GET.
-  const res = NextResponse.redirect(new URL(to, url.origin), 303);
+  const dest = new URL(to, url.origin);
+  const res = NextResponse.redirect(dest.origin === url.origin ? dest : new URL("/demo", url.origin), 303);
   if (set === "today") {
     res.cookies.delete(SEASON_COOKIE);
   } else if (isPreviewSlug(set)) {

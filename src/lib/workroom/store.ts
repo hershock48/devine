@@ -527,6 +527,9 @@ type Store = {
   upsertWeeklyOrder(o: WeeklyOrder): Promise<void>;
   /** Newest first. The screen only ever needs a handful. */
   listWeeklyOrders(limit: number): Promise<WeeklyOrder[]>;
+  /** One by id, however old: the routes that edit, receive or delete must
+      find it past the list's cap. */
+  getWeeklyOrder(id: string): Promise<WeeklyOrder | null>;
   deleteWeeklyOrder(id: string): Promise<void>;
   upsertPlantItem(p: PlantItem): Promise<void>;
   listPlantItems(): Promise<PlantItem[]>;
@@ -750,6 +753,9 @@ const memoryStore: Store = {
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, limit);
   },
+  async getWeeklyOrder(id) {
+    return bag().weeklyOrders.get(id) ?? null;
+  },
   async deleteWeeklyOrder(id) {
     bag().weeklyOrders.delete(id);
   },
@@ -822,7 +828,7 @@ async function pgPool(): Promise<PgPool> {
     g.__devinePgPool = new Pool({
       connectionString: cs,
       // Neon and friends require TLS; local postgres usually has none.
-      ssl: cs?.includes("localhost") ? undefined : { rejectUnauthorized: false },
+      ssl: cs && /localhost|127\.0\.0\.1|sslmode=disable/.test(cs) ? undefined : { rejectUnauthorized: false },
       max: 3,
     }) as unknown as PgPool;
     /*
@@ -929,7 +935,7 @@ const postgresStore: Store = {
       `SELECT data FROM (
          SELECT data, created_at FROM workroom_orders
          WHERE status NOT IN ('done', 'canceled')
-            OR (status = 'done' AND data->'payment' IS NULL)
+            OR (status = 'done' AND data->>'payment' IS NULL)
             OR created_at >= $1
          ORDER BY created_at DESC LIMIT 2000
        ) t ORDER BY created_at ASC`,
@@ -1142,6 +1148,11 @@ const postgresStore: Store = {
       [Math.min(limit, 200)],
     );
     return r.rows.map((row) => row.data as WeeklyOrder);
+  },
+  async getWeeklyOrder(id) {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_weekly_orders WHERE id = $1`, [id]);
+    return r.rows[0] ? (r.rows[0].data as WeeklyOrder) : null;
   },
   async deleteWeeklyOrder(id) {
     const pool = await pgPool();

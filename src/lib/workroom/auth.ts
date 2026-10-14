@@ -18,7 +18,8 @@ import { cookies } from "next/headers";
  * in Vercel before this carries a real day's orders.
  */
 
-const COOKIE = "devine_workroom";
+export const WORKROOM_COOKIE = "devine_workroom";
+const COOKIE = WORKROOM_COOKIE;
 /** Local development only. See workroomPin(). */
 const PIN_FALLBACK = "0830";
 /** Local development only, same contract as PIN_FALLBACK. */
@@ -113,7 +114,14 @@ export function clientKey(req: Request): string {
 export function pinThrottle(req: Request, scope: "form" | "header") {
   const key = `${scope}:${clientKey(req)}`;
   const now = Date.now();
-  const bucket = buckets().get(key) ?? { failures: [] };
+  // The map is per address and lives as long as the process; a scan from
+  // many addresses would grow it without end. Past a few hundred keys,
+  // sweep the ones whose failures have all aged out.
+  const all = buckets();
+  if (all.size > 500) {
+    for (const [k, b] of all) if (!b.failures.some((t) => now - t < PIN_WINDOW_MS)) all.delete(k);
+  }
+  const bucket = all.get(key) ?? { failures: [] };
   bucket.failures = bucket.failures.filter((t) => now - t < PIN_WINDOW_MS);
   return {
     tooMany: () => bucket.failures.length >= PIN_MAX_FAILURES,

@@ -169,4 +169,10 @@ export function formatHours(h: (typeof site.hours)[number]): string {
   return h.open && h.close ? `${h.open} to ${h.close}` : "Closed";
 }
 
+/** The zip sheet, looked up safely: a typed "toString" or "constructor"
+    must read as "not on the sheet", not as an inherited function. Every
+    fee lookup on the server and the client goes through here. */
+export const deliveryFeeFor = (zip: string): number | undefined =>
+  Object.hasOwn(site.deliveryFees, zip) ? (site.deliveryFees as Record<string, number>)[zip] : undefined;
+
 export const addressOneLine = `${site.address.street}, ${site.address.city}, ${site.address.state} ${site.address.zip}`;

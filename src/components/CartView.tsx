@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/components/Cart";
 import ProductImage from "@/components/ProductImage";
 import { bySlug, money, products } from "@/lib/catalog";
-import { site } from "@/lib/site";
+import { deliveryFeeFor, site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
 import { loadSquareSdk, type BillingContact, type SquareCard } from "@/lib/square/web-sdk";
@@ -184,7 +184,7 @@ export default function CartView() {
 
   const delivering0 = fulfillment === "delivery";
   const zipTrim = zip.trim();
-  const deliveryFee = delivering0 ? site.deliveryFees[zipTrim] : undefined;
+  const deliveryFee = delivering0 ? deliveryFeeFor(zipTrim) : undefined;
   const deliveryMin = delivering0
     ? zipTrim === site.marshallZip
       ? site.deliveryMinimums.marshall

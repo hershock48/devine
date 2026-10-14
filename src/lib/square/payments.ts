@@ -125,8 +125,14 @@ export async function chargeBoardOrder(
         so every payment path states its fee story. Pass cents 0 to charge
         exactly the lines. */
     cardFee: { name: string; cents: number; appFeeCents: number };
+    /** Optional. One key per (order, attempt): two requests carrying the
+        same key (a double tap, a retried POST) get one Square payment
+        between them instead of two. Derived by the caller from what makes
+        the attempt unique: the card token, or "cash". */
+    idempotencyKey?: string;
   },
 ) {
+  const idem = (part: string) => (opts.idempotencyKey ? `${opts.idempotencyKey}:${part}`.slice(0, 45) : randomUUID());
   const subtotalCents = opts.lines.reduce((sum, l) => sum + cents(l.each) * l.qty, 0);
   if (subtotalCents <= 0) throw new Error("This order has no priced lines to charge.");
 
@@ -152,7 +158,7 @@ export async function chargeBoardOrder(
   }
 
   const created = await square<CreateOrderResponse>(cfg, "POST", "/v2/orders", {
-    idempotency_key: randomUUID(),
+    idempotency_key: idem("o"),
     order: {
       location_id: cfg.locationId,
       reference_id: opts.workroomOrderId,
@@ -171,7 +177,7 @@ export async function chargeBoardOrder(
   }
 
   const body: Record<string, unknown> = {
-    idempotency_key: randomUUID(),
+    idempotency_key: idem("p"),
     order_id: squareOrderId,
     location_id: cfg.locationId,
     amount_money: { amount: totalCents, currency: "USD" },
@@ -193,6 +199,7 @@ export async function chargeBoardOrder(
   if (!res.payment?.id) throw new Error("Square did not return a payment.");
   return {
     paymentId: res.payment.id,
+    orderId: squareOrderId,
     status: res.payment.status ?? "",
     receiptUrl: res.payment.receipt_url ?? "",
     totalCents,

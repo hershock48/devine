@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { site } from "@/lib/site";
+import { deliveryFeeFor, site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
@@ -119,7 +119,7 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
   const zip = str(p.zip, 10);
   if (fulfillment === "delivery") {
     const typed = typeof p.deliveryFee === "number" && Number.isFinite(p.deliveryFee) && p.deliveryFee >= 0 ? p.deliveryFee : undefined;
-    const fee = typed !== undefined ? Math.round(typed * 100) / 100 : site.deliveryFees[zip];
+    const fee = typed !== undefined ? Math.round(typed * 100) / 100 : deliveryFeeFor(zip);
     if (fee !== undefined) lines.push({ slug: null, name: deliveryLineName(zip), qty: 1, each: fee });
   }
   return {
@@ -150,11 +150,19 @@ export async function POST(req: Request) {
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const now = Date.now();
   const mmdd = parsed.fields.date.slice(5).replace("-", "");
+  // Same DV- shape as the email tickets, P for phone so the two streams
+  // cannot collide on a number. A thousand values per date is few enough
+  // that a busy holiday would repeat one, so the number is checked against
+  // the board before it is used.
+  let number = "";
+  for (let tries = 0; tries < 12 && !number; tries++) {
+    const candidate = `DV-${mmdd}-P${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
+    if (!(await getStore().getOrderByNumber(candidate).catch(() => null))) number = candidate;
+  }
+  if (!number) number = `DV-${mmdd}-P${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
   const order: WorkroomOrder = {
     id: newId("wr"),
-    // Same DV- shape as the email tickets, P for phone so the two streams
-    // cannot collide on a number.
-    number: `DV-${mmdd}-P${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`,
+    number,
     source: "phone",
     // A phone order is born confirmed: the shop is already talking to the
     // customer, which is the whole thing "confirmed" means here. ON HOLD

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { saleInstantMs } from "@/lib/workroom/derive";
 import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { square, type SquareConfig } from "@/lib/square/client";
 import { resolveSquare } from "@/lib/square/oauth";
@@ -92,7 +93,7 @@ async function fromStored(beginMs: number, endMs: number): Promise<PaymentRow[]>
   for (const s of sales) {
     // paidAt is Square's own stamp; a row that somehow lacks one falls back
     // to when the webhook landed, which is seconds later in practice.
-    const ms = Number.isFinite(Date.parse(s.paidAt)) ? Date.parse(s.paidAt) : s.createdAt;
+    const ms = saleInstantMs(s.paidAt, s.createdAt);
     if (ms >= beginMs && ms < endMs) rows.push({ ms, cents: s.totalCents, cash: s.source === "CASH" });
   }
   return rows;
@@ -146,7 +147,7 @@ export async function GET(req: Request) {
     .slice(0, 400)
     .map(Number)
     .filter((n) => Number.isFinite(n));
-  if (begin === null || end === null || prevBegin === null || prevEnd === null || end <= begin) {
+  if (begin === null || end === null || prevBegin === null || prevEnd === null || end <= begin || prevEnd <= prevBegin) {
     return NextResponse.json({ error: "Malformed window." }, { status: 400 });
   }
   // The client owns the calendar, but the geometry is still checked: edges

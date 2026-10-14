@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
-import { site } from "@/lib/site";
+import { deliveryFeeFor, site } from "@/lib/site";
 import { field, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import { HISTORY_DAYS, isDeliveryLine, normalizeVariety, printPaperFor, waitingToPrint } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
@@ -901,7 +901,7 @@ function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Pro
  */
 function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) => Promise<void> }) {
   const line = o.lines.find(isDeliveryLine);
-  const sheet = site.deliveryFees[o.zip];
+  const sheet = deliveryFeeFor(o.zip);
   const current = line ? line.each : sheet;
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -1222,8 +1222,8 @@ function OrderCard({
           deliveryCents={
             o.fulfillment === "delivery" &&
             !o.lines.some(isDeliveryLine) &&
-            site.deliveryFees[o.zip] !== undefined
-              ? Math.round(site.deliveryFees[o.zip] * 100)
+            deliveryFeeFor(o.zip) !== undefined
+              ? Math.round((deliveryFeeFor(o.zip) as number) * 100)
               : 0
           }
           payment={o.payment}
@@ -1459,7 +1459,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   }
 
   const delivering = fulfillment === "delivery";
-  const sheetFee = site.deliveryFees[zip.trim()];
+  const sheetFee = deliveryFeeFor(zip.trim());
   const deliveryFee = feeOverride ?? (sheetFee !== undefined ? String(sheetFee) : "");
 
   return (

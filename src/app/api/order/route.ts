@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { priceOrder, sendOrder, type PaidOnline, type PricedOrder } from "@/lib/intake";
-import { site } from "@/lib/site";
+import { deliveryFeeFor, site } from "@/lib/site";
 import { cardsEnabled } from "@/lib/square/cards";
 import { chargeBoardOrder, appFeeCents } from "@/lib/square/payments";
-import { getStore, newId, type OrderPayment, type WorkroomOrder } from "@/lib/workroom/store";
+import { getStore, newId, type OrderPayment, type SquareSale, type WorkroomOrder } from "@/lib/workroom/store";
+import { deliveryLineName } from "@/lib/workroom/derive";
 
 /**
  * POST /api/order. The only route on the site with a side effect.
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
       is the order; a board miss is a log line, never a failed checkout.
     */
     try {
-      await getStore().createOrder(toWorkroomOrder(priced.order, "new", null));
+      await getStore().createOrder(toWorkroomOrder(priced.order, newId("wr"), "new", null));
     } catch (err) {
       console.error(`[devine] order ${priced.order.number} not written to the board:`, err);
     }
@@ -103,7 +104,7 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
   */
   let deliveryFee = 0;
   if (order.fulfillment === "delivery") {
-    const fee = site.deliveryFees[order.zip];
+    const fee = deliveryFeeFor(order.zip);
     if (fee === undefined) {
       return NextResponse.json(
         { ok: false, error: `We don't deliver to ${order.zip} through the website, so the card was not charged. Give us a call at ${site.phone} and let's see what we can do, or choose pickup.` },
@@ -116,14 +117,18 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
   const id = newId("wr");
   const chargeLines = [
     ...order.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each })),
-    ...(deliveryFee > 0 ? [{ name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }] : []),
+    ...(deliveryFee > 0 ? [{ name: deliveryLineName(order.zip), qty: 1, each: deliveryFee }] : []),
   ];
   /* The website's fee line is the 99 cent platform fee alone since the
      2026-10-06 meeting (the shop's 3% card fee is retired; see site.ts).
      It rides to the Glazed account as app_fee_money. The browser shows the
      same number (CartView, from /api/checkout/config) and Square's
      order-total check would catch any drift between the two. */
-  const convenienceCents = appFeeCents();
+  // The platform fee rides only when it can reach the platform: through
+  // her OAuth grant. On the env-token path (sandbox, local dev) no fee is
+  // charged at all, so the shop never holds Glazed's cents by accident.
+  // The checkout's config route says the same number to the cart.
+  const convenienceCents = cfg.viaOAuth ? appFeeCents() : 0;
   let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
   try {
     charged = await chargeBoardOrder(cfg, {
@@ -132,7 +137,8 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
       lines: chargeLines,
       method: "card",
       sourceId,
-      cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: appFeeCents() },
+      cardFee: { name: "Convenience fee", cents: convenienceCents, appFeeCents: convenienceCents },
+      idempotencyKey: `${id}:${sourceId}`,
     });
   } catch (err) {
     console.error(`[devine] online payment for ${order.number} failed:`, err);
@@ -163,12 +169,28 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
     // The board ticket carries the delivery line too, and its subtotal is
     // the whole order value (flowers + delivery), so the ticket's rows and
     // its Subtotal agree with what the card was charged.
-    const wr = { ...toWorkroomOrder(order, "confirmed", payment), id };
+    const wr = toWorkroomOrder(order, id, "confirmed", payment);
     if (deliveryFee > 0) {
-      wr.lines = [...wr.lines, { slug: null, name: `Delivery (${order.zip})`, qty: 1, each: deliveryFee }];
+      wr.lines = [...wr.lines, { slug: null, name: deliveryLineName(order.zip), qty: 1, each: deliveryFee }];
       wr.subtotal = Math.round((wr.subtotal + deliveryFee) * 100) / 100;
     }
     await getStore().createOrder(wr);
+    // The sale, linked, written here too: Square's webhook can fire before
+    // the board row above exists, and a sale stored unlinked in that gap
+    // would count as a walk-out in the stem numbers forever (Square does
+    // not redeliver on a 200). This write wins either order of arrival.
+    const sale: SquareSale = {
+      id: charged.paymentId,
+      workroomOrderId: id,
+      orderId: charged.orderId,
+      locationId: cfg.locationId,
+      source: "CARD",
+      totalCents: charged.totalCents,
+      paidAt: new Date().toISOString(),
+      lines: [],
+      createdAt: Date.now(),
+    };
+    await getStore().upsertSquareSale(sale);
   } catch (err) {
     console.error(`[devine] CRITICAL: paid order ${order.number} (payment ${charged.paymentId}) not written to the board:`, err);
   }
@@ -185,9 +207,9 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
   });
 }
 
-function toWorkroomOrder(o: PricedOrder, status: WorkroomOrder["status"], payment: OrderPayment | null): WorkroomOrder {
+function toWorkroomOrder(o: PricedOrder, id: string, status: WorkroomOrder["status"], payment: OrderPayment | null): WorkroomOrder {
   return {
-    id: newId("wr"),
+    id,
     number: o.number,
     source: "web",
     status,
