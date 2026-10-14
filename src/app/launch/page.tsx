@@ -26,7 +26,7 @@ import "./launch.css";
  * build fee and the monthly read the studio pay rail through its
  * booleans-only endpoint (glazedweb.com/api/build-status/devine), so no
  * Stripe key ever enters this repo. What cannot be read is ticked by hand:
- * the ask list's dots (ASKS below, `done` flipped as things arrive - the
+ * the ask list's dots (asksFor below: the live records, else `done` flipped by hand - the
  * honest state is what we have actually received) and the domain light
  * (LAUNCH_FLAGS="domain", flipped in Vercel at cutover).
  *
@@ -41,7 +41,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Launch Plan · Glazed Web × DeVine's Flowers & Botanicals",
-  description: "The road from the demo to the shop running on it: where things stand, what happens next, and what we need from you.",
+  description: "The shop is live. Where things stand, what happens next, and the short list we still need from you.",
   robots: { index: false, follow: false },
 };
 
@@ -83,101 +83,116 @@ async function readStatus() {
   // Flags set by hand in Vercel for what the rail cannot see: a build fee
   // or a monthly paid outside it (a check at the counter, 2026-10-14).
   return {
-    signed,
-    square,
+    // The hand flags cover what the records cannot show: a signature on
+    // paper, a Square link made outside this site.
+    signed: flags.has("signed") || signed,
     build: flags.has("build") ? "lit" : build,
     monthly: flags.has("monthly") || monthly,
     domain: flags.has("domain"),
+    square: flags.has("square") || square,
   };
 }
 
-/** What only the shop can supply, ordered by what each item unblocks. The
-    dots are ticked by US, by flipping `done` here as things arrive; this is
-    the one copy of the list, and the letter points at it. */
-const ASKS: { what: React.ReactNode; why: React.ReactNode; done: boolean }[] = [
-  {
-    what: (
-      <>
-        Your name and the business entity, signed at <a href="/agreement">the agreement</a>.
-      </>
-    ),
-    why: "Unblocks everything below. The terms and numbers live there, one tap away, and this page never repeats them.",
-    done: false,
-  },
-  {
-    what: (
-      <>
-        The build fee, at your pace, from <a href="/agreement">the agreement</a>.
-      </>
-    ),
-    why: "Unblocks the build schedule. Your choice: the deposit now with the balance due on launch, the full amount up front and done, or the full amount with the monthly started right away so everything is set up in one sitting. The agreement page is where you pay.",
-    done: false,
-  },
-  {
-    what: "Your Square account, connected to the site.",
-    why: "Unblocks real card payments, online and at the board. Today the site runs on Square's practice sandbox, which is why the test card works; connecting your account is a short guided step we do together.",
-    done: false,
-  },
-  {
-    what: "Your domain, or access to wherever it is registered.",
-    why: "Unblocks the cutover: the day your address serves this site instead of the old one.",
-    done: false,
-  },
-  {
-    what: (
-      <>
-        Photos of your designs, through <a href="/photos">your photos page</a>.
-      </>
-    ),
-    why: "Unblocks the shop pages selling at full strength. Twenty designs have a photograph on the new site; the rest can only be read about, and a flower customer buys the photograph. The page lists every design still waiting, in the order that helps most; tap one, pick the shot from your phone, and it is sent.",
-    done: false,
-  },
-  {
-    what: "Your delivery zones and rates, confirmed.",
-    why: "Unblocks the delivery-distance work: miles from the shop on every order, and a delivery fee you can adjust before charging.",
-    done: false,
-  },
-  {
-    what: "Your wedding pricing spreadsheet, exactly as it is.",
-    why: "Unblocks the wedding quote math becoming yours instead of a stand-in.",
-    done: false,
-  },
-  {
-    what: "Wedding photos, as many as you like.",
-    why: "Unblocks the wedding gallery. The page becomes a portfolio of your own work, so the best pictures win.",
-    done: false,
-  },
-  {
-    what: "The word on the funeral pad, and letting us watch you quote one.",
-    why: "Unblocks that cleanup: whether the pad's notes get their own labeled block on the order or go away, and the quote tool corrected by the person who actually has that conversation.",
-    done: false,
-  },
-  {
-    what: "Your house-account customers, and what each may run up.",
-    why: "Unblocks house and business accounts: the tab, the credit limit, the month-end invoice, the on and off switch.",
-    done: false,
-  },
-  {
-    what: "Your chosen workroom PINs, told to Kevin by phone.",
-    why: "Unblocks your staff on the real board. Spoken, never written down, and never sent by email.",
-    done: false,
-  },
-  {
-    what: "A walk through your current software, before anything about it gets canceled.",
-    why: "Unblocks the switch losing nothing: order history or customer names it quietly keeps come out before it goes.",
-    done: false,
-  },
-  {
-    what: "Your real logo file, and the word that we may keep using your site's photography.",
-    why: "Unblocks the last of the stand-ins: the logo from whoever made your sign or printed your shirts, at full quality.",
-    done: false,
-  },
-  {
-    what: "Half an hour of somebody's memory about Greening.",
-    why: "Unblocks that page saying something true: who you keep green, and whether we can name them.",
-    done: false,
-  },
-];
+/** What only the shop can supply. Launched 2026-10-14: the signature, the
+    build fee, Square and the domain read live from their own records, the
+    rest is ticked by US as things arrive. The monthly sits first because it
+    is the one thing left (Kevin, 2026-10-14). */
+type Ask = { what: React.ReactNode; why: React.ReactNode; done: boolean };
+function asksFor(s: Awaited<ReturnType<typeof readStatus>>): Ask[] {
+  return [
+    {
+      what: (
+        <>
+          Start the monthly, from <a href="/agreement">the agreement</a>.
+        </>
+      ),
+      why: "The last thing on the list. The site is live and the build is paid; the monthly is what keeps it up, backed up and yours to change, and the agreement page is where it starts.",
+      done: s.monthly,
+    },
+    {
+      what: (
+        <>
+          Your name and the business entity, signed at <a href="/agreement">the agreement</a>.
+        </>
+      ),
+      why: "Unblocked everything below. The terms and numbers live there, one tap away, and this page never repeats them.",
+      done: s.signed,
+    },
+    {
+      what: (
+        <>
+          The build fee, from <a href="/agreement">the agreement</a>.
+        </>
+      ),
+      why: "Paid in full, October 2026. Thank you.",
+      done: s.build === "lit",
+    },
+    {
+      what: "Your Square account, connected to the site.",
+      why: "Real card payments, online and at the board, through your own Square.",
+      done: s.square,
+    },
+    {
+      what: "Your domain, pointed at the new site.",
+      why: "The cutover happened October 14: your address serves this site, and the old one is closed.",
+      done: s.domain,
+    },
+    {
+      what: (
+        <>
+          Photos of your designs, through <a href="/photos">your photos page</a>.
+        </>
+      ),
+      why: "54 of 58 designs have a photograph. The page lists the few still waiting (the three classic wedding pieces and Lucy); tap one, pick the shot from your phone, and it is sent.",
+      done: true,
+    },
+    {
+      what: "Your delivery zones and rates, confirmed.",
+      why: "Your zip sheet is the delivery fee on every order, and the counter can change it while quoting.",
+      done: true,
+    },
+    {
+      what: "Your wedding pricing spreadsheet, exactly as it is.",
+      why: "Unblocks the wedding quote math becoming yours instead of a stand-in. The model is yours from screenshots; the full sheet confirms it to the cent.",
+      done: false,
+    },
+    {
+      what: "Wedding photos, as many as you like.",
+      why: "Unblocks the wedding gallery. The page becomes a portfolio of your own work, so the best pictures win.",
+      done: false,
+    },
+    {
+      what: "The word on the funeral pad, and letting us watch you quote one.",
+      why: "Unblocks that cleanup: whether the pad's notes get their own labeled block on the order or go away, and the quote tool corrected by the person who actually has that conversation.",
+      done: false,
+    },
+    {
+      what: "Your house-account customers, and what each may run up.",
+      why: "The Accounts tab is live: who owes what, statements by email. Credit limits and the month-end rhythm wait on this.",
+      done: false,
+    },
+    {
+      what: "Your chosen workroom PINs, told to Kevin by phone.",
+      why: "Your staff are on the real board.",
+      done: true,
+    },
+    {
+      what: "A walk through your current software, before anything about it gets canceled.",
+      why: "Your customer and recipient lists came out of IRIS and are on file for the write-up's suggestions.",
+      done: true,
+    },
+    {
+      what: "Your real logo file, and the word that we may keep using your site's photography.",
+      why: "In hand, on the site and on every email.",
+      done: true,
+    },
+    {
+      what: "Half an hour of somebody's memory about Greening.",
+      why: "Unblocks that page saying something true: who you keep green, and whether we can name them.",
+      done: false,
+    },
+  ];
+}
 
 const PHASES: { name: string; what: string; wait?: string }[] = [
   {
@@ -187,7 +202,6 @@ const PHASES: { name: string; what: string; wait?: string }[] = [
   {
     name: "Addresses and delivery",
     what: "Address checking as orders come in, miles from the shop on every order, and a delivery fee you can adjust before charging.",
-    wait: "Waiting on item 6.",
   },
   {
     name: "Orders that bend",
@@ -196,12 +210,12 @@ const PHASES: { name: string; what: string; wait?: string }[] = [
   {
     name: "House accounts",
     what: "Business and house accounts laid out plainly: who owes what, credit limits, cards kept on file with Square, and month-end invoices sent from the workroom.",
-    wait: "Waiting on item 10.",
+    wait: "Waiting on item 11.",
   },
   {
     name: "Weddings and big orders",
     what: "Deposits with paid and owed tracked, split payments, and the wedding page rebuilt as a gallery of your work.",
-    wait: "Waiting on items 7 and 8.",
+    wait: "Waiting on items 8 and 9.",
   },
 ];
 
@@ -211,14 +225,14 @@ function Dot({ state }: { state: LightState }) {
 
 export default async function LaunchPage() {
   const s = await readStatus();
-  const asksDone = ASKS.filter((a) => a.done).length;
-  const listLit: LightState = asksDone === ASKS.length ? "lit" : asksDone > 0 ? "half" : "off";
+  const asks = asksFor(s);
+  const open = asks.filter((a) => !a.done).length;
+  // The rail is the live records only; the list below carries its own dots.
   const lights: { label: string; state: LightState }[] = [
     { label: "Signed", state: s.signed ? "lit" : "off" },
     { label: s.build === "half" ? "Build fee: half in" : "Build fee", state: s.build },
     { label: "Monthly running", state: s.monthly ? "lit" : "off" },
     { label: "Square connected", state: s.square ? "lit" : "off" },
-    { label: `Your list: ${asksDone} of ${ASKS.length}`, state: listLit },
     { label: "Domain live", state: s.domain ? "lit" : "off" },
   ];
   return (
@@ -226,9 +240,9 @@ export default async function LaunchPage() {
       <p className="agr-kicker">Glazed Web × DeVine&rsquo;s Flowers &amp; Botanicals</p>
       <h1>The launch plan.</h1>
       <p>
-        You have driven the site, written up orders, and taken a payment or two on the practice
-        card. This page is the road from that demo to your shop running on it for real: where
-        things stand, what happens in what order, and the short list only you can supply.
+        Your shop has run on this site since October 14, 2026: the store, the board, the
+        payments, all real. This page is where things stand, what comes next, and the short list
+        only you can supply.
       </p>
       <p className="agr-note">
         The signature and money lights read live from the records themselves. The list is ticked
@@ -249,11 +263,12 @@ export default async function LaunchPage() {
 
       <h2>What we need from you</h2>
       <p>
-        In order, because the early ones unblock the later ones. Most are a phone call or a
-        forwarded email; none of them is homework. We tick them as they arrive.
+        {open === 0
+          ? "Everything on it is in. Thank you."
+          : `${open} of ${asks.length} still open, the first one first. Most are a phone call or a forwarded email; none of them is homework. We tick them as they arrive.`}
       </p>
       <ol className="lp-asks">
-        {ASKS.map((a, i) => (
+        {asks.map((a, i) => (
           <li key={i}>
             <p className="lp-ask-what">
               <Dot state={a.done ? "lit" : "off"} /> {a.what}
