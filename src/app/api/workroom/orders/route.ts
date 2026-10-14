@@ -3,7 +3,7 @@ import { deliveryFeeFor, site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
-import { deliveryLineName, isDeliveryLine, normalizeVariety } from "@/lib/workroom/derive";
+import { deliveryLineName, isDeliveryLine, normalizeVariety, withTaxLine } from "@/lib/workroom/derive";
 import { INITIALS_ERROR } from "@/lib/workroom/initials";
 import { sendDeliveredEmail, sendWorkroomReceipt } from "@/lib/intake";
 
@@ -22,7 +22,12 @@ export async function GET(req: Request) {
   // The board reads its 60 days; the dashboard's year view asks for 400.
   const days = Math.min(400, Math.max(1, Math.round(Number(new URL(req.url).searchParams.get("days"))) || 60));
   const store = getStore();
-  const [orders, contacts] = await Promise.all([store.listOrders(days), store.listOrderContacts()]);
+  // The Accounts tab asks for account orders only (open ones never age
+  // off the list, the store's own rule, so a year-old unpaid account
+  // order is still here).
+  const accountOnly = new URL(req.url).searchParams.get("account") === "1";
+  const [all, contacts] = await Promise.all([store.listOrders(days), store.listOrderContacts()]);
+  const orders = accountOnly ? all.filter((o) => o.account) : all;
   // contacts spans the whole history, so "her third order this year" still
   // counts after the first two age off the 60-day board.
   return NextResponse.json({ orders, contacts, backend: store.backend });
@@ -123,6 +128,14 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
     const fee = typed !== undefined ? Math.round(typed * 100) / 100 : deliveryFeeFor(zip);
     if (fee !== undefined) lines.push({ slug: null, name: deliveryLineName(zip), qty: 1, each: fee });
   }
+  // SALES TAX, as a line (Kevin, 2026-10-14: on every order). Computed
+  // here from the items, so the quote pads, the phone form and an edit
+  // all tax by one rule; a tax line that arrived with a quote is replaced.
+  // Tax exempt means no line at all, and the box is remembered.
+  const account = p.account === true;
+  const taxExempt = p.taxExempt === true;
+  const taxed = withTaxLine(lines, taxExempt);
+  lines.splice(0, lines.length, ...taxed);
   // WHO TOOK IT (Katy, 2026-10-14): initials, two or three letters, on
   // every order written up here, so a question later knows who to ask.
   // Required, not merely asked for: an order with nobody's name on it is
@@ -134,6 +147,8 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
   return {
     fields: {
       takenBy,
+      account,
+      taxExempt,
       name,
       phone: str(p.phone, 40),
       email: str(p.email, 160),

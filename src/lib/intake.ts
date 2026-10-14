@@ -3,6 +3,7 @@ import "server-only";
 import nodemailer from "nodemailer";
 import { bySlug, money } from "@/lib/catalog";
 import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
+import { taxFor, taxLineName } from "@/lib/workroom/derive";
 import { occasions as OCCASIONS } from "@/lib/occasions";
 import { block, esc, logoAttachment, longDay, orderTable, phoneLink, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
@@ -64,7 +65,11 @@ export type PricedLine = { slug: string; name: string; qty: number; each: number
 export type PricedOrder = Omit<IntakePayload, "lines"> & {
   number: string;
   lines: PricedLine[];
+  /** The items. The delivery minimum is judged on this. */
   subtotal: number;
+  /** Michigan sales tax on the items (site.taxRate), never on delivery or
+      the online fee. Charged and shown everywhere the subtotal is. */
+  tax: number;
 };
 
 const str = (v: unknown, max: number): string =>
@@ -123,6 +128,7 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
   if (!email || !email.includes("@")) return { error: "An email address is required, for your receipt." };
 
   const subtotal = Math.round(lines.reduce((s, l) => s + l.line, 0) * 100) / 100;
+  const tax = taxFor(lines);
   // THE DELIVERY MINIMUM IS A GATE, not a note (Kevin, 2026-10-13): her
   // sheet says $45 in Marshall, $55 elsewhere, before the delivery fee,
   // and an order under it is not a delivery order. Checked for paid and
@@ -150,6 +156,7 @@ export function priceOrder(raw: unknown): { order: PricedOrder } | { error: stri
       number: orderNumber(),
       lines,
       subtotal,
+      tax,
       name,
       phone,
       email,
@@ -219,8 +226,8 @@ export function shopTicket(o: PricedOrder, paid?: PaidOnline): string {
     ...lines,
     "",
     paid
-      ? `Subtotal ${money(o.subtotal)}${paid.deliveryCents ? ` + ${money(paid.deliveryCents / 100)} delivery` : ""} + ${money(paid.feeCents / 100)} convenience fee = ${money(paid.totalCents / 100)} PAID`
-      : `Subtotal ${money(o.subtotal)} (no tax or delivery on this figure; settled on the confirm call)`,
+      ? `Subtotal ${money(o.subtotal)} + ${money(o.tax)} sales tax${paid.deliveryCents ? ` + ${money(paid.deliveryCents / 100)} delivery` : ""} + ${money(paid.feeCents / 100)} convenience fee = ${money(paid.totalCents / 100)} PAID`
+      : `Subtotal ${money(o.subtotal)} + ${money(o.tax)} sales tax (delivery not in this figure; settled on the confirm call)`,
     "",
     `Card message: ${o.cardMessage || "(none)"}`,
     o.notes ? `Notes: ${o.notes}` : null,
@@ -253,6 +260,7 @@ function customerCopy(o: PricedOrder, paid?: PaidOnline): string {
     `Order ${o.number}`,
     ...o.lines.map((l) => `  ${l.qty} x ${l.name}   ${money(l.line)}`),
     `Subtotal ${money(o.subtotal)}`,
+    `${taxLineName} ${money(o.tax)}`,
     paid && paid.deliveryCents ? `Delivery ${money(paid.deliveryCents / 100)}` : null,
     paid ? `Convenience fee ${money(paid.feeCents / 100)}` : null,
     paid ? `Paid by card ${money(paid.totalCents / 100)}` : null,
@@ -276,7 +284,8 @@ function customerCopy(o: PricedOrder, paid?: PaidOnline): string {
 /** The same copy, branded (Kevin, 2026-10-13). The text version above
     rides along as the alternative. */
 function customerCopyHtml(o: PricedOrder, paid?: PaidOnline): string {
-  const rows: MoneyRow[] = [{ label: "Subtotal", value: money(o.subtotal) }];
+  const rows: MoneyRow[] = [{ label: "Subtotal", value: money(o.subtotal) }, { label: taxLineName, value: money(o.tax) }];
+  const withTax = Math.round((o.subtotal + o.tax) * 100) / 100;
   if (paid) {
     if (paid.deliveryCents) rows.push({ label: `Delivery (${o.zip})`, value: money(paid.deliveryCents / 100) });
     rows.push({ label: "Online ordering fee", value: money(paid.feeCents / 100), muted: true });
@@ -287,12 +296,12 @@ function customerCopyHtml(o: PricedOrder, paid?: PaidOnline): string {
     const fee = deliveryFeeFor(o.zip);
     if (fee !== undefined) {
       rows.push({ label: `Delivery (${o.zip})`, value: money(fee) });
-      rows.push({ label: "Total due when we call", value: money(Math.round((o.subtotal + fee) * 100) / 100), strong: true });
+      rows.push({ label: "Total due when we call", value: money(Math.round((withTax + fee) * 100) / 100), strong: true });
     } else {
       rows.push({ label: "Delivery", value: "priced on the call", muted: true });
     }
   } else {
-    rows.push({ label: "Total due at pickup", value: money(o.subtotal), strong: true });
+    rows.push({ label: "Total due at pickup", value: money(withTax), strong: true });
   }
   const when = longDay(o.date);
   const sections = [
@@ -399,7 +408,7 @@ export async function sendWorkroomReceipt(o: {
     `${o.fulfillment === "delivery" ? "Delivery" : "Pickup"} on ${o.date}${o.recipient && o.recipient !== o.name ? `, for ${o.recipient}` : ""}`,
     "",
     ...o.lines.map((l) => `  ${l.qty} x ${l.name}  ${money(l.each * l.qty)}`),
-    `  Subtotal ${money(o.subtotal)}`,
+    `  Total ${money(o.subtotal)}`,
     "",
     `Questions or changes: call the shop at ${site.phone}.`,
   ].join("\n");
@@ -419,7 +428,7 @@ export async function sendWorkroomReceipt(o: {
             `Order ${o.number}`,
             orderTable(
               o.lines.map((l) => ({ qty: l.qty, name: l.name, total: Math.round(l.each * l.qty * 100) / 100 })),
-              [{ label: "Subtotal", value: money(o.subtotal), strong: true }],
+              [{ label: "Total", value: money(o.subtotal), strong: true }],
             ),
           ),
           block(
