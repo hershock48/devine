@@ -51,7 +51,16 @@ const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
 export type { PrintLayout };
 
 const IN = 72;
-const PANEL_W = (11 * IN) / 3;
+/** THE FORM IS LEGAL, 8.5 BY 14 (Kevin, 2026-10-13, after four prints
+    that each covered exactly 11/14 of the sheet with the heights right:
+    "the paper we're using is longer than the paper the system expects").
+    The lower tray was set to Legal on the printer and in Windows because
+    that is what is in it. Three panels of 4 2/3 in across, the fold 3.5 in
+    down. Every earlier number in inches was read off a 14 in sheet as if
+    it were 11, so each is re-derived below at the true scale. */
+const SHEET_W = 14 * IN;
+const SHEET_H = 8.5 * IN;
+const PANEL_W = SHEET_W / 3;
 /** THE FOLD IS NOT IN THE MIDDLE (Kevin's photo of an IRIS print beside
     ours, 2026-10-13): the pre-printed shading, and the crease, end 3.5 in
     from the top, so the top row is 3.5 in and the bottom row 5 in. Rows
@@ -64,7 +73,7 @@ const PANEL_INSET = 0.22 * IN;
 /** The address card sits where the window envelope shows it, as IRIS
     placed it: about an inch in from the left edge and an inch and a
     half down, under the letterhead. */
-const CARD_X = 1.0 * IN;
+const CARD_X = 1.2 * IN;
 const CARD_TOP = 8.5 * IN - 1.5 * IN;
 /** The card message's band on the top-right panel (Kevin's side-by-side
     print, 2026-10-13): IRIS starts the message high, about 0.8 in from
@@ -75,7 +84,7 @@ const MESSAGE_TOP = 8.5 * IN - 0.8 * IN;
 const MESSAGE_BOTTOM = 8.5 * IN - 2.75 * IN;
 /** The driver's stub starts a little further in than the other panels,
     as IRIS's does. */
-const STUB_INSET = 0.4 * IN;
+const STUB_INSET = 0.5 * IN;
 /** THE SHEET IS A PORTRAIT PAGE WITH THE LAYOUT LYING SIDEWAYS IN IT
     (Kevin's prints, 2026-10-13, and the research after them). Edge, like
     Chrome, mishandles a PDF page that is wider than it is tall: it
@@ -85,8 +94,8 @@ const STUB_INSET = 0.4 * IN;
     parts of the Windows print path, which is what the one print with it
     showed. So the form is not a wide page at all: it is drawn in its
     landscape coordinates, as before, through a surface that lays every
-    line and word sideways into an upright 8.5 by 11 page. Edge sees an
-    ordinary portrait Letter page and prints it as is; on the sheet, fed
+    line and word sideways into an upright 8.5 by 14 page. Edge sees an
+    ordinary portrait Legal page and prints it as is; on the sheet, fed
     short edge first, the layout comes out along the long edge, which is
     where Windows puts a landscape page too. SHEET_TURN is the direction
     of the turn, 90 or 270; if a print lands upside down against the
@@ -174,8 +183,8 @@ type Surface = {
     8.5 in edge); every point is mapped into the upright page and every
     word turned with it. */
 function turned(page: PDFPage, turn: 90 | 270): Surface {
-  const W = 8.5 * IN;
-  const H = 11 * IN;
+  const W = SHEET_H;
+  const H = SHEET_W;
   // 90: the layout's left edge lies along the page's bottom; 270: along its top.
   const map = turn === 90 ? (x: number, y: number) => ({ x: W - y, y: x }) : (x: number, y: number) => ({ x: y, y: H - x });
   const rot = degrees(turn);
@@ -350,7 +359,7 @@ async function pens(doc: PDFDocument): Promise<Omit<Pen, "page">> {
 /* ------------------------------ the sheet ------------------------------ */
 
 function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder, printedAt: number) {
-  const page = turned(doc.addPage([8.5 * IN, 11 * IN]), SHEET_TURN);
+  const page = turned(doc.addPage([SHEET_H, SHEET_W]), SHEET_TURN);
   const pen: Pen = { page, ...fonts };
   const box = (col: number, row: number, cols = 1, inset = PANEL_INSET) => ({
     x: col * PANEL_W + inset,
