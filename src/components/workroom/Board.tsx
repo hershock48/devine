@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
@@ -264,6 +264,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   /** Open the form for another order on this customer's card (Kevin,
       2026-10-14: the hospital calls back with a sixth). */
   function openAddTo(o: Order) {
+    // A write-up already open at the top would be replaced, and what is
+    // typed in it lost; say so first.
+    if ((adding || editing) && !window.confirm(`A write-up is open at the top of the page. Replace it with another order for ${o.name}? What is typed in it goes away.`)) return;
     setEditing(null);
     setNotice("");
     setAddTo(o);
@@ -375,9 +378,10 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
        customer that still need paying, by batch id, so a card can offer
        "all N orders, one card". Settled, canceled and held ones drop out
        of the group on their own. */
-    // Keyed on the first order's id: the first order of a group carries
-    // no batchId (it was written before there was a group), the ones added
-    // after it carry its id, so the key is "batchId, else my own id".
+    // Keyed on the first order's id. A write-up of several stamps every
+    // order, the first included, with the first's id; a group grown from
+    // the old post-save button left its first order with no batchId. So
+    // the key is "batchId, else my own id", and both shapes group right.
     const batches = new Map<string, Order[]>();
     for (const o of shown) {
       if (o.status === "canceled" || o.status === "hold" || balanceCents(o) <= 0) continue;
@@ -1539,9 +1543,23 @@ const stopFromOrder = (o: Order): Stop => {
     lines: fromLines(o),
   });
 };
+/** What the next order on the same call starts with: the same day and
+    occasion (a hospital's five go out together) and the same fulfillment.
+    A pickup also keeps the address and place, because on a pickup those
+    are the customer's own; a delivery starts with a blank recipient and
+    address, because a copied address is the kind of wrong that ships. */
+const carryOver = (last: Stop): Partial<Stop> => ({
+  fulfillment: last.fulfillment,
+  date: last.date,
+  occasion: last.occasion,
+  ...(last.fulfillment === "pickup" ? { company: last.company, street: last.street, town: last.town, zip: last.zip } : {}),
+});
 /** Anything typed into it that deserves an "are you sure" before Remove. */
 const stopHasWork = (s: Stop) =>
-  !!(s.recipient.trim() || s.cardMessage.trim() || s.notes.trim() || s.lines.some((l) => l.slug || l.custom.trim() || l.parts.some((pt) => pt.variety.trim())));
+  !!(
+    [s.recipient, s.recipientPhone, s.company, s.street, s.town, s.zip, s.cardMessage, s.notes, s.feeOverride ?? ""].some((v) => v.trim()) ||
+    s.lines.some((l) => l.slug || l.custom.trim() || l.parts.some((pt) => pt.variety.trim()))
+  );
 
 const productBySlug = (slug: string): Product | undefined => sortedProducts.find((p) => p.slug === slug);
 const stemPriceIn = (library: StemPrice[], variety: string): number | undefined => {
@@ -1654,7 +1672,9 @@ function StopFields({
   index,
   count,
   taxExempt,
+  m,
   focus,
+  onFocused,
   onRemove,
 }: {
   s: Stop;
@@ -1664,10 +1684,21 @@ function StopFields({
   index: number;
   count: number;
   taxExempt: boolean;
+  /** This order's arithmetic, computed once by the form (it sums them). */
+  m: ReturnType<typeof stopMath>;
   /** Land the cursor in this one when it appears (the one just added). */
   focus: boolean;
+  onFocused: () => void;
   onRemove?: () => void;
 }) {
+  /** The frame, so the cursor can land on its first typing field once
+      (recipient on a delivery, the place on a pickup) and never again. */
+  const frame = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focus) return;
+    frame.current?.querySelector<HTMLInputElement>('input:not([type="radio"]):not([type="checkbox"])')?.focus();
+    onFocused();
+  }, [focus, onFocused]);
   /** Only what the human typed drives the recipient suggestions, and a
       pick closes them (the same rule as the customer chips). */
   const [typedRecipient, setTypedRecipient] = useState(false);
@@ -1695,7 +1726,6 @@ function StopFields({
   }, [recipQ]);
 
   const many = count > 1;
-  const m = stopMath(s, library, taxExempt);
   const delivering = m.delivering;
   const lines = s.lines;
   const setLines = (f: (cur: DraftLine[]) => DraftLine[]) => patch({ lines: f(s.lines) });
@@ -1710,6 +1740,7 @@ function StopFields({
 
   return (
     <div
+      ref={frame}
       style={{
         display: "grid",
         gap: 14,
@@ -1755,7 +1786,6 @@ function StopFields({
           <span style={labelText}>Recipient (if not the customer)</span>
           <input
             value={s.recipient}
-            autoFocus={focus}
             onChange={(e) => {
               patch({ recipient: e.target.value });
               setTypedRecipient(true);
@@ -2149,7 +2179,7 @@ function PhoneOrderForm({
 }) {
   /** The group this write-up belongs to: an existing group's id when adding
       to it; otherwise the route makes one when there are several. */
-  const batchId = editing?.batchId ?? (addTo ? addTo.batchId || addTo.id : "");
+  const [batchId, setBatchId] = useState(editing?.batchId ?? (addTo ? addTo.batchId || addTo.id : ""));
   const seed = editing ?? addTo;
   const [name, setName] = useState(seed?.name ?? "");
   const [phone, setPhone] = useState(seed?.phone ?? "");
@@ -2202,10 +2232,11 @@ function PhoneOrderForm({
   const [taxId, setTaxId] = useState(seed?.taxId ?? "");
   /** The orders on this write-up, one or more. */
   const [stops, setStops] = useState<Stop[]>(() => [
-    editing ? stopFromOrder(editing) : addTo ? blankStop({ fulfillment: addTo.fulfillment, date: addTo.date, occasion: addTo.occasion }) : blankStop(),
+    editing ? stopFromOrder(editing) : addTo ? blankStop(carryOver(stopFromOrder(addTo))) : blankStop(),
   ]);
   /** The order just added, so its first field takes the cursor. */
   const [focusKey, setFocusKey] = useState<number | null>(null);
+  const clearFocus = useCallback(() => setFocusKey(null), []);
   const patchStop = (key: number, p: Partial<Stop>) => setStops((cur) => cur.map((s) => (s.key === key ? { ...s, ...p } : s)));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"" | "board" | "hold">("");
@@ -2223,12 +2254,11 @@ function PhoneOrderForm({
       .catch(() => {});
   }, []);
 
-  /** Another order on the same call: same day and occasion as the last one
-      typed (a hospital's five go out together), everything else blank,
-      the cursor in its recipient field. */
+  /** Another order on the same call: what carries over from the last one
+      typed (see carryOver), everything else blank, the cursor in it. */
   function addStop() {
     const last = stops[stops.length - 1];
-    const s = blankStop({ fulfillment: last.fulfillment, date: last.date, occasion: last.occasion });
+    const s = blankStop(carryOver(last));
     setStops((cur) => [...cur, s]);
     setFocusKey(s.key);
   }
@@ -2287,8 +2317,14 @@ function PhoneOrderForm({
     if (!r.ok) {
       setError(d?.error || "That did not save. Look it over and try again.");
       // Some of a group went on before the failure: the board behind the
-      // form shows them, so nobody writes those up twice.
-      if (Array.isArray(d?.orders) && d.orders.length) onRefresh?.();
+      // form shows them, their frames leave the form, and the rest retry
+      // into the same group, so nothing is written up twice.
+      const landed = Array.isArray(d?.orders) ? (d.orders as { id: string; batchId?: string }[]) : [];
+      if (landed.length) {
+        setStops((cur) => (cur.length > landed.length ? cur.slice(landed.length) : cur));
+        setBatchId(landed[0].batchId || landed[0].id);
+        onRefresh?.();
+      }
       return;
     }
     const placed = (Array.isArray(d?.orders) ? d.orders : d?.order ? [d.order] : []) as { number: string; name: string }[];
@@ -2514,7 +2550,9 @@ function PhoneOrderForm({
           index={i + 1}
           count={stops.length}
           taxExempt={taxExempt}
+          m={maths[i]}
           focus={s.key === focusKey}
+          onFocused={clearFocus}
           onRemove={many ? () => removeStop(s, i + 1) : undefined}
         />
       ))}

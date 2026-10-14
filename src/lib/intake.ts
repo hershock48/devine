@@ -403,10 +403,16 @@ function receiptRows(o: ReceiptOrder): { items: { qty: number; name: string; tot
   };
 }
 
-const whenLine = (o: ReceiptOrder) =>
-  `${o.fulfillment === "delivery" ? "Delivery" : "Pickup"} on ${longDay(o.date)}${o.neededBy ? ` by ${clock12(o.neededBy)}` : ""}${
-    o.recipient && o.recipient !== o.name ? `, for ${o.recipient}` : ""
-  }`;
+/** When and for whom, in pieces, so the text and HTML copies cannot drift. */
+const when = (o: ReceiptOrder) => ({
+  how: o.fulfillment === "delivery" ? "Delivery" : "Pickup",
+  day: `${longDay(o.date)}${o.neededBy ? ` by ${clock12(o.neededBy)}` : ""}`,
+  forWhom: o.recipient && o.recipient !== o.name ? o.recipient : "",
+});
+const whenLine = (o: ReceiptOrder) => {
+  const w = when(o);
+  return `${w.how} on ${w.day}${w.forWhom ? `, for ${w.forWhom}` : ""}`;
+};
 
 /**
  * The customer's copy of a write-up. One order, or several placed on one
@@ -440,14 +446,10 @@ export async function sendWorkroomReceipt(input: ReceiptOrder | ReceiptOrder[]):
   ].join("\n");
   const sections = orders.flatMap((x) => {
     const r = receiptRows(x);
+    const w = when(x);
     return [
       block(`Order ${x.number}`, orderTable(r.items, r.rows)),
-      block(
-        x.fulfillment === "delivery" ? "Delivery" : "Pickup",
-        `${esc(longDay(x.date))}${x.neededBy ? ` by ${esc(clock12(x.neededBy))}` : ""}${
-          x.recipient && x.recipient !== x.name ? `<br>For ${esc(x.recipient)}` : ""
-        }${x.fulfillment === "pickup" ? `<br>${esc(addressOneLine)}` : ""}`,
-      ),
+      block(w.how, `${esc(w.day)}${w.forWhom ? `<br>For ${esc(w.forWhom)}` : ""}${x.fulfillment === "pickup" ? `<br>${esc(addressOneLine)}` : ""}`),
     ];
   });
   if (many) sections.push(block(`All ${orders.length} orders`, orderTable([], [{ label: "Total", value: money(grand), strong: true }])));

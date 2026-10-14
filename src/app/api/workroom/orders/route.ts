@@ -43,7 +43,11 @@ type ParsedBody = { fields: Omit<WorkroomOrder, "id" | "number" | "source" | "st
  * One reading of a written-up order, shared by POST (new) and PUT (edit),
  * so an edited order is parsed by exactly the rules that made it.
  */
-async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
+/** The stem library's prices, read once per request and shared by every
+    order on a write-up (a ten-stop sale with by-stems pieces read the
+    whole table ten times before this). */
+type PriceCache = { stemPrices: Map<string, number> | null };
+async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemPrices: null }): Promise<ParsedBody> {
   /*
     Catalog lines are re-priced from the catalog, same rule as the web checkout.
     Custom lines ("casket spray, $250") keep the typed price: the person typing
@@ -58,15 +62,15 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
     library does not price is refused by name rather than priced at zero:
     a $0 rose on a $100 arrangement is the kind of wrong that ships.
   */
-  let stemPrices: Map<string, number> | null = null;
   const priceParts = async (rawParts: unknown): Promise<{ parts: WorkroomLine["parts"]; each: number } | { error: string } | null> => {
     if (!Array.isArray(rawParts) || rawParts.length === 0) return null;
-    if (!stemPrices) {
-      stemPrices = new Map();
+    if (!cache.stemPrices) {
+      cache.stemPrices = new Map();
       for (const v of await getStore().listVarieties()) {
-        if (v.sellStem != null && v.sellStem > 0) stemPrices.set(v.name, v.sellStem);
+        if (v.sellStem != null && v.sellStem > 0) cache.stemPrices.set(v.name, v.sellStem);
       }
     }
+    const stemPrices = cache.stemPrices;
     const parts: { variety: string; stems: number }[] = [];
     const unpriced: string[] = [];
     let cents = 0;
@@ -199,9 +203,15 @@ async function freshNumber(date: string, taken: Set<string>): Promise<string> {
       return candidate;
     }
   }
-  const fallback = `DV-${mmdd}-P${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
-  taken.add(fallback);
-  return fallback;
+  // Four digits, checked the same way: two orders on one write-up must
+  // never draw the same number, nor one already on the board.
+  for (;;) {
+    const fallback = `DV-${mmdd}-P${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
+    if (taken.has(fallback)) continue;
+    if (await getStore().getOrderByNumber(fallback).catch(() => null)) continue;
+    taken.add(fallback);
+    return fallback;
+  }
 }
 
 /**
@@ -227,9 +237,16 @@ export async function POST(req: Request) {
   // Every entry is read by the one set of rules before anything is written,
   // so a typo in the fourth delivery stops the whole sale and nothing is
   // half on the board. The error names the order it is about.
+  // The customer's own fields come from the body, never from an entry:
+  // one sale is one customer, one way of paying, one receipt address.
+  const shared: Record<string, unknown> = {};
+  for (const k of ["name", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold"]) {
+    if (k in p) shared[k] = p[k];
+  }
+  const cache: PriceCache = { stemPrices: null };
   const parsedAll: Extract<ParsedBody, { fields: unknown }>["fields"][] = [];
   for (let i = 0; i < stops.length; i++) {
-    const parsed = await parseBody({ ...p, ...stops[i] });
+    const parsed = await parseBody({ ...stops[i], ...shared }, cache);
     if ("error" in parsed) {
       return NextResponse.json({ error: stops.length > 1 ? `Order ${i + 1}: ${parsed.error}` : parsed.error }, { status: 400 });
     }
@@ -250,7 +267,9 @@ export async function POST(req: Request) {
       // A phone order is born confirmed: the shop is already talking to the
       // customer, which is the whole thing "confirmed" means here. ON HOLD
       // (Katy, 2026-10-12) is the exception: written up with questions still
-      // open, parked until someone finishes it. A group holds together.
+      // open, parked until someone finishes it. A group holds together,
+      // and is then finished one card at a time, on whatever days the
+      // questions close; each sends its own receipt as it is released.
       status: p.hold === true ? "hold" : "confirmed",
       ...parsedAll[i],
       batchId,
@@ -266,10 +285,13 @@ export async function POST(req: Request) {
       placed.push(order);
     } catch (err) {
       console.error(`[devine] write-up failed after ${placed.length} of ${orders.length}:`, err);
+      // What landed is real and gets its receipt; the form drops those
+      // entries and retries the rest into the same group.
+      if (placed.length && placed[0].email && placed[0].status !== "hold") await sendWorkroomReceipt(placed);
       return NextResponse.json(
         {
           error: placed.length
-            ? `${placed.map((o) => o.number).join(", ")} went on the board; order ${placed.length + 1} did not save. Find them on the board and add the rest with "Another order" on the card.`
+            ? `${placed.map((o) => o.number).join(", ")} went on the board; order ${placed.length + 1} did not save. The form keeps the rest: look it over and put them on again.`
             : "That did not save. Look it over and try again.",
           orders: placed,
         },
