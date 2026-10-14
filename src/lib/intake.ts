@@ -4,7 +4,7 @@ import nodemailer from "nodemailer";
 import { bySlug, money } from "@/lib/catalog";
 import { site, addressOneLine } from "@/lib/site";
 import { occasions as OCCASIONS } from "@/lib/occasions";
-import { block, esc, logoAttachment, orderTable, shell, textBlock, type MoneyRow } from "@/lib/email-html";
+import { block, esc, logoAttachment, longDay, orderTable, phoneLink, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
 /**
  * ORDER INTAKE. The order leaves the browser, arrives in an inbox, and the shop
@@ -292,7 +292,7 @@ function customerCopyHtml(o: PricedOrder, paid?: PaidOnline): string {
   } else {
     rows.push({ label: "Total due at pickup", value: money(o.subtotal), strong: true });
   }
-  const when = new Date(o.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const when = longDay(o.date);
   const sections = [
     block(`Order ${o.number}`, orderTable(o.lines.map((l) => ({ qty: l.qty, name: l.name, total: l.line })), rows)),
     o.fulfillment === "delivery"
@@ -354,7 +354,7 @@ export async function sendDeliveredEmail(o: {
         heading: "Delivered.",
         intro: `Your order ${esc(o.number)} has been delivered${o.recipient && o.recipient !== o.name ? ` to <strong>${esc(o.recipient)}</strong>` : ""}. Thank you for ordering from ${esc(site.name)}.`,
         sections: [],
-        outro: `If anything about the delivery needs a word, call the shop at <a href="${esc(site.phoneHref)}" style="color:#37543c;font-weight:600;text-decoration:none;">${esc(site.phone)}</a>.`,
+        outro: `If anything about the delivery needs a word, call the shop at ${phoneLink()}.`,
       }),
       attachments: [logoAttachment()],
     })
@@ -422,7 +422,7 @@ export async function sendWorkroomReceipt(o: {
           ),
           block(
             o.fulfillment === "delivery" ? "Delivery" : "Pickup",
-            `${esc(new Date(o.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }))}${
+            `${esc(longDay(o.date))}${
               o.recipient && o.recipient !== o.name ? `<br>For ${esc(o.recipient)}` : ""
             }${o.fulfillment === "pickup" ? `<br>${esc(addressOneLine)}` : ""}`,
           ),
