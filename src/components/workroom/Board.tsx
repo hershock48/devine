@@ -55,6 +55,7 @@ type Order = {
   payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
   canceledFrom?: string;
   madeBy?: string;
+  takenBy?: string;
   printedAt?: number;
 };
 
@@ -1020,7 +1021,7 @@ function OrderCard({
       <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
         <strong style={{ fontSize: 17 }}>{o.name}</strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
-          {o.number} · {o.source}
+          {o.number} · {o.source}{o.takenBy ? ` · taken by ${o.takenBy}` : ""}
           {" · "}
           {/* The order as a PDF on its paper (2026-10-12): the six-panel
               form for a delivery, plain paper for a pickup. Opens in a tab;
@@ -1348,6 +1349,9 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   const [occasion, setOccasion] = useState(editing?.occasion ?? "");
   const [cardMessage, setCardMessage] = useState(editing?.cardMessage ?? "");
   const [notes, setNotes] = useState(editing?.notes ?? "");
+  /** Who is writing this up. Required (Katy, 2026-10-14); an edit keeps
+      the original initials unless they are changed on purpose. */
+  const [takenBy, setTakenBy] = useState(editing?.takenBy ?? "");
   const [lines, setLines] = useState<DraftLine[]>(() => (editing ? fromLines(editing) : [blankLine()]));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"" | "board" | "hold">("");
@@ -1409,10 +1413,15 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       setError(`"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`);
       return;
     }
+    if (!/^[A-Za-z]{2,3}$/.test(takenBy.trim())) {
+      setError("Your initials, two or three letters, before it goes on the board.");
+      return;
+    }
     setSaving(hold ? "hold" : "board");
     const payload = {
       id: editing?.id,
       hold,
+      takenBy: takenBy.trim().toUpperCase(),
       name, phone, email, fulfillment, date, occasion, cardMessage, notes,
       recipient: fulfillment === "delivery" ? recipient : "",
       // The address rides on PICKUP orders too since 2026-09-04 (Kevin,
@@ -1459,6 +1468,18 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   const delivering = fulfillment === "delivery";
   const sheetFee = deliveryFeeFor(zip.trim());
   const deliveryFee = feeOverride ?? (sheetFee !== undefined ? String(sheetFee) : "");
+
+  /* THE DELIVERY MINIMUM IS A WARNING HERE, NEVER A LOCK (Katy, 2026-10-14).
+     The website refuses a delivery under her minimum because nobody is
+     there to say yes; the counter is exactly the person who can. So the
+     form says it, in the words the site would have used, and saves anyway.
+     Items only, the fee excluded, the same reading the website enforces. */
+  const itemsTotal = lines.reduce((s, l) => {
+    const each = l.byStems && canBuild(l) ? builtPrice(l).each : l.slug ? productBySlug(l.slug)?.price ?? 0 : Number(l.each) || 0;
+    return s + each * l.qty;
+  }, 0);
+  const minimum = delivering && sheetFee !== undefined ? (zip.trim() === site.marshallZip ? site.deliveryMinimums.marshall : site.deliveryMinimums.outside) : 0;
+  const underMinimum = minimum > 0 && itemsTotal > 0 && itemsTotal < minimum;
 
   return (
     <form onSubmit={submit} className="panel" style={{ maxWidth: 640, marginBottom: 30, display: "grid", gap: 14 }}>
@@ -1996,6 +2017,31 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       <label>
         <span style={labelText}>Notes</span>
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={field} />
+      </label>
+
+      {underMinimum && (
+        <p role="status" style={{ margin: 0, fontSize: 14.5, fontWeight: 600, color: "var(--rose-ink)" }}>
+          Under the ${minimum} delivery minimum for {zip.trim()}: the items come to {money(itemsTotal)}. The website would not
+          take this one. It saves here all the same, if you have agreed it with the customer.
+        </p>
+      )}
+
+      <label style={{ maxWidth: 260 }}>
+        <span style={labelText}>Taken by (your initials)</span>
+        <input
+          value={takenBy}
+          onChange={(e) => setTakenBy(e.target.value.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase())}
+          maxLength={3}
+          required
+          placeholder="KH"
+          autoCapitalize="characters"
+          autoComplete="off"
+          aria-describedby="wr-takenby-help"
+          style={{ ...field, width: 96, textTransform: "uppercase", letterSpacing: "0.08em" }}
+        />
+        <span id="wr-takenby-help" style={{ display: "block", marginTop: 4, fontSize: 13, color: "var(--muted)" }}>
+          Whoever took the order, so a question later knows who to ask. Two or three letters.
+        </span>
       </label>
 
       <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center" }}>

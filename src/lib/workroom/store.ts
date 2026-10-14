@@ -110,6 +110,11 @@ export type WorkroomOrder = {
   /** Initials of whoever made it, asked for at the Made tap (same meeting:
       "to see who made it"). Free text, short, uppercased on the way in. */
   madeBy?: string;
+  /** Initials of whoever took the order at the counter or on the phone,
+      required at write-up (Katy, 2026-10-14: "in case something is wrong
+      or they need to go back and ask the person questions"). Two or three
+      letters, uppercased on the way in. Web orders have none. */
+  takenBy?: string;
   /** When the counter's print helper printed it (web orders). Server-side
       so a restart or a second machine never prints it twice. */
   printedAt?: number;

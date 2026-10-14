@@ -72,6 +72,8 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
   const [placed, setPlaced] = useState<string | null>(null);
   const [placeError, setPlaceError] = useState("");
+  /** Who is putting it on the board; the board requires it (Katy, 2026-10-14). */
+  const [takenBy, setTakenBy] = useState("");
   const [placing, setPlacing] = useState(false);
   /** The serialization last known to be on the server. */
   const savedRef = useRef<string>("");
@@ -207,6 +209,10 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
       setPlaceError("Add the wedding date first; the board sorts by it.");
       return;
     }
+    if (!/^[A-Za-z]{2,3}$/.test(takenBy.trim())) {
+      setPlaceError("Your initials, two or three letters, before it goes on the board.");
+      return;
+    }
     const lines = draft.pieces
       .filter((p) => p.name.trim() && (pricing.perPiece.get(p.id)?.each ?? 0) > 0)
       .map((p) => ({ name: p.name, each: pricing.perPiece.get(p.id)!.each, qty: Number(p.qty) || 1 }));
@@ -250,6 +256,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
         notes: draft.notes,
         lines,
         deliveryFee: pricing.delivery,
+        takenBy: takenBy.trim().toUpperCase(),
       }),
     });
     const d = (await r.json().catch(() => null)) as { ok?: boolean; order?: { number: string }; error?: string } | null;
@@ -615,6 +622,16 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
                 </p>
               ) : (
                 <>
+                  <input
+                    aria-label="Your initials"
+                    value={takenBy}
+                    onChange={(e) => setTakenBy(e.target.value.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase())}
+                    maxLength={3}
+                    placeholder="Initials"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    style={{ ...field, width: 96, textTransform: "uppercase", letterSpacing: "0.08em" }}
+                  />
                   <button className="btn btn--solid" type="button" onClick={placeOrder} disabled={placing || pricing.total <= 0}>
                     {placing ? "Sending…" : "Put it on the board"}
                   </button>
