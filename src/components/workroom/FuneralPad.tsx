@@ -375,8 +375,9 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
       real answer and writes a $0 line, so nothing appends a zip fee later.
     */
     const deliveryCharge = Number(draft.delivery) || 0;
-    // Tax is the board's to add (one rule, in the orders route); a quote
-    // priced with no tax goes over as tax exempt so the two agree.
+    // The tax goes as the number the quote shows, at its own rate (the
+    // route writes it as the ticket's tax line); a quote priced with no
+    // tax goes over as tax exempt. Setup is its own line, untaxed.
     const setupCharge = Number(draft.setup) || 0;
     if (setupCharge > 0) lines.push({ name: "Setup at the service", each: setupCharge, qty: 1 });
     const notes = [
@@ -407,7 +408,8 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
         notes,
         lines,
         deliveryFee: deliveryCharge,
-        taxExempt: !pricing || !(pricing.taxPct > 0),
+        tax: pricing?.tax ?? 0,
+        taxExempt: !pricing || !(pricing.tax > 0),
         takenBy: takenBy.trim().toUpperCase(),
       }),
     });

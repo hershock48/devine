@@ -20,13 +20,14 @@ const STATUSES: OrderStatus[] = ["hold", "new", "confirmed", "made", "out", "don
 export async function GET(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   // The board reads its 60 days; the dashboard's year view asks for 400.
-  const days = Math.min(400, Math.max(1, Math.round(Number(new URL(req.url).searchParams.get("days"))) || 60));
+  const params = new URL(req.url).searchParams;
+  const days = Math.min(400, Math.max(1, Math.round(Number(params.get("days"))) || 60));
   const store = getStore();
   // The Accounts tab asks for account orders only (open ones never age
   // off the list, the store's own rule, so a year-old unpaid account
-  // order is still here).
-  const accountOnly = new URL(req.url).searchParams.get("account") === "1";
-  const [all, contacts] = await Promise.all([store.listOrders(days), store.listOrderContacts()]);
+  // order is still here) and has no use for the contacts projection.
+  const accountOnly = params.get("account") === "1";
+  const [all, contacts] = await Promise.all([store.listOrders(days), accountOnly ? Promise.resolve([]) : store.listOrderContacts()]);
   const orders = accountOnly ? all.filter((o) => o.account) : all;
   // contacts spans the whole history, so "her third order this year" still
   // counts after the first two age off the 60-day board.
@@ -132,9 +133,12 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
   // here from the items, so the quote pads, the phone form and an edit
   // all tax by one rule; a tax line that arrived with a quote is replaced.
   // Tax exempt means no line at all, and the box is remembered.
+  // A quote pad states its tax (its own rate, on the unrounded piece
+  // money); the phone form does not, and the route computes it.
   const account = p.account === true;
   const taxExempt = p.taxExempt === true;
-  const taxed = withTaxLine(lines, taxExempt);
+  const stated = typeof p.tax === "number" && Number.isFinite(p.tax) && p.tax >= 0 ? p.tax : undefined;
+  const taxed = withTaxLine(lines, taxExempt, stated);
   lines.splice(0, lines.length, ...taxed);
   // WHO TOOK IT (Katy, 2026-10-14): initials, two or three letters, on
   // every order written up here, so a question later knows who to ask.

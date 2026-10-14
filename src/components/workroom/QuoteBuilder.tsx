@@ -220,18 +220,13 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
       setPlaceError("Nothing on the quote carries a price yet.");
       return;
     }
-    // Tax rides to the board as its own line, or the board's subtotal would
-    // disagree with the total the couple just agreed to (the funeral pad
-    // learned the same lesson with its delivery line). The quote's total is
-    // computed on unrounded piece prices and the board's on rounded ones,
-    // so the tax line carries the cents between them: the board's subtotal
-    // IS the quoted total, to the penny. Delivery goes as the route's own
-    // delivery line (deliveryFee below), which the board recognises.
+    // Setup and delivery go as their own lines (the route recognises both
+    // and taxes neither, her sheet's rule); the tax goes as the number the
+    // quote shows, at the quote's own rate on the unrounded piece money, so
+    // the board carries what the couple accepted. The piece prices are
+    // rounded on the board and unrounded in the quote, so the two totals
+    // can sit a cent or two apart; the tax never does.
     if (pricing.setup > 0) lines.push({ name: "Setup & installation", each: pricing.setup, qty: 1 });
-    // Tax is the board's to add (one rule, in the orders route, on the
-    // rounded piece prices), so the board can sit a cent or two from the
-    // quote's total, which taxes the unrounded sum. A quote priced with
-    // no tax goes over as tax exempt so the two agree on that at least.
     setPlacing(true);
     const r = await fetch("/api/workroom/orders", {
       method: "POST",
@@ -250,7 +245,8 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
         notes: draft.notes,
         lines,
         deliveryFee: pricing.delivery,
-        taxExempt: !(pricing.taxPct > 0),
+        tax: pricing.tax,
+        taxExempt: !(pricing.tax > 0),
         takenBy: takenBy.trim().toUpperCase(),
       }),
     });

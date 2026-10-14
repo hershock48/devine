@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { deliveryFeeFor } from "@/lib/site";
-import { deliveryLineName, isDeliveryLine } from "@/lib/workroom/derive";
+import { deliveryLineName, zipFeeToAppend } from "@/lib/workroom/derive";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure } from "@/lib/square/payments";
@@ -63,8 +62,7 @@ export async function POST(req: Request) {
     sheet charges the lines as they stand; that fee is the confirm call's
     business, the way it always was.
   */
-  const hasDeliveryLine = order.lines.some(isDeliveryLine);
-  const zipFee = order.fulfillment === "delivery" && !hasDeliveryLine ? deliveryFeeFor(order.zip) : undefined;
+  const zipFee = zipFeeToAppend(order);
   const lines: WorkroomLine[] =
     zipFee !== undefined
       ? [...order.lines, { slug: null, name: deliveryLineName(order.zip), qty: 1, each: zipFee }]

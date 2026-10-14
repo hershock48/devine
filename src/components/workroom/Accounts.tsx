@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { deliveryFeeFor } from "@/lib/site";
-import { isDeliveryLine, isTaxLine } from "@/lib/workroom/derive";
+import { isDeliveryLine, isTaxLine, zipFeeToAppend } from "@/lib/workroom/derive";
 import { money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -58,14 +57,12 @@ type Account = {
 const cents = (n: number) => Math.round(n * 100);
 const when = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-/** The delivery fee the pay route will append to a delivery ticket that
-    never carried a line (same mirror as the board). */
-const feeToAppend = (o: Order): number => {
-  if (o.fulfillment !== "delivery" || o.lines.some(isDeliveryLine)) return 0;
-  const sheet = deliveryFeeFor(o.zip);
-  return sheet !== undefined ? Math.round(sheet * 100) : 0;
-};
-const owedOn = (o: Order): number => (o.payment || o.status === "canceled" ? 0 : cents(o.subtotal) + feeToAppend(o));
+/** The delivery fee the pay route will append, in cents (derive.ts holds
+    the one rule). */
+const feeToAppend = (o: Order): number => Math.round((zipFeeToAppend(o) ?? 0) * 100);
+/** What is collectable now. A held order is not: nothing is promised yet
+    and the pay route refuses it, the board's own reading. */
+const owedOn = (o: Order): number => (o.payment || o.status === "canceled" || o.status === "hold" ? 0 : cents(o.subtotal) + feeToAppend(o));
 
 function groupAccounts(orders: Order[]): Account[] {
   const map = new Map<string, Account>();
@@ -155,7 +152,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
     return (
       <>
         <h1>Accounts</h1>
-        <PinGate onAuthed={() => { setAuthed(true); pull().catch(() => {}); }} />
+        <PinGate onAuthed={() => setAuthed(true)} />
       </>
     );
   }
@@ -197,7 +194,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       </strong>
                       <p className="muted" style={{ margin: "2px 0 0", fontSize: 13.5 }}>
                         {a.orders.length} order{a.orders.length === 1 ? "" : "s"}
-                        {a.open > 0 ? `, ${a.open} open` : ""} · paid {money(a.paidCents / 100)} to date · last {when(a.lastAt)}
+                        {a.open > 0 ? `, ${a.open} open` : ""} · paid {money(a.paidCents / 100)} this past year · last {when(a.lastAt)}
                       </p>
                     </div>
                   </header>
@@ -224,7 +221,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                                 {o.recipient && o.recipient !== o.name ? ` · for ${o.recipient}` : ""}
                                 {o.taxExempt ? " · tax exempt" : ""}
                                 {o.takenBy ? ` · taken by ${o.takenBy}` : ""}
-                                {o.status === "canceled" ? " · canceled" : ""}
+                                {o.status === "canceled" ? " · canceled" : o.status === "hold" ? " · on hold, not yet owed" : ""}
                               </span>
                               <span style={{ whiteSpace: "nowrap" }}>
                                 {o.payment

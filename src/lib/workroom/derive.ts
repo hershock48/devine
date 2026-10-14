@@ -1,4 +1,4 @@
-import { site } from "@/lib/site";
+import { deliveryFeeFor, site } from "@/lib/site";
 /**
  * The workroom's shared arithmetic. One copy of every rule that more than
  * one screen computes, because the 2026-09-01 review caught the cost of
@@ -60,22 +60,46 @@ export const deliveryLineName = (zip: string) => `Delivery (${zip || "no zip"})`
 export const isDeliveryLine = (l: { name: string }) => l.name.startsWith("Delivery (");
 export const isTaxLine = (l: { name: string }) => l.name.startsWith("Sales tax");
 export const taxLineName = `Sales tax (${Math.round(site.taxRate * 100)}%)`;
-/** The tax, in dollars, on a ticket's items: every line that is not the
-    delivery line and not an earlier tax line, at site.taxRate, rounded to
-    the cent once on the sum. Zero when exempt. */
+/** The quote pads' setup lines ("Setup & installation", "Setup at the
+    service"): a service, untaxed on her sheet like delivery. */
+export const isSetupLine = (l: { name: string }) => l.name.startsWith("Setup");
+/** What the tax is NOT on: delivery, setup, and an earlier tax line. */
+export const isUntaxedLine = (l: { name: string }) => isDeliveryLine(l) || isTaxLine(l) || isSetupLine(l);
+/** The tax, in dollars, on a ticket's items (everything but the untaxed
+    lines above), at site.taxRate, rounded to the cent once on the sum.
+    Zero when exempt. */
 export const taxFor = (lines: { name: string; qty: number; each: number }[], exempt = false): number => {
   if (exempt) return 0;
-  const cents = lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l)).reduce((s, l) => s + Math.round(l.each * l.qty * 100), 0);
+  const cents = lines.filter((l) => !isUntaxedLine(l)).reduce((s, l) => s + Math.round(l.each * l.qty * 100), 0);
   return Math.round(cents * site.taxRate) / 100;
 };
-/** The same lines with exactly one tax line, computed here, or none when
-    exempt (or when nothing is taxable). Whatever tax line came in (a quote
-    carries its own) is replaced, so the rule lives once. */
-export const withTaxLine = <L extends { slug?: string | null; name: string; qty: number; each: number }>(lines: L[], exempt = false): (L | { slug: null; name: string; qty: number; each: number })[] => {
+/** The same lines with exactly one tax line, or none when exempt (or when
+    nothing is taxable). Whatever tax line came in is replaced. The amount
+    is computed here, unless the caller states one (`stated`): a quote
+    taxes the unrounded piece money at its own rate, and the board must
+    carry the number the customer accepted, not a recomputation of it. */
+export const withTaxLine = <L extends { slug?: string | null; name: string; qty: number; each: number }>(
+  lines: L[],
+  exempt = false,
+  stated?: number,
+): (L | { slug: null; name: string; qty: number; each: number })[] => {
   const kept = lines.filter((l) => !isTaxLine(l));
-  const tax = taxFor(kept, exempt);
-  return tax > 0 ? [...kept, { slug: null, name: taxLineName, qty: 1, each: tax }] : kept;
+  const tax = exempt ? 0 : stated !== undefined ? Math.round(stated * 100) / 100 : taxFor(kept);
+  // A stated amount may be at the quote's own rate, so its line does not
+  // claim the site's percentage.
+  const name = stated !== undefined ? "Sales tax (as quoted)" : taxLineName;
+  return tax > 0 ? [...kept, { slug: null, name, qty: 1, each: tax }] : kept;
 };
+/** A ticket's money without its tax line: what the shop sold, as opposed
+    to what it collected. The dashboard's sales figures use this. */
+export const netOfTax = (o: { subtotal: number; lines: { name: string; qty: number; each: number }[] }): number =>
+  Math.round((o.subtotal - o.lines.filter(isTaxLine).reduce((s, l) => s + l.each * l.qty, 0)) * 100) / 100;
+/** THE FEE THE PAY ROUTE WILL APPEND, in dollars, to a delivery ticket that
+    never carried a delivery line (zip on the sheet), or undefined when it
+    will append nothing. One copy: the pay route charges by it, and the
+    board, the dashboard and the accounts tab quote by it. */
+export const zipFeeToAppend = (o: { fulfillment: string; zip: string; lines: { name: string }[] }): number | undefined =>
+  o.fulfillment === "delivery" && !o.lines.some(isDeliveryLine) ? deliveryFeeFor(o.zip) : undefined;
 
 /**
  * WHICH PAPER AN ORDER PRINTS ON (Kevin's notes from the shop, 2026-10-12):

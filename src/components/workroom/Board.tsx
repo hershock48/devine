@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, taxFor, waitingToPrint } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -1236,11 +1236,7 @@ function OrderCard({
           /* Mirrors the pay route's own computation: a delivery ticket with
              no delivery line yet gets the zip's fee appended at charge time,
              and the buttons must quote what will actually be charged. */
-          deliveryCents={(() => {
-            if (o.fulfillment !== "delivery" || o.lines.some(isDeliveryLine)) return 0;
-            const sheet = deliveryFeeFor(o.zip);
-            return sheet !== undefined ? Math.round(sheet * 100) : 0;
-          })()}
+          deliveryCents={Math.round((zipFeeToAppend(o) ?? 0) * 100)}
           payment={o.payment}
           onPaid={() => onPaid().catch(() => {})}
         />
@@ -1514,7 +1510,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
   /* What the ticket will say, in the route's arithmetic: items, the fee as
      shown, tax on the items (none when exempt). Display; the route writes. */
   const feeShown = delivering && deliveryFee.trim() !== "" && Number.isFinite(Number(deliveryFee)) ? Number(deliveryFee) : 0;
-  const taxShown = taxFor([{ name: "items", qty: 1, each: itemsTotal }], taxExempt);
+  const taxShown = taxFor(lines.map((l) => ({ name: l.custom.trim() || "item", qty: l.qty, each: lineEach(l) })), taxExempt);
   const totalShown = Math.round((itemsTotal + feeShown + taxShown) * 100) / 100;
 
   return (

@@ -3,7 +3,7 @@ import "server-only";
 import nodemailer from "nodemailer";
 import { bySlug, money } from "@/lib/catalog";
 import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
-import { taxFor, taxLineName } from "@/lib/workroom/derive";
+import { isTaxLine, taxFor, taxLineName } from "@/lib/workroom/derive";
 import { occasions as OCCASIONS } from "@/lib/occasions";
 import { block, esc, logoAttachment, longDay, orderTable, phoneLink, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
@@ -407,7 +407,8 @@ export async function sendWorkroomReceipt(o: {
     `Order ${o.number}`,
     `${o.fulfillment === "delivery" ? "Delivery" : "Pickup"} on ${o.date}${o.recipient && o.recipient !== o.name ? `, for ${o.recipient}` : ""}`,
     "",
-    ...o.lines.map((l) => `  ${l.qty} x ${l.name}  ${money(l.each * l.qty)}`),
+    ...o.lines.filter((l) => !isTaxLine(l)).map((l) => `  ${l.qty} x ${l.name}  ${money(l.each * l.qty)}`),
+    ...o.lines.filter(isTaxLine).map((l) => `  ${l.name}  ${money(l.each * l.qty)}`),
     `  Total ${money(o.subtotal)}`,
     "",
     `Questions or changes: call the shop at ${site.phone}.`,
@@ -427,8 +428,11 @@ export async function sendWorkroomReceipt(o: {
           block(
             `Order ${o.number}`,
             orderTable(
-              o.lines.map((l) => ({ qty: l.qty, name: l.name, total: Math.round(l.each * l.qty * 100) / 100 })),
-              [{ label: "Total", value: money(o.subtotal), strong: true }],
+              o.lines.filter((l) => !isTaxLine(l)).map((l) => ({ qty: l.qty, name: l.name, total: Math.round(l.each * l.qty * 100) / 100 })),
+              [
+                ...o.lines.filter(isTaxLine).map((l) => ({ label: l.name, value: money(Math.round(l.each * l.qty * 100) / 100) })),
+                { label: "Total", value: money(o.subtotal), strong: true },
+              ],
             ),
           ),
           block(
