@@ -31,6 +31,7 @@ export default function PayControls({
   deliveryCents = 0,
   payment,
   balanceCents = 0,
+  batch,
   onPaid,
 }: {
   orderId: string;
@@ -44,8 +45,13 @@ export default function PayControls({
       With a payment on the order this is what the buttons charge; a
       zero or negative balance shows no buttons. */
   balanceCents?: number;
+  /** The orders placed together with this one that still need paying
+      (the batch), so one card can settle all of them. */
+  batch?: { ids: string[]; count: number; totalCents: number; name: string };
   onPaid: () => void;
 }) {
+  /** "one" or "all": which the buttons charge when a batch is offered. */
+  const [scope, setScope] = useState<"one" | "all">("all");
   const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual">("idle");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -65,6 +71,8 @@ export default function PayControls({
      check keeps the two honest. */
   const topUp = !!payment;
   const total = topUp ? balanceCents : Math.round(subtotal * 100) + deliveryCents;
+  const forAll = !!batch && scope === "all";
+  const amount = forAll ? batch!.totalCents : total;
 
   // Mount Square's card field when card mode opens; tear it down when it
   // closes, because a destroyed iframe beats a leaked one on a page that
@@ -137,7 +145,7 @@ export default function PayControls({
         r = await fetch("/api/workroom/pay", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: orderId, method, sourceId, attempt: attemptRef.current || undefined }),
+          body: JSON.stringify(forAll ? { ids: batch!.ids, method, sourceId, attempt: attemptRef.current || undefined } : { id: orderId, method, sourceId, attempt: attemptRef.current || undefined }),
         });
         d = (await r.json().catch(() => ({}))) as typeof d;
       } catch {
@@ -189,7 +197,7 @@ export default function PayControls({
       {mode === "idle" && (
         <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           <button type="button" className="btn" onClick={() => setMode("card")}>
-            Take card
+            {batch ? `Take card (${batch.count} orders)` : "Take card"}
           </button>
           <button type="button" onClick={() => setMode("cash")} style={{ ...textButton, fontSize: 14 }}>
             Record cash
@@ -201,6 +209,22 @@ export default function PayControls({
           <button type="button" onClick={() => setMode("manual")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
             Paid another way
           </button>
+        </p>
+      )}
+
+      {/* ONE CARD FOR ALL OF THEM (Kevin, 2026-10-14): the orders written
+          up together for this customer, paid in one go, each marked paid
+          with its share. The choice sits above whichever way is open. */}
+      {batch && mode !== "idle" && (
+        <p style={{ margin: "0 0 10px", display: "flex", gap: 18, flexWrap: "wrap", fontSize: 14.5 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "all"} onChange={() => setScope("all")} />
+            All {batch.count} orders for {batch.name} · {dollars(batch.totalCents)}
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "one"} onChange={() => setScope("one")} />
+            This order only · {dollars(total)}
+          </label>
         </p>
       )}
 
@@ -225,10 +249,10 @@ export default function PayControls({
               card is charged exactly the ticket. */}
           <ul style={{ listStyle: "none", padding: 0, margin: "0 0 10px", fontSize: 14.5 }}>
             <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <span>{topUp ? "Still due after changes" : "Ticket (items and tax)"}</span>
-              <span>{dollars(topUp ? balanceCents : Math.round(subtotal * 100))}</span>
+              <span>{forAll ? `All ${batch!.count} orders for ${batch!.name}` : topUp ? "Still due after changes" : "Ticket (items and tax)"}</span>
+              <span>{dollars(forAll ? batch!.totalCents : topUp ? balanceCents : Math.round(subtotal * 100))}</span>
             </li>
-            {deliveryCents > 0 && (
+            {!forAll && deliveryCents > 0 && (
               <li style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>Delivery</span>
                 <span>{dollars(deliveryCents)}</span>
@@ -236,13 +260,13 @@ export default function PayControls({
             )}
             <li style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
               <span>Total</span>
-              <span>{dollars(total)}</span>
+              <span>{dollars(amount)}</span>
             </li>
           </ul>
           <div ref={holderRef} />
           <p style={{ margin: "10px 0 0", display: "flex", gap: 14, alignItems: "center" }}>
             <button type="button" className="btn btn--solid" disabled={busy || !ready} onClick={() => pay("card")}>
-              {!ready ? "Opening card field…" : busy ? "Charging…" : `Charge ${dollars(total)}`}
+              {!ready ? "Opening card field…" : busy ? "Charging…" : `Charge ${dollars(amount)}`}
             </button>
             <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
               Never mind
@@ -254,7 +278,7 @@ export default function PayControls({
       {mode === "cash" && (
         <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           <button type="button" className="btn btn--solid" disabled={busy} onClick={() => pay("cash")}>
-            {busy ? "Recording…" : `Record ${dollars(total)} cash`}
+            {busy ? "Recording…" : `Record ${dollars(amount)} cash`}
           </button>
           <button type="button" disabled={busy} onClick={() => setMode("idle")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
             Never mind

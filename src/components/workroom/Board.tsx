@@ -57,6 +57,7 @@ type Order = {
   createdAt: number;
   payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
   topUps?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number }[];
+  batchId?: string;
   canceledFrom?: string;
   madeBy?: string;
   takenBy?: string;
@@ -354,6 +355,19 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     // here (Kevin's edge case, 2026-09-01). One-click refunds are
     // deliberately NOT built: pushing money out of her account from behind
     // a counter PIN crosses the line the auth design drew on day one.
+    /* THE GROUPS (Kevin, 2026-10-14): orders placed together for one
+       customer that still need paying, by batch id, so a card can offer
+       "all N orders, one card". Settled, canceled and held ones drop out
+       of the group on their own. */
+    // Keyed on the first order's id: the first order of a group carries
+    // no batchId (it was written before there was a group), the ones added
+    // after it carry its id, so the key is "batchId, else my own id".
+    const batches = new Map<string, Order[]>();
+    for (const o of shown) {
+      if (o.status === "canceled" || o.status === "hold" || balanceCents(o) <= 0) continue;
+      const key = o.batchId || o.id;
+      batches.set(key, [...(batches.get(key) ?? []), o]);
+    }
     const isClosed = (o: Order) =>
       (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
       (o.status === "done" && !!o.payment && balanceCents(o) <= 0);
@@ -368,6 +382,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         .sort((a, b) => b.createdAt - a.createdAt),
       /** Search mode's one list of everything still actionable. */
       active: shown.filter((o) => !isClosed(o)).sort(byDate),
+      batches,
       closed: shown.filter(isClosed).sort((a, b) => b.createdAt - a.createdAt),
     };
     // `find` was missing from this list at first, so typing in the box
@@ -456,6 +471,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
             setEditing(null);
             pull().catch(() => {});
           }}
+          onPlaced={() => pull().catch(() => {})}
         />
       )}
 
@@ -470,7 +486,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
@@ -482,12 +498,12 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </>
       ) : (
         <>
-          <Bucket title="On hold" orders={buckets.held} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
-          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
+          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} />
+          <Bucket title="Canceled, money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onRefunded={markRefunded} />
 
           {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
@@ -594,6 +610,7 @@ function Bucket({
   tone,
   orders,
   contacts,
+  batches,
   onMove,
   onPaid,
   onRefunded,
@@ -605,6 +622,7 @@ function Bucket({
   tone?: "late";
   orders: Order[];
   contacts: Contact[];
+  batches?: Map<string, Order[]>;
   onMove: (id: string, s: Order["status"], extra?: InitialsExtra) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
@@ -638,7 +656,7 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} />
+          <OrderCard key={o.id} o={o} contacts={contacts} batches={batches} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} />
         ))}
       </div>
     </section>
@@ -1035,6 +1053,7 @@ function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) =>
 function OrderCard({
   o,
   contacts,
+  batches,
   onMove,
   onPaid,
   onRefunded,
@@ -1044,6 +1063,7 @@ function OrderCard({
 }: {
   o: Order;
   contacts: Contact[];
+  batches?: Map<string, Order[]>;
   onMove: (id: string, s: Order["status"], extra?: InitialsExtra) => void;
   onPaid: () => Promise<void>;
   onRefunded?: (id: string) => void;
@@ -1053,6 +1073,14 @@ function OrderCard({
 }) {
   const next = nextMove(o);
   const today = todayISO();
+  /* This order's group, when two or more of them still need paying: what
+     the pay pane offers to settle at once, each for its own share. */
+  const group = batches?.get(o.batchId || o.id);
+  const owedFor = (x: Order) => Math.max(0, balanceCents(x)) + (x.payment ? 0 : Math.round((zipFeeToAppend(x) ?? 0) * 100));
+  const batch =
+    group && group.length > 1 && group.some((x) => x.id === o.id)
+      ? { ids: group.map((x) => x.id), count: group.length, index: group.findIndex((x) => x.id === o.id) + 1, totalCents: group.reduce((s, x) => s + owedFor(x), 0), name: o.name }
+      : undefined;
   const zipFlag = o.fulfillment === "delivery" && o.zip && !(site.deliveryZips as readonly string[]).includes(o.zip);
   const sympathy = o.occasion === "Sympathy or funeral";
   const prior = priorOrders(contacts, o.phone, o.email, o.createdAt);
@@ -1151,6 +1179,7 @@ function OrderCard({
         {o.occasion && o.occasion !== "Everyday" ? ` · ${o.occasion}` : ""}
         {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
         {o.account ? <strong> · ON ACCOUNT</strong> : ""}
+        {batch ? <strong> · order {batch.index} of {batch.count}, one card for all</strong> : ""}
         {o.taxExempt ? ` · tax exempt${o.taxId ? ` (ID ${o.taxId})` : ""}` : ""}
       </p>
       {o.takenBy && <InitialsLine o={o} which="takenBy" onMove={onMove} />}
@@ -1324,6 +1353,7 @@ function OrderCard({
           deliveryCents={o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100)}
           payment={o.payment}
           balanceCents={balanceCents(o)}
+          batch={batch}
           onPaid={() => onPaid().catch(() => {})}
         />
       )}
@@ -1376,7 +1406,13 @@ const fromLines = (o: Order): DraftLine[] => {
   }));
 };
 
-function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Contact[]; onSaved: () => void; editing?: Order | null }) {
+function PhoneOrderForm({ contacts, onSaved, onPlaced, editing = null }: { contacts: Contact[]; onSaved: () => void; onPlaced?: () => void; editing?: Order | null }) {
+  /** After a save: the order that just went on, so the form can offer
+      "another order for this customer" before it closes. */
+  const [placed, setPlaced] = useState<{ id: string; number: string } | null>(null);
+  /** The group this write-up belongs to (the first order's id), carried
+      from "Add another order" so one card can settle them all. */
+  const [batchId, setBatchId] = useState(editing?.batchId ?? "");
   const [name, setName] = useState(editing?.name ?? "");
   const [phone, setPhone] = useState(editing?.phone ?? "");
   const [picked, setPicked] = useState<Contact | null>(null);
@@ -1543,6 +1579,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       id: editing?.id,
       hold,
       takenBy: takenBy.trim().toUpperCase(),
+      batchId: batchId || undefined,
       account,
       taxExempt,
       taxId: taxExempt ? taxId.trim() : "",
@@ -1584,7 +1621,15 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
       setError(d?.error || "That did not save. Look it over and try again.");
       return;
     }
-    onSaved();
+    if (editing || hold) {
+      onSaved();
+      return;
+    }
+    // A new order: the board refreshes behind the form, and the form
+    // stays to offer another order for the same customer (Kevin,
+    // 2026-10-14: a hospital calling with five deliveries on one card).
+    setPlaced({ id: d.order.id, number: d.order.number });
+    onPlaced?.();
   }
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -2247,6 +2292,39 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
         </span>
       </label>
 
+      {placed ? (
+        <div role="status" style={{ display: "grid", gap: 10 }}>
+          <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--green)" }}>
+            {placed.number} is on the board for {name || "them"}.
+          </p>
+          <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              className="btn btn--solid"
+              type="button"
+              onClick={() => {
+                // Same customer, same card at the end: who and how they
+                // pay stay; what and for whom start blank.
+                setBatchId(batchId || placed.id);
+                setPlaced(null);
+                setRecipient("");
+                setRecipientPhone("");
+                setLines([blankLine()]);
+                setCardMessage("");
+                setNotes("");
+                setNeededBy("");
+                setFeeOverride(null);
+                setError("");
+              }}
+            >
+              Add another order for {name || "this customer"}
+            </button>
+            <span className="muted" style={{ fontSize: 14 }}>Same card at the end: the board offers one payment for all of them.</span>
+            <button className="btn" type="button" onClick={onSaved}>
+              Done
+            </button>
+          </p>
+        </div>
+      ) : (
       <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center" }}>
         <button className="btn btn--solid" type="submit" disabled={saving !== ""}>
           {saving === "board"
@@ -2268,6 +2346,7 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
         )}
         <span aria-live="polite" style={{ color: "var(--rose-ink)", fontWeight: 600, fontSize: 14.5 }}>{error}</span>
       </p>
+      )}
     </form>
   );
 }

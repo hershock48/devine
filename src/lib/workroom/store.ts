@@ -115,6 +115,11 @@ export type WorkroomOrder = {
   subtotal: number;
   createdAt: number;
   payment?: OrderPayment | null;
+  /** ORDERS PLACED TOGETHER, ONE CARD (Kevin, 2026-10-14: a hospital calls
+      with five deliveries on one card). Every order written up through
+      "Add another order for this customer" carries the first order's id
+      here; the board offers to take one payment for all of them. */
+  batchId?: string;
   /** Payments taken after the first, when an edit raised a paid ticket's
       total (Kevin, 2026-10-14). derive.ts sums them; the first payment
       stays what it was. */

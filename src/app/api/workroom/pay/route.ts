@@ -3,7 +3,7 @@ import { balanceCents, deliveryLineName, zipFeeToAppend } from "@/lib/workroom/d
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure } from "@/lib/square/payments";
-import { getStore, type OrderPayment, type WorkroomLine } from "@/lib/workroom/store";
+import { getStore, type OrderPayment, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 
 /**
  * Where a board order's money gets settled: the card keyed on the order
@@ -39,8 +39,12 @@ export async function POST(req: Request) {
   // answer was lost, so the retry cannot be a second charge (below).
   const attempt = typeof p.attempt === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(p.attempt) ? p.attempt : "";
 
-  if (!id || !method) return NextResponse.json({ error: "Order id and method are required." }, { status: 400 });
+  // SEVERAL ORDERS, ONE PAYMENT (Kevin, 2026-10-14): the pane may send
+  // ids instead of id, the orders placed together for one customer.
+  const ids = Array.isArray(p.ids) ? p.ids.filter((x): x is string => typeof x === "string").slice(0, 20) : [];
+  if (!(id || ids.length >= 2) || !method) return NextResponse.json({ error: "Order id and method are required." }, { status: 400 });
   if (method === "card" && !sourceId) return NextResponse.json({ error: "No card token arrived." }, { status: 400 });
+  if (ids.length >= 2) return payBatch(ids, method, sourceId, attempt);
 
   const store = getStore();
   const order = await store.getOrder(id);
@@ -167,4 +171,96 @@ export async function POST(req: Request) {
     }
   }
   return NextResponse.json({ ok: true, payment, receiptUrl: charged.receiptUrl, boardMissed });
+}
+
+/**
+ * ONE PAYMENT FOR SEVERAL ORDERS. Each order is charged what it is owed
+ * (its balance, plus the sheet fee a delivery ticket with no delivery
+ * line would get, the single-order rule), the sum goes to Square (or the
+ * drawer, or the by-hand mark) once, and every order is marked paid with
+ * its own share and the one Square payment id. A canceled, held or
+ * settled order in the list is refused by name, so nobody pays for one
+ * that does not need it.
+ */
+async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourceId: string | undefined, attempt: string) {
+  const store = getStore();
+  const orders = await Promise.all(ids.map((x) => store.getOrder(x)));
+  const parts: { o: WorkroomOrder; amountCents: number; lines: WorkroomLine[]; appended?: { lines: WorkroomLine[]; subtotal: number } }[] = [];
+  for (let i = 0; i < ids.length; i++) {
+    const o = orders[i];
+    if (!o) return NextResponse.json({ error: `No such order (${ids[i]}).` }, { status: 404 });
+    if (o.status === "canceled") return NextResponse.json({ error: `${o.number} is canceled; take it out of the group first.` }, { status: 409 });
+    if (o.status === "hold") return NextResponse.json({ error: `${o.number} is on hold; finish it first.` }, { status: 409 });
+    if (o.payment) {
+      const due = balanceCents(o);
+      if (due <= 0) return NextResponse.json({ error: `${o.number} is already paid.` }, { status: 409 });
+      parts.push({ o, amountCents: due, lines: [{ slug: null, name: `Balance on order ${o.number}`, qty: 1, each: due / 100 }] });
+      continue;
+    }
+    const zipFee = zipFeeToAppend(o);
+    const lines: WorkroomLine[] = zipFee !== undefined ? [...o.lines, { slug: null, name: deliveryLineName(o.zip), qty: 1, each: zipFee }] : o.lines;
+    const subtotal = zipFee !== undefined ? Math.round((o.subtotal + zipFee) * 100) / 100 : o.subtotal;
+    parts.push({
+      o,
+      amountCents: Math.round(subtotal * 100),
+      lines: lines.map((l) => ({ ...l, name: `${o.number}: ${l.name}` })),
+      appended: zipFee !== undefined ? { lines, subtotal } : undefined,
+    });
+  }
+  const totalCents = parts.reduce((s, x) => s + x.amountCents, 0);
+  if (totalCents <= 0) return NextResponse.json({ error: "Nothing is owed on those orders." }, { status: 409 });
+  const first = parts[0].o;
+  const label = `${first.number} +${parts.length - 1}`;
+
+  const record = async (make: (x: (typeof parts)[number]) => OrderPayment) => {
+    for (const x of parts) {
+      if (x.appended) await store.setOrderLines(x.o.id, x.appended.lines, x.appended.subtotal);
+      const pmt = make(x);
+      if (x.o.payment) await store.addOrderTopUp(x.o.id, pmt);
+      else await store.setOrderPayment(x.o.id, pmt);
+    }
+  };
+
+  if (method === "manual") {
+    await record((x) => ({ at: Date.now(), method: "other", squarePaymentId: "", totalCents: x.amountCents, feeCents: 0 }));
+    return NextResponse.json({ ok: true, payment: { at: Date.now(), method: "other", squarePaymentId: "", totalCents, feeCents: 0 } });
+  }
+
+  const cfg = await resolveSquare();
+  if (!cfg) return NextResponse.json({ error: "Square is not connected, so no payment can be taken here yet." }, { status: 503 });
+  let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
+  try {
+    charged = await chargeBoardOrder(cfg, {
+      workroomOrderId: first.id,
+      orderNumber: label,
+      lines: parts.flatMap((x) => x.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each }))),
+      method,
+      sourceId,
+      cardFee: { name: "", cents: 0, appFeeCents: 0 },
+      idempotencyKey: `${ids.slice().sort().join("+")}:${method === "card" ? attempt || sourceId : "cash"}`,
+    });
+  } catch (err) {
+    console.error(`[devine] pay ${label} (${method}) failed:`, err);
+    if (isIdempotencyReuse(err)) return NextResponse.json({ error: "That charge already went through. Reload the board before doing anything else." }, { status: 409 });
+    if (isPaymentUnsure(err)) {
+      return NextResponse.json(
+        { unsure: true, error: "No answer came back from Square, so the card MAY have been charged. Do not take the card again elsewhere. Tap Charge once more here: if the first charge went through, it will say so and not charge twice." },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json({ error: String(err instanceof Error ? err.message : err).slice(0, 300) }, { status: 402 });
+  }
+  let boardMissed = false;
+  for (let attemptNo = 1; attemptNo <= 3; attemptNo++) {
+    try {
+      await record((x) => ({ at: Date.now(), method, squarePaymentId: charged.paymentId, totalCents: x.amountCents, feeCents: 0 }));
+      boardMissed = false;
+      break;
+    } catch (err) {
+      boardMissed = true;
+      console.error(`[devine] ${attemptNo === 3 ? "CRITICAL: " : ""}pay ${label}: Square payment ${charged.paymentId} succeeded but the board write failed (try ${attemptNo}):`, err);
+      if (attemptNo < 3) await new Promise((r) => setTimeout(r, 400 * attemptNo));
+    }
+  }
+  return NextResponse.json({ ok: true, payment: { at: Date.now(), method, squarePaymentId: charged.paymentId, totalCents: charged.totalCents, feeCents: charged.feeCents }, receiptUrl: charged.receiptUrl, boardMissed });
 }
