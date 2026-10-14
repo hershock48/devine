@@ -374,7 +374,7 @@ export async function sendDeliveredEmail(o: {
  * function nothing sent one - web orders emailed a copy, phone orders
  * emailed nothing. Best-effort and awaited, same rules as every send.
  */
-export async function sendWorkroomReceipt(o: {
+type ReceiptOrder = {
   number: string;
   name: string;
   email: string;
@@ -384,58 +384,91 @@ export async function sendWorkroomReceipt(o: {
   recipient: string;
   lines: { name: string; qty: number; each: number }[];
   subtotal: number;
-}): Promise<void> {
+};
+
+/** One order's lines as the receipt shows them: items, then tax, then total. */
+function receiptRows(o: ReceiptOrder): { items: { qty: number; name: string; total: number }[]; rows: MoneyRow[]; text: string[] } {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    items: o.lines.filter((l) => !isTaxLine(l)).map((l) => ({ qty: l.qty, name: l.name, total: r2(l.each * l.qty) })),
+    rows: [
+      ...o.lines.filter(isTaxLine).map((l) => ({ label: l.name, value: money(r2(l.each * l.qty)) })),
+      { label: "Total", value: money(o.subtotal), strong: true },
+    ],
+    text: [
+      ...o.lines.filter((l) => !isTaxLine(l)).map((l) => `  ${l.qty} x ${l.name}  ${money(l.each * l.qty)}`),
+      ...o.lines.filter(isTaxLine).map((l) => `  ${l.name}  ${money(l.each * l.qty)}`),
+      `  Total ${money(o.subtotal)}`,
+    ],
+  };
+}
+
+/** When and for whom, in pieces, so the text and HTML copies cannot drift. */
+const when = (o: ReceiptOrder) => ({
+  how: o.fulfillment === "delivery" ? "Delivery" : "Pickup",
+  day: `${longDay(o.date)}${o.neededBy ? ` by ${clock12(o.neededBy)}` : ""}`,
+  forWhom: o.recipient && o.recipient !== o.name ? o.recipient : "",
+});
+const whenLine = (o: ReceiptOrder) => {
+  const w = when(o);
+  return `${w.how} on ${w.day}${w.forWhom ? `, for ${w.forWhom}` : ""}`;
+};
+
+/**
+ * The customer's copy of a write-up. One order, or several placed on one
+ * call (Kevin, 2026-10-14: a hospital's five deliveries on one card): then
+ * it is one email with a section per order and the total for all of them,
+ * the way the one card will be charged, not five emails.
+ */
+export async function sendWorkroomReceipt(input: ReceiptOrder | ReceiptOrder[]): Promise<void> {
+  const orders = Array.isArray(input) ? input : [input];
+  const o = orders[0];
+  if (!o) return;
   const mail = shopMail();
   if (!mail || !o.email) {
     if (o.email) console.log(`[devine] receipt for ${o.number} not sent: SMTP incomplete.`);
     return;
   }
   const transport = mail.transport;
+  const many = orders.length > 1;
+  const grand = Math.round(orders.reduce((s, x) => s + x.subtotal, 0) * 100) / 100;
+  const numbers = orders.map((x) => x.number).join(", ");
+  const subject = many ? `Your ${site.shortName} orders (${orders.length})` : `Your ${site.shortName} order ${o.number}`;
+  const intro = many
+    ? `Here are your ${orders.length} orders, written up by the shop on one call.`
+    : `Here is your ${site.shortName} order, written up by the shop.`;
   const text = [
-    `Thanks, ${o.name}. Here is your ${site.shortName} order, written up by the shop.`,
-    "",
-    `Order ${o.number}`,
-    `${o.fulfillment === "delivery" ? "Delivery" : "Pickup"} on ${o.date}${o.neededBy ? ` by ${clock12(o.neededBy)}` : ""}${o.recipient && o.recipient !== o.name ? `, for ${o.recipient}` : ""}`,
-    "",
-    ...o.lines.filter((l) => !isTaxLine(l)).map((l) => `  ${l.qty} x ${l.name}  ${money(l.each * l.qty)}`),
-    ...o.lines.filter(isTaxLine).map((l) => `  ${l.name}  ${money(l.each * l.qty)}`),
-    `  Total ${money(o.subtotal)}`,
+    `Thanks, ${o.name}. ${intro}`,
+    ...orders.flatMap((x) => ["", `Order ${x.number}`, whenLine(x), "", ...receiptRows(x).text]),
+    ...(many ? ["", `Total for all ${orders.length} orders: ${money(grand)}`] : []),
     "",
     `Questions or changes: call the shop at ${site.phone}.`,
   ].join("\n");
+  const sections = orders.flatMap((x) => {
+    const r = receiptRows(x);
+    const w = when(x);
+    return [
+      block(`Order ${x.number}`, orderTable(r.items, r.rows)),
+      block(w.how, `${esc(w.day)}${w.forWhom ? `<br>For ${esc(w.forWhom)}` : ""}${x.fulfillment === "pickup" ? `<br>${esc(addressOneLine)}` : ""}`),
+    ];
+  });
+  if (many) sections.push(block(`All ${orders.length} orders`, orderTable([], [{ label: "Total", value: money(grand), strong: true }])));
   await transport
     .sendMail({
       from: mail.from,
       to: o.email,
       replyTo: mail.replyTo,
-      subject: `Your ${site.shortName} order ${o.number}`,
+      subject,
       text,
       html: shell({
-        title: `Your ${site.shortName} order ${o.number}`,
+        title: subject,
         heading: `Thanks, ${o.name}.`,
-        intro: `Here is your ${esc(site.shortName)} order, written up by the shop.`,
-        sections: [
-          block(
-            `Order ${o.number}`,
-            orderTable(
-              o.lines.filter((l) => !isTaxLine(l)).map((l) => ({ qty: l.qty, name: l.name, total: Math.round(l.each * l.qty * 100) / 100 })),
-              [
-                ...o.lines.filter(isTaxLine).map((l) => ({ label: l.name, value: money(Math.round(l.each * l.qty * 100) / 100) })),
-                { label: "Total", value: money(o.subtotal), strong: true },
-              ],
-            ),
-          ),
-          block(
-            o.fulfillment === "delivery" ? "Delivery" : "Pickup",
-            `${esc(longDay(o.date))}${o.neededBy ? ` by ${esc(clock12(o.neededBy))}` : ""}${
-              o.recipient && o.recipient !== o.name ? `<br>For ${esc(o.recipient)}` : ""
-            }${o.fulfillment === "pickup" ? `<br>${esc(addressOneLine)}` : ""}`,
-          ),
-        ],
+        intro: esc(intro),
+        sections,
       }),
       attachments: [logoAttachment()],
     })
-    .catch((err) => console.error(`[devine] receipt for ${o.number} not sent:`, err));
+    .catch((err) => console.error(`[devine] receipt for ${numbers} not sent:`, err));
 }
 
 export async function sendOrder(o: PricedOrder, paid?: PaidOnline): Promise<SendResult> {
