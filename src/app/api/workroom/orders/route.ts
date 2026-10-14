@@ -244,7 +244,7 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as {
-    id?: unknown; status?: unknown; markRefunded?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown;
+    id?: unknown; status?: unknown; markRefunded?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
   };
   const id = typeof p.id === "string" ? p.id : "";
   // UNCANCEL (Katy, 2026-10-06): a canceled order goes back to the status
@@ -263,6 +263,17 @@ export async function PATCH(req: Request) {
     const back: OrderStatus = o.canceledFrom && o.canceledFrom !== "canceled" ? o.canceledFrom : "confirmed";
     await getStore().patchOrder(id, { status: back });
     return NextResponse.json({ ok: true, status: back });
+  }
+  // ON OR OFF ACCOUNT, after the fact (Katy, 2026-10-14). Unpaid orders
+  // only: a paid order is settled, and "on account" means billed instead.
+  if (typeof p.account === "boolean") {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    if (o.payment) return NextResponse.json({ error: "Already paid; it is settled, not on account." }, { status: 409 });
+    if (o.status === "canceled") return NextResponse.json({ error: "That order is canceled." }, { status: 409 });
+    await getStore().patchOrder(id, { account: p.account });
+    return NextResponse.json({ ok: true, account: p.account });
   }
   // INITIALS alone (fixing or adding who made it, or who took it, after
   // the fact: a typo in the taker's initials would otherwise be permanent

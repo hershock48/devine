@@ -384,6 +384,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     const c = new Cursor(pen, CARD_X, CARD_TOP, PANEL_W - CARD_X - PANEL_INSET, b.bottom);
     c.line(o.recipient || o.name, 12, pen.bold);
     for (const w of where) c.line(w, 10.5, pen.bold);
+    if (!deliver && o.company) c.line(o.company, 10.5, pen.bold);
     if (!deliver) c.line("Pickup at the shop", 10.5, pen.bold);
     if (o.phone) c.line(o.phone, 10, pen.reg);
     c.gap(6);
@@ -441,7 +442,10 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     right.heading("Recipient");
     right.line(o.recipient || o.name, 10.5, pen.bold);
     if (deliver) for (const w of where) right.line(w, 9.5);
-    else right.line("Pickup at the shop", 9.5);
+    else {
+      if (o.company) right.line(o.company, 9.5);
+      right.line("Pickup at the shop", 9.5);
+    }
     if (deliver && o.zip && !(site.deliveryZips as readonly string[]).includes(o.zip)) right.line("Off the delivery list: confirm", 9.5, pen.bold);
     c.y = Math.min(left.y, right.y) - 4;
     itemsTable(c, pen, o, 9.5);
@@ -464,7 +468,10 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     c.gap(6);
     c.line(o.recipient || o.name, 10.5, pen.bold);
     if (deliver) for (const w of where) c.line(w, 9.5);
-    else c.line("Pickup at the shop", 9.5);
+    else {
+      if (o.company) c.line(o.company, 9.5);
+      c.line("Pickup at the shop", 9.5);
+    }
     c.gap(6);
     c.line(`Sold to: ${o.name}`, 9.5);
     if (o.phone) c.line(`Phone: ${o.phone}`, 9.5);
