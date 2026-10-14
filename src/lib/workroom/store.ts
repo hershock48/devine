@@ -453,6 +453,12 @@ export type OrderContact = {
   street: string;
   town: string;
   zip: string;
+  /** The account and tax-exempt settings of this order, so a returning
+      account customer's next write-up starts with them ticked and the
+      exemption number filled (Kevin, 2026-10-14). */
+  account?: boolean;
+  taxExempt?: boolean;
+  taxId?: string;
 };
 
 /**
@@ -716,6 +722,9 @@ const memoryStore: Store = {
         recipient: o.recipient,
         recipientPhone: o.recipientPhone ?? "",
         company: o.company ?? "",
+        account: o.account === true,
+        taxExempt: o.taxExempt === true,
+        taxId: o.taxId ?? "",
         street: o.street,
         town: o.town,
         zip: o.zip,
@@ -1052,6 +1061,7 @@ const postgresStore: Store = {
               data->>'fulfillment' AS fulfillment, data->>'recipient' AS recipient,
               COALESCE(data->>'company', '') AS company,
               COALESCE(data->>'recipientPhone', '') AS recipient_phone,
+              COALESCE(data->>'account', 'false') AS account, COALESCE(data->>'taxExempt', 'false') AS tax_exempt, COALESCE(data->>'taxId', '') AS tax_id,
               data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, created_at
        FROM workroom_orders WHERE status <> 'canceled' ORDER BY created_at DESC LIMIT 5000`,
     );
@@ -1064,6 +1074,9 @@ const postgresStore: Store = {
       recipient: (row.recipient as string) ?? "",
       company: (row.company as string) ?? "",
       recipientPhone: (row.recipient_phone as string) ?? "",
+      account: row.account === "true",
+      taxExempt: row.tax_exempt === "true",
+      taxId: (row.tax_id as string) ?? "",
       street: (row.street as string) ?? "",
       town: (row.town as string) ?? "",
       zip: (row.zip as string) ?? "",

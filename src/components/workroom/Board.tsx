@@ -111,6 +111,9 @@ type Contact = {
   recipient?: string;
   recipientPhone?: string;
   company?: string;
+  account?: boolean;
+  taxExempt?: boolean;
+  taxId?: string;
   street?: string;
   town?: string;
   zip?: string;
@@ -1730,6 +1733,11 @@ function PhoneOrderForm({ contacts, onSaved, editing = null }: { contacts: Conta
                   setRecipient(c.recipient ?? "");
                   setRecipientPhone(c.recipientPhone ?? "");
                   setCompany(c.company ?? "");
+                  // An account customer stays one: their last order's
+                  // account and tax-exempt settings come along, ID too.
+                  setAccount(c.account === true);
+                  setTaxExempt(c.taxExempt === true);
+                  setTaxId(c.taxExempt ? c.taxId ?? "" : "");
                   setStreet(c.street ?? "");
                   setTown(c.town ?? "");
                   setZip(c.zip ?? "");
