@@ -1027,11 +1027,30 @@ function OrderCard({
               ? "3px solid var(--green)"
               : "3px solid transparent",
         opacity: o.status === "canceled" ? 0.55 : 1,
+        // Delivery on a warm wash, pickup on a green one (globals.css), with
+        // the word beside the number so the colour is never the only cue.
+        background: o.fulfillment === "delivery" ? "var(--wash-delivery)" : "var(--wash-pickup)",
       }}
     >
       <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
         <strong style={{ fontSize: 17 }}>{o.name}</strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
+          <span
+            style={{
+              display: "inline-block",
+              marginRight: 8,
+              padding: "1px 7px",
+              borderRadius: 2,
+              border: `1px solid ${o.fulfillment === "delivery" ? "var(--rose-ink)" : "var(--green)"}`,
+              color: o.fulfillment === "delivery" ? "var(--rose-ink)" : "var(--green)",
+              fontSize: 11.5,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+            }}
+          >
+            {o.fulfillment === "delivery" ? "Delivery" : "Pickup"}
+          </span>
           {o.number} · {o.source}
           {" · "}
           {/* The order as a PDF on its paper (2026-10-12): the six-panel
