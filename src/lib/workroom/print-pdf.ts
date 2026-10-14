@@ -1,5 +1,5 @@
 import "server-only";
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
@@ -64,6 +64,17 @@ const MESSAGE_BOTTOM = 8.5 * IN - 2.75 * IN;
 /** The driver's stub starts a little further in than the other panels,
     as IRIS's does. */
 const STUB_INSET = 0.4 * IN;
+/** THE SHEET TRAVELS AS A PORTRAIT PAGE (Kevin's prints, 2026-10-13).
+    Printed from Edge as a landscape page, the form came out squeezed to
+    about two thirds of its width and pushed right, heights exact, twice,
+    with Edge and the driver both set to landscape. The form is still
+    drawn landscape, 11 by 8.5, and then the page is marked as turned a
+    quarter, so every viewer and driver sees a plain portrait Letter page
+    with the layout lying sideways in it. No orientation decision is left
+    to Edge or the Brother; the sheet comes out of the tray the same way.
+    If a print lands upside down against the letterhead, this is the one
+    number to flip, to 270. */
+const SHEET_TURN = 90;
 
 const ink = rgb(0, 0, 0);
 const grey = rgb(0.25, 0.23, 0.2);
@@ -293,6 +304,7 @@ async function pens(doc: PDFDocument): Promise<Omit<Pen, "page">> {
 
 function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder, printedAt: number) {
   const page = doc.addPage([11 * IN, 8.5 * IN]);
+  page.setRotation(degrees(SHEET_TURN));
   const pen: Pen = { page, ...fonts };
   const box = (col: number, row: number, cols = 1, inset = PANEL_INSET) => ({
     x: col * PANEL_W + inset,
