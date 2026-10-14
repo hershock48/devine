@@ -4,6 +4,7 @@ import nodemailer from "nodemailer";
 import { bySlug, money } from "@/lib/catalog";
 import { site, addressOneLine } from "@/lib/site";
 import { occasions as OCCASIONS } from "@/lib/occasions";
+import { block, esc, logoAttachment, orderTable, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
 /**
  * ORDER INTAKE. The order leaves the browser, arrives in an inbox, and the shop
@@ -270,6 +271,46 @@ function customerCopy(o: PricedOrder, paid?: PaidOnline): string {
     .join("\n");
 }
 
+/** The same copy, branded (Kevin, 2026-10-13). The text version above
+    rides along as the alternative. */
+function customerCopyHtml(o: PricedOrder, paid?: PaidOnline): string {
+  const rows: MoneyRow[] = [{ label: "Subtotal", value: money(o.subtotal) }];
+  if (paid) {
+    if (paid.deliveryCents) rows.push({ label: `Delivery (${o.zip})`, value: money(paid.deliveryCents / 100) });
+    rows.push({ label: "Online ordering fee", value: money(paid.feeCents / 100), muted: true });
+    rows.push({ label: "Paid by card", value: money(paid.totalCents / 100), strong: true });
+  } else if (o.fulfillment === "delivery") {
+    // The same arithmetic the cart showed: the zip's fee and the total
+    // due on the call, or a plain word that delivery is priced on the call.
+    const fee = site.deliveryFees[o.zip];
+    if (fee !== undefined) {
+      rows.push({ label: `Delivery (${o.zip})`, value: money(fee) });
+      rows.push({ label: "Total due when we call", value: money(Math.round((o.subtotal + fee) * 100) / 100), strong: true });
+    } else {
+      rows.push({ label: "Delivery", value: "priced on the call", muted: true });
+    }
+  } else {
+    rows.push({ label: "Total due at pickup", value: money(o.subtotal), strong: true });
+  }
+  const when = new Date(o.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const sections = [
+    block(`Order ${o.number}`, orderTable(o.lines.map((l) => ({ qty: l.qty, name: l.name, total: l.line })), rows)),
+    o.fulfillment === "delivery"
+      ? block("Delivery", `${esc(when)}<br>${esc(o.recipient || o.name)}<br>${esc(o.street)}, ${esc(o.town)} ${esc(o.zip)}`)
+      : block("Pickup", `${esc(when)}<br>${esc(addressOneLine)}`),
+    textBlock("Card message", o.cardMessage),
+    textBlock("Notes", o.notes),
+  ];
+  return shell({
+    title: `Your ${site.shortName} order ${o.number}`,
+    heading: `Thank you, ${o.name}.`,
+    intro: paid
+      ? "We have your order and your card has been charged. This email is your record."
+      : `We have your order. No payment has been taken online; we will call you at <strong>${esc(o.phone)}</strong> to confirm the details and take payment.`,
+    sections,
+  });
+}
+
 export type SendResult = "sent" | "unconfigured" | "send-failed";
 
 /**
@@ -308,6 +349,14 @@ export async function sendDeliveredEmail(o: {
         "",
         `Thank you for ordering from ${site.name}. If anything about the delivery needs a word, call the shop at ${site.phone}.`,
       ].join("\n"),
+      html: shell({
+        title: `Delivered: your ${site.shortName} order ${o.number}`,
+        heading: "Delivered.",
+        intro: `Your order ${esc(o.number)} has been delivered${o.recipient && o.recipient !== o.name ? ` to <strong>${esc(o.recipient)}</strong>` : ""}. Thank you for ordering from ${esc(site.name)}.`,
+        sections: [],
+        outro: `If anything about the delivery needs a word, call the shop at <a href="${esc(site.phoneHref)}" style="color:#37543c;font-weight:600;text-decoration:none;">${esc(site.phone)}</a>.`,
+      }),
+      attachments: [logoAttachment()],
     })
     .catch((err) => console.error(`[devine] delivered note for ${o.number} not sent:`, err));
 }
@@ -359,6 +408,27 @@ export async function sendWorkroomReceipt(o: {
       replyTo: process.env.ORDER_TO || undefined,
       subject: `Your ${site.shortName} order ${o.number}`,
       text,
+      html: shell({
+        title: `Your ${site.shortName} order ${o.number}`,
+        heading: `Thanks, ${o.name}.`,
+        intro: `Here is your ${esc(site.shortName)} order, written up by the shop.`,
+        sections: [
+          block(
+            `Order ${o.number}`,
+            orderTable(
+              o.lines.map((l) => ({ qty: l.qty, name: l.name, total: Math.round(l.each * l.qty * 100) / 100 })),
+              [{ label: "Subtotal", value: money(o.subtotal), strong: true }],
+            ),
+          ),
+          block(
+            o.fulfillment === "delivery" ? "Delivery" : "Pickup",
+            `${esc(new Date(o.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }))}${
+              o.recipient && o.recipient !== o.name ? `<br>For ${esc(o.recipient)}` : ""
+            }${o.fulfillment === "pickup" ? `<br>${esc(addressOneLine)}` : ""}`,
+          ),
+        ],
+      }),
+      attachments: [logoAttachment()],
     })
     .catch((err) => console.error(`[devine] receipt for ${o.number} not sent:`, err));
 }
@@ -413,6 +483,8 @@ export async function sendOrder(o: PricedOrder, paid?: PaidOnline): Promise<Send
         replyTo: to,
         subject: `Your ${site.shortName} order ${o.number}`,
         text: customerCopy(o, paid),
+        html: customerCopyHtml(o, paid),
+        attachments: [logoAttachment()],
       })
       .catch((err) => console.error(`[devine] order ${o.number} confirmation not sent:`, err));
   }
