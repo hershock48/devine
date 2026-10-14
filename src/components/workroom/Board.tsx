@@ -578,7 +578,9 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
   const moneyWord = (o: Order) => {
     if (!o.payment) return o.status === "canceled" ? "" : "not paid";
     if (o.payment.refundedAt) return `refunded ${money(o.payment.totalCents / 100)}`;
-    return `paid ${money(o.payment.totalCents / 100)}`;
+    // Everything collected, not the first payment alone: a ticket paid in
+    // parts (cash then card) is one paid order, not a $40 one.
+    return `paid ${money(collectedCents(o) / 100)}`;
   };
   return (
     <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0", maxWidth: 720 }}>
@@ -1297,8 +1299,17 @@ function OrderCard({
             </li>
           </>
         )}
-        {/* After an edit to a paid ticket: the top-ups taken since, and
-            what is still due or owed back (derive.ts balanceCents). */}
+        {/* After an edit to a paid ticket, or a part payment (Kevin,
+            2026-10-14): the payments taken since the first, and what is
+            still due or owed back (derive.ts balanceCents). */}
+        {o.payment && (o.topUps?.length ?? 0) > 0 && (
+          <li style={{ display: "flex", justifyContent: "space-between" }}>
+            {/* The first payment gets its own row once there are more,
+                so the list adds up on its own ($40 cash + $28.90 card). */}
+            <span>Paid, {o.payment.method === "other" ? "another way" : o.payment.method}</span>
+            <span>{money((o.payment.totalCents - o.payment.feeCents) / 100)}</span>
+          </li>
+        )}
         {o.payment && (o.topUps?.length ?? 0) > 0 && o.topUps!.map((p, i) => (
           <li key={i} style={{ display: "flex", justifyContent: "space-between" }}>
             <span>Also paid, {p.method === "other" ? "another way" : p.method}</span>
@@ -1307,7 +1318,7 @@ function OrderCard({
         ))}
         {o.payment && balanceCents(o) !== 0 && (
           <li style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, color: "var(--rose-ink)" }}>
-            <span>{balanceCents(o) > 0 ? "Still due after changes" : "To refund after changes"}</span>
+            <span>{balanceCents(o) > 0 ? "Still due" : "To refund after changes"}</span>
             <span>{money(Math.abs(balanceCents(o)) / 100)}</span>
           </li>
         )}
@@ -1404,6 +1415,7 @@ function OrderCard({
           deliveryCents={o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100)}
           payment={o.payment}
           balanceCents={balanceCents(o)}
+          collectedCents={collectedCents(o)}
           batch={batch}
           onPaid={() => onPaid().catch(() => {})}
         />

@@ -44,7 +44,19 @@ export async function POST(req: Request) {
   const ids = Array.isArray(p.ids) ? [...new Set(p.ids.filter((x): x is string => typeof x === "string"))].slice(0, 20) : [];
   if (!(id || ids.length >= 2) || !method) return NextResponse.json({ error: "Order id and method are required." }, { status: 400 });
   if (method === "card" && !sourceId) return NextResponse.json({ error: "No card token arrived." }, { status: 400 });
-  if (ids.length >= 2) return payBatch(ids, method, sourceId, attempt);
+  // PART OF IT NOW (Kevin, 2026-10-14: "x amount cash and the rest on
+  // card, or half on this card and half on another"). An optional amount,
+  // in cents; absent means the whole of what is due, as always. What is
+  // not paid stays on the ticket as balance, and the next payment is a
+  // top-up by the path that already exists for an edited ticket.
+  const amountCents = p.amountCents === undefined || p.amountCents === null ? undefined : Number(p.amountCents);
+  if (amountCents !== undefined && (!Number.isInteger(amountCents) || amountCents <= 0)) {
+    return NextResponse.json(
+      { error: Number.isFinite(amountCents) && amountCents <= 0 ? "The amount has to be more than zero." : "The amount did not read as a number." },
+      { status: 400 },
+    );
+  }
+  if (ids.length >= 2) return payBatch(ids, method, sourceId, attempt, amountCents);
 
   const store = getStore();
   const order = await store.getOrder(id);
@@ -76,12 +88,22 @@ export async function POST(req: Request) {
     business, the way it always was.
   */
   const zipFee = topUp ? undefined : zipFeeToAppend(order);
-  const lines: WorkroomLine[] = topUp
-    ? [{ slug: null, name: `Balance on order ${order.number}`, qty: 1, each: due / 100 }]
-    : zipFee !== undefined
-      ? [...order.lines, { slug: null, name: deliveryLineName(order.zip), qty: 1, each: zipFee }]
-      : order.lines;
-  const subtotal = topUp ? due / 100 : zipFee !== undefined ? Math.round((order.subtotal + zipFee) * 100) / 100 : order.subtotal;
+  const ticketLines: WorkroomLine[] = zipFee !== undefined ? [...order.lines, { slug: null, name: deliveryLineName(order.zip), qty: 1, each: zipFee }] : order.lines;
+  const ticketSubtotal = zipFee !== undefined ? Math.round((order.subtotal + zipFee) * 100) / 100 : order.subtotal;
+  // What is due now: the whole ticket (fee included) on a first payment,
+  // the balance on a top-up. A part payment may be any amount up to it;
+  // the fee still joins the ticket on the first payment, part or whole.
+  const dueCents = topUp ? due : Math.round(ticketSubtotal * 100);
+  if (amountCents !== undefined && amountCents > dueCents) {
+    return NextResponse.json({ error: `That is more than what is due (${(dueCents / 100).toFixed(2)}).` }, { status: 400 });
+  }
+  const part = amountCents !== undefined && amountCents < dueCents;
+  const payCents = amountCents ?? dueCents;
+  const lines: WorkroomLine[] = part
+    ? [{ slug: null, name: `Part payment on order ${order.number}`, qty: 1, each: payCents / 100 }]
+    : topUp
+      ? [{ slug: null, name: `Balance on order ${order.number}`, qty: 1, each: due / 100 }]
+      : ticketLines;
   const record = (p: OrderPayment) => (topUp ? store.addOrderTopUp(order.id, p) : store.setOrderPayment(order.id, p));
 
   // The by-hand mark: money already moved outside the board (a check, an
@@ -92,10 +114,10 @@ export async function POST(req: Request) {
       at: Date.now(),
       method: "other",
       squarePaymentId: "",
-      totalCents: Math.round(subtotal * 100),
+      totalCents: payCents,
       feeCents: 0,
     };
-    if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
+    if (zipFee !== undefined) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
     await record(payment);
     return NextResponse.json({ ok: true, payment });
   }
@@ -163,7 +185,7 @@ export async function POST(req: Request) {
   let boardMissed = false;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      if (zipFee !== undefined) await store.setOrderLines(order.id, lines, subtotal);
+      if (zipFee !== undefined) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
       await record(payment);
       boardMissed = false;
       break;
@@ -185,7 +207,7 @@ export async function POST(req: Request) {
  * settled order in the list is refused by name, so nobody pays for one
  * that does not need it.
  */
-async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourceId: string | undefined, attempt: string) {
+async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourceId: string | undefined, attempt: string, amountCents?: number) {
   const store = getStore();
   const orders = await Promise.all(ids.map((x) => store.getOrder(x)));
   const parts: { o: WorkroomOrder; amountCents: number; lines: WorkroomLine[]; appended?: { lines: WorkroomLine[]; subtotal: number } }[] = [];
@@ -210,13 +232,35 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
       appended: zipFee !== undefined ? { lines, subtotal } : undefined,
     });
   }
+  const dueCents = parts.reduce((s, x) => s + x.amountCents, 0);
+  if (dueCents <= 0) return NextResponse.json({ error: "Nothing is owed on those orders." }, { status: 409 });
+  if (amountCents !== undefined && amountCents > dueCents) {
+    return NextResponse.json({ error: `That is more than what is due on those orders (${(dueCents / 100).toFixed(2)}).` }, { status: 400 });
+  }
+  // A PART PAYMENT ON THE GROUP (Kevin, 2026-10-14) is dealt out in order,
+  // each order filled before the next gets any, so every order's record is
+  // its own share of the one charge and the first orders settle first. An
+  // order the amount does not reach is left alone: no $0 record, and no
+  // fee line appended to it until its own first payment.
+  if (amountCents !== undefined && amountCents < dueCents) {
+    let left = amountCents;
+    for (const x of parts) {
+      const share = Math.min(left, x.amountCents);
+      left -= share;
+      if (share < x.amountCents) {
+        x.lines = share > 0 ? [{ slug: null, name: `Part payment on order ${x.o.number}`, qty: 1, each: share / 100 }] : [];
+        if (share === 0) x.appended = undefined;
+      }
+      x.amountCents = share;
+    }
+  }
   const totalCents = parts.reduce((s, x) => s + x.amountCents, 0);
-  if (totalCents <= 0) return NextResponse.json({ error: "Nothing is owed on those orders." }, { status: 409 });
   const first = parts[0].o;
   const label = `${first.number} +${parts.length - 1}`;
 
   const record = async (make: (x: (typeof parts)[number]) => OrderPayment) => {
     for (const x of parts) {
+      if (x.amountCents <= 0) continue;
       if (x.appended) await store.setOrderLines(x.o.id, x.appended.lines, x.appended.subtotal);
       const pmt = make(x);
       if (x.o.payment) await store.addOrderTopUp(x.o.id, pmt);
