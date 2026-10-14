@@ -54,10 +54,13 @@ const PANEL_INSET = 0.22 * IN;
     half down, under the letterhead. */
 const CARD_X = 1.0 * IN;
 const CARD_TOP = 8.5 * IN - 1.5 * IN;
-/** The card message's band on the top-right panel: below the letterhead
-    line, above the small pre-printed mark at the panel's foot. */
-const MESSAGE_TOP = 8.5 * IN - 1.1 * IN;
-const MESSAGE_BOTTOM = 8.5 * IN - 3.0 * IN;
+/** The card message's band on the top-right panel (Kevin's side-by-side
+    print, 2026-10-13): IRIS starts the message high, about 0.8 in from
+    the top, and the small pre-printed mark begins about 2.85 in down, so
+    the band is 0.8 to 2.75 in, and the message hangs from its top rather
+    than floating in the middle. */
+const MESSAGE_TOP = 8.5 * IN - 0.8 * IN;
+const MESSAGE_BOTTOM = 8.5 * IN - 2.75 * IN;
 /** The driver's stub starts a little further in than the other panels,
     as IRIS's does. */
 const STUB_INSET = 0.4 * IN;
@@ -336,8 +339,8 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     }
     const maxLines = Math.max(1, Math.floor(areaH / (size * 1.4)));
     if (lines.length > maxLines) lines = [...lines.slice(0, maxLines - 1), "(... the rest is on the board)"];
-    const blockH = lines.length * size * 1.4;
-    let y = areaTop - (areaH - blockH) / 2;
+    // Hung from the top of the band, like IRIS, not centered in it.
+    let y = areaTop;
     for (const l of lines) {
       y -= size * 1.4;
       const tw = pen.serif.widthOfTextAtSize(l, size);
