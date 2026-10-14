@@ -1,6 +1,6 @@
 import "server-only";
 
-import nodemailer from "nodemailer";
+import { shopMail } from "@/lib/mail";
 import { bySlug, money } from "@/lib/catalog";
 import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
 import { clock12, isTaxLine, taxFor, taxLineName } from "@/lib/workroom/derive";
@@ -339,24 +339,17 @@ export async function sendDeliveredEmail(o: {
   email: string;
   recipient: string;
 }): Promise<void> {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  if (!host || !user || !pass || !o.email) {
+  const mail = shopMail();
+  if (!mail || !o.email) {
     console.log(`[devine] delivered note for ${o.number} not sent (no ${o.email ? "SMTP" : "email on the order"}).`);
     return;
   }
-  const transport = nodemailer.createTransport({
-    host,
-    port: Number(process.env.SMTP_PORT || 465),
-    secure: Number(process.env.SMTP_PORT || 465) === 465,
-    auth: { user, pass },
-  });
+  const transport = mail.transport;
   await transport
     .sendMail({
-      from: process.env.ORDER_FROM || user,
+      from: mail.from,
       to: o.email,
-      replyTo: process.env.ORDER_TO || undefined,
+      replyTo: mail.replyTo,
       subject: `Delivered: your ${site.shortName} order ${o.number}`,
       text: [
         `Your order ${o.number} has been delivered${o.recipient && o.recipient !== o.name ? ` to ${o.recipient}` : ""}.`,
@@ -392,19 +385,12 @@ export async function sendWorkroomReceipt(o: {
   lines: { name: string; qty: number; each: number }[];
   subtotal: number;
 }): Promise<void> {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  if (!host || !user || !pass || !o.email) {
+  const mail = shopMail();
+  if (!mail || !o.email) {
     if (o.email) console.log(`[devine] receipt for ${o.number} not sent: SMTP incomplete.`);
     return;
   }
-  const transport = nodemailer.createTransport({
-    host,
-    port: Number(process.env.SMTP_PORT || 465),
-    secure: Number(process.env.SMTP_PORT || 465) === 465,
-    auth: { user, pass },
-  });
+  const transport = mail.transport;
   const text = [
     `Thanks, ${o.name}. Here is your ${site.shortName} order, written up by the shop.`,
     "",
@@ -419,9 +405,9 @@ export async function sendWorkroomReceipt(o: {
   ].join("\n");
   await transport
     .sendMail({
-      from: process.env.ORDER_FROM || user,
+      from: mail.from,
       to: o.email,
-      replyTo: process.env.ORDER_TO || undefined,
+      replyTo: mail.replyTo,
       subject: `Your ${site.shortName} order ${o.number}`,
       text,
       html: shell({
@@ -453,31 +439,24 @@ export async function sendWorkroomReceipt(o: {
 }
 
 export async function sendOrder(o: PricedOrder, paid?: PaidOnline): Promise<SendResult> {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const mail = shopMail();
   const to = process.env.ORDER_TO;
 
   // Nothing is lost even in the best case: the log always carries the whole
   // ticket, so an inbox mishap after a 200 is recoverable from Vercel's logs.
   console.log(`[devine] order ${o.number}:\n` + shopTicket(o, paid));
 
-  if (!host || !user || !pass || !to) {
+  if (!mail || !to) {
     console.log(`[devine] order ${o.number} NOT emailed: SMTP_HOST/SMTP_USER/SMTP_PASS/ORDER_TO incomplete.`);
     return "unconfigured";
   }
 
-  const transport = nodemailer.createTransport({
-    host,
-    port: Number(process.env.SMTP_PORT || 465),
-    secure: Number(process.env.SMTP_PORT || 465) === 465,
-    auth: { user, pass },
-  });
+  const transport = mail.transport;
 
   try {
     // The shop's ticket is the send that matters; it alone decides success.
     await transport.sendMail({
-      from: process.env.ORDER_FROM || user,
+      from: mail.from,
       to,
       replyTo: o.email || undefined, // shop hits reply, reaches the customer
       subject: `${paid ? "PAID order" : "Order"} ${o.number}: ${o.fulfillment} ${o.date}, ${o.name}`,
@@ -497,7 +476,7 @@ export async function sendOrder(o: PricedOrder, paid?: PaidOnline): Promise<Send
   if (o.email) {
     await transport
       .sendMail({
-        from: process.env.ORDER_FROM || user,
+        from: mail.from,
         to: o.email,
         replyTo: to,
         subject: `Your ${site.shortName} order ${o.number}`,

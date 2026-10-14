@@ -52,6 +52,9 @@ export default function PayControls({
 }) {
   /** "one" or "all": which the buttons charge when a batch is offered. */
   const [scope, setScope] = useState<"one" | "all">("all");
+  /** True after an unsure Square answer: the retry must send the same
+      request, so the one/all choice is frozen until it is settled. */
+  const [unsure, setUnsure] = useState(false);
   const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual">("idle");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -151,20 +154,29 @@ export default function PayControls({
       } catch {
         // The request may have arrived and charged. Not "did not go
         // through": the attempt id stays, and Charge again settles it.
+        setUnsure(true);
         throw new Error("The connection dropped after the charge was sent, so the card MAY have been charged. Tap Charge once more: if it went through, it will say so and not charge twice.");
       }
       if (!r.ok || !d.ok) {
         // A definite answer (declined, refused, already paid) ends this
         // attempt; an unsure one keeps it for the retry.
         if (!d.unsure) attemptRef.current = "";
+        setUnsure(!!d.unsure);
         throw new Error(d.error || "The payment did not go through.");
       }
       attemptRef.current = "";
+      setUnsure(false);
       setMode("idle");
       if (d.boardMissed) {
         // The charge is real; only the board missed it. Said loudly, so
         // nobody takes the card again. The webhook catches up by itself.
-        setError("CHARGED, but the board did not save it. Do NOT charge again. Reload in a minute; the payment will appear.");
+        setError(
+          forAll
+            ? `CHARGED ${dollars(amount)} for all ${batch!.count} orders, but the board did not save it. Do NOT charge again. Mark each of them "Paid another way" with this charge's amount.`
+            : topUp
+              ? "CHARGED the balance, but the board did not save it. Do NOT charge again. Square's notice will add it within a minute; if it does not, mark it by hand."
+              : "CHARGED, but the board did not save it. Do NOT charge again. Reload in a minute; the payment will appear.",
+        );
       }
       onPaid();
     } catch (err) {
@@ -218,11 +230,11 @@ export default function PayControls({
       {batch && mode !== "idle" && (
         <p style={{ margin: "0 0 10px", display: "flex", gap: 18, flexWrap: "wrap", fontSize: 14.5 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "all"} onChange={() => setScope("all")} />
+            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "all"} disabled={unsure} onChange={() => setScope("all")} />
             All {batch.count} orders for {batch.name} · {dollars(batch.totalCents)}
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "one"} onChange={() => setScope("one")} />
+            <input type="radio" name={`pay-scope-${orderId}`} checked={scope === "one"} disabled={unsure} onChange={() => setScope("one")} />
             This order only · {dollars(total)}
           </label>
         </p>

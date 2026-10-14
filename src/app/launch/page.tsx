@@ -68,7 +68,11 @@ async function readStatus() {
   // a fetch failure reads as not-yet, same as the store above.
   let build: LightState = "off";
   let monthly = false;
-  try {
+  const flags = new Set(
+    (process.env.LAUNCH_FLAGS || "").split(",").map((f) => f.trim().toLowerCase()).filter(Boolean),
+  );
+  // Nothing to ask the rail when both money lights are set by hand.
+  if (!(flags.has("build") && flags.has("monthly"))) try {
     const r = await fetch("https://www.glazedweb.com/api/build-status/devine", { cache: "no-store" });
     if (r.ok) {
       const d = (await r.json()) as { build?: string; monthly?: boolean };
@@ -76,9 +80,6 @@ async function readStatus() {
       monthly = d.monthly === true;
     }
   } catch {}
-  const flags = new Set(
-    (process.env.LAUNCH_FLAGS || "").split(",").map((f) => f.trim().toLowerCase()).filter(Boolean),
-  );
   // Flags set by hand in Vercel for what the rail cannot see: a build fee
   // or a monthly paid outside it (a check at the counter, 2026-10-14).
   return {

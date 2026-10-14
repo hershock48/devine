@@ -40,6 +40,10 @@ export const site = {
   phoneHref: "tel:+12697890830",
   email: "devinesflowersandbotanicals@gmail.com",
 
+  /** WHERE THE CHECKS GO (Kevin, 2026-10-14): the statements the Accounts
+      tab emails say this address and nothing else does. Her company's
+      mailing address, from the header of her own price list. */
+  mailing: { name: "DeVine Ventures LLC", street: "810 Industrial Dr", city: "Marshall", state: "MI", zip: "49068" },
   address: {
     street: "800 Industrial Rd.",
     city: "Marshall",

@@ -107,8 +107,13 @@ export const withTaxLine = <L extends { slug?: string | null; name: string; qty:
 type Paid = { totalCents: number; feeCents: number };
 export const collectedCents = (o: { payment?: Paid | null; topUps?: Paid[] }): number =>
   (o.payment ? o.payment.totalCents - o.payment.feeCents : 0) + (o.topUps ?? []).reduce((s, p) => s + p.totalCents - p.feeCents, 0);
-export const balanceCents = (o: { subtotal: number; payment?: Paid | null; topUps?: Paid[] }): number =>
-  Math.round(o.subtotal * 100) - collectedCents(o);
+export const balanceCents = (o: { subtotal: number; payment?: (Paid & { method?: string }) | null; topUps?: Paid[] }): number => {
+  const due = Math.round(o.subtotal * 100) - collectedCents(o);
+  // A ring at the register (the webhook's record) is the register's own
+  // business: a tip or a rounded-up ring is not money the shop owes back.
+  // A shortfall after an edit still shows, so it can be collected.
+  return o.payment?.method === "register" ? Math.max(0, due) : due;
+};
 
 /** A ticket's money without its tax line: what the shop sold, as opposed
     to what it collected. The dashboard's sales figures use this. */

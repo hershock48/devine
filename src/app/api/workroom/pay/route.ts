@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { balanceCents, deliveryLineName, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, deliveryLineName, zipFeeToAppend } from "@/lib/workroom/derive";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure } from "@/lib/square/payments";
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
 
   // SEVERAL ORDERS, ONE PAYMENT (Kevin, 2026-10-14): the pane may send
   // ids instead of id, the orders placed together for one customer.
-  const ids = Array.isArray(p.ids) ? p.ids.filter((x): x is string => typeof x === "string").slice(0, 20) : [];
+  const ids = Array.isArray(p.ids) ? [...new Set(p.ids.filter((x): x is string => typeof x === "string"))].slice(0, 20) : [];
   if (!(id || ids.length >= 2) || !method) return NextResponse.json({ error: "Order id and method are required." }, { status: 400 });
   if (method === "card" && !sourceId) return NextResponse.json({ error: "No card token arrived." }, { status: 400 });
   if (ids.length >= 2) return payBatch(ids, method, sourceId, attempt);
@@ -124,7 +124,10 @@ export async function POST(req: Request) {
       // a lost answer, carries the same attempt id with a fresh token and
       // is refused by Square as a key reuse (409 below). Cash is keyed on
       // the order alone; a cash ticket is paid once.
-      idempotencyKey: `${order.id}:${method === "card" ? attempt || sourceId : "cash"}`,
+      // Cash carries what was collected so far, so a cash top-up after a
+      // cash payment is a new key, and a double tap of the same top-up
+      // (same state) is still one record.
+      idempotencyKey: `${order.id}:${method === "card" ? attempt || sourceId : `cash:${collectedCents(order)}`}`,
     });
   } catch (err) {
     console.error(`[devine] pay ${order.number} (${method}) failed:`, err);
@@ -231,13 +234,16 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
   let charged: Awaited<ReturnType<typeof chargeBoardOrder>>;
   try {
     charged = await chargeBoardOrder(cfg, {
-      workroomOrderId: first.id,
+      // "batch:" tells the webhook this payment covers several orders, so
+      // it records the sale and leaves the marking to the shares below
+      // rather than paying the first order the whole amount.
+      workroomOrderId: `batch:${first.id}`,
       orderNumber: label,
       lines: parts.flatMap((x) => x.lines.map((l) => ({ name: l.name, qty: l.qty, each: l.each }))),
       method,
       sourceId,
       cardFee: { name: "", cents: 0, appFeeCents: 0 },
-      idempotencyKey: `${ids.slice().sort().join("+")}:${method === "card" ? attempt || sourceId : "cash"}`,
+      idempotencyKey: `${ids.slice().sort().join("+")}:${method === "card" ? attempt || sourceId : `cash:${parts.reduce((s, x) => s + collectedCents(x.o), 0)}`}`,
     });
   } catch (err) {
     console.error(`[devine] pay ${label} (${method}) failed:`, err);

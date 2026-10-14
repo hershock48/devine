@@ -122,6 +122,12 @@ async function toLines(
  */
 async function matchWorkroomOrder(referenceId: string, note: string): Promise<string> {
   const store = getStore();
+  // "batch:<id>" is our own pay route's mark for one payment over several
+  // orders: the sale links to the first order, the marking is the route's.
+  if (referenceId.startsWith("batch:")) {
+    const o = await store.getOrder(referenceId.slice(6)).catch(() => null);
+    return o ? `batch:${o.id}` : "";
+  }
   if (referenceId) {
     const o = await store.getOrder(referenceId).catch(() => null);
     if (o) return o.id;
@@ -162,9 +168,10 @@ export async function POST(req: Request) {
       ? await toLines(cfg, payment.order_id)
       : { lines: [], referenceId: "" };
     const workroomOrderId = await matchWorkroomOrder(detail.referenceId, payment.note ?? "");
+    const batch = workroomOrderId.startsWith("batch:");
     const sale: SquareSale = {
       id: payment.id,
-      workroomOrderId: workroomOrderId || undefined,
+      workroomOrderId: batch ? workroomOrderId.slice(6) : workroomOrderId || undefined,
       orderId: payment.order_id ?? "",
       locationId: payment.location_id ?? "",
       source: payment.source_type ?? "UNKNOWN",
@@ -179,20 +186,28 @@ export async function POST(req: Request) {
     // (our /pay route marks synchronously; this covers the register-rung
     // fallback and any race). Best effort: a failed mark is a log line, the
     // sale itself is already stored and Square must not redeliver over it.
-    if (workroomOrderId) {
+    if (workroomOrderId && !batch) {
       try {
         const order = await getStore().getOrder(workroomOrderId);
         // A held order is not chargeable (2026-10-12); a register ring
         // naming its number stays an unlinked sale rather than settling a
         // ticket that still has open questions.
+        const record = {
+          at: Date.now(),
+          method: (payment.source_type === "CASH" ? "cash" : "register") as "cash" | "register",
+          squarePaymentId: payment.id,
+          totalCents: payment.total_money?.amount ?? 0,
+          feeCents: 0,
+        };
         if (order && !order.payment && order.status !== "hold") {
-          await getStore().setOrderPayment(workroomOrderId, {
-            at: Date.now(),
-            method: payment.source_type === "CASH" ? "cash" : "register",
-            squarePaymentId: payment.id,
-            totalCents: payment.total_money?.amount ?? 0,
-            feeCents: 0,
-          });
+          await getStore().setOrderPayment(workroomOrderId, record);
+        } else if (order && order.payment && order.status !== "hold") {
+          // Paid once already: a payment the board does not know (a
+          // top-up whose board write failed, or a second ring at the
+          // register) is added as a top-up, never dropped, so the balance
+          // the card shows is what was really collected.
+          const known = order.payment.squarePaymentId === payment.id || (order.topUps ?? []).some((t) => t.squarePaymentId === payment.id);
+          if (!known) await getStore().addOrderTopUp(workroomOrderId, record);
         }
       } catch (err) {
         console.error(`square webhook: sale ${payment.id} stored but order ${workroomOrderId} not marked paid`, err);
