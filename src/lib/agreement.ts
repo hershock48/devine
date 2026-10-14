@@ -48,6 +48,10 @@ export const agreement = {
   payDepositUrl: "https://www.glazedweb.com/api/pay/devine?what=half",
   payFullUrl: "https://www.glazedweb.com/api/pay/devine?what=build",
   payFullMonthlyUrl: "https://www.glazedweb.com/api/pay/devine?what=both",
+  /** The monthly on its own (the rail's default door): one Stripe Checkout
+      in subscription mode for the monthly, card in, done. The one link to
+      send once the build is paid (Kevin, 2026-10-14: "1 click"). */
+  payMonthlyUrl: "https://www.glazedweb.com/api/pay/devine?what=monthly",
   editAllowance: "2 hours per month",
   hourlyRate: 125,
   /** Customer-paid, on ORDERS PLACED THROUGH THE WEBSITE only, retained
