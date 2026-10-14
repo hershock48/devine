@@ -122,8 +122,18 @@ async function parseBody(p: Record<string, unknown>): Promise<ParsedBody> {
     const fee = typed !== undefined ? Math.round(typed * 100) / 100 : deliveryFeeFor(zip);
     if (fee !== undefined) lines.push({ slug: null, name: deliveryLineName(zip), qty: 1, each: fee });
   }
+  // WHO TOOK IT (Katy, 2026-10-14): initials, two or three letters, on
+  // every order written up here, so a question later knows who to ask.
+  // Required, not merely asked for: an order with nobody's name on it is
+  // the one nobody can answer for. An edit keeps asking (the form carries
+  // the original initials, so the person fixing a typo is not re-blamed).
+  const takenBy = str(p.takenBy, 3).toUpperCase();
+  if (!/^[A-Z]{2,3}$/.test(takenBy)) {
+    return { error: "Your initials, two or three letters, before it goes on the board." };
+  }
   return {
     fields: {
+      takenBy,
       name,
       phone: str(p.phone, 40),
       email: str(p.email, 160),

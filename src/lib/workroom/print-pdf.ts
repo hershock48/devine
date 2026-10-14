@@ -440,7 +440,7 @@ function drawSheet(doc: PDFDocument, fonts: Omit<Pen, "page">, o: WorkroomOrder,
     c.y = Math.min(left.y, right.y) - 4;
     itemsTable(c, pen, o, 9.5);
     c.gap(2);
-    c.row(`Method of payment: ${paidWord(o, !deliver)}`, o.madeBy ? `Made by: ${o.madeBy}` : "", 9.5, pen.bold);
+    c.row(`Method of payment: ${paidWord(o, !deliver)}`, [o.takenBy ? `Taken by: ${o.takenBy}` : "", o.madeBy ? `Made by: ${o.madeBy}` : ""].filter(Boolean).join("    "), 9.5, pen.bold);
     if (o.notes) {
       c.heading("Order notes");
       c.line(o.notes, 9.5);
@@ -591,7 +591,7 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
   // The footer stamp, at the page margin, always.
   c.y = M + 8.5 * 1.25;
   c.floor = 0;
-  c.row(`Taken ${stamp(o.createdAt)}${o.madeBy ? `    Made by ${o.madeBy}` : ""}`, `Printed ${stamp(printedAt)}`, 8.5, pen.reg);
+  c.row(`Taken ${stamp(o.createdAt)}${o.takenBy ? ` by ${o.takenBy}` : ""}${o.madeBy ? `    Made by ${o.madeBy}` : ""}`, `Printed ${stamp(printedAt)}`, 8.5, pen.reg);
 }
 
 export async function renderOrderPdf(o: WorkroomOrder, layout: PrintLayout, printedAt = Date.now()): Promise<Uint8Array> {

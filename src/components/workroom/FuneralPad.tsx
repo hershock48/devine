@@ -129,6 +129,8 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
   const [placed, setPlaced] = useState<string | null>(null);
   const [placeError, setPlaceError] = useState("");
+  /** Who is putting it on the board; the board requires it (Katy, 2026-10-14). */
+  const [takenBy, setTakenBy] = useState("");
   const [placing, setPlacing] = useState(false);
   const [openPiece, setOpenPiece] = useState<string | null>(null);
   /** Which piece has its flowers open (the wedding builder's parts, here
@@ -336,6 +338,10 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
       setPlaceError("Add the service date first; the board sorts by it.");
       return;
     }
+    if (!/^[A-Za-z]{2,3}$/.test(takenBy.trim())) {
+      setPlaceError("Your initials, two or three letters, before it goes on the board.");
+      return;
+    }
     /* Ribbon and who-from ride the LINE, where the maker builds from. They
        used to also land in cardMessage, so the board card said card message:
        "daughter" - but a ribbon is not a card, and Kevin read it as exactly
@@ -400,6 +406,7 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
         notes,
         lines,
         deliveryFee: deliveryCharge,
+        takenBy: takenBy.trim().toUpperCase(),
       }),
     });
     const d = (await r.json().catch(() => null)) as { ok?: boolean; order?: { number: string }; error?: string } | null;
@@ -990,6 +997,16 @@ export default function FuneralPad({ id, initialAuthed, initialOwner }: { id: st
                 </p>
               ) : (
                 <>
+                  <input
+                    aria-label="Your initials"
+                    value={takenBy}
+                    onChange={(e) => setTakenBy(e.target.value.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase())}
+                    maxLength={3}
+                    placeholder="Initials"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    style={{ ...field, width: 96, textTransform: "uppercase", letterSpacing: "0.08em" }}
+                  />
                   <button className="btn btn--solid" type="button" onClick={placeOrder} disabled={draft.pieces.length === 0 || placing}>
                     {placing ? "Sending…" : "Put it on the board"}
                   </button>
