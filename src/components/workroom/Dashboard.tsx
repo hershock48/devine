@@ -774,8 +774,11 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       /* money the register never saw. The order fee is deliberately NOT
          totaled anywhere on this screen (Kevin, 2026-09-01: quit doing
          that); it is the customer's line item, not a shop metric. */
-      const handMarked = orders.filter((o) => o.payment && o.payment.method === "other" && inMs(o.payment.at));
-      const handMarkedCents = handMarked.reduce((sum, o) => sum + (o.payment?.totalCents ?? 0), 0);
+      // The first payment and the top-ups alike: a part or a balance
+      // marked "Paid another way" (2026-10-14) is register-less money too.
+      const handPays = (o: Order) => [o.payment, ...(o.topUps ?? [])].filter((p): p is OrderPayment => !!p && p.method === "other" && inMs(p.at));
+      const handMarked = orders.filter((o) => handPays(o).length > 0);
+      const handMarkedCents = handMarked.reduce((sum, o) => sum + handPays(o).reduce((s, p) => s + p.totalCents, 0), 0);
 
       /* orders */
       const ordersIn = orders.filter(

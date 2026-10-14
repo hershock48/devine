@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { balanceCents, collectedCents, deliveryLineName, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, deliveryLineName, isTaxLine, taxLineName, zipFeeToAppend } from "@/lib/workroom/derive";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { resolveSquare } from "@/lib/square/oauth";
 import { chargeBoardOrder, isIdempotencyReuse, isPaymentUnsure } from "@/lib/square/payments";
@@ -49,10 +49,12 @@ export async function POST(req: Request) {
   // in cents; absent means the whole of what is due, as always. What is
   // not paid stays on the ticket as balance, and the next payment is a
   // top-up by the path that already exists for an edited ticket.
-  const amountCents = p.amountCents === undefined || p.amountCents === null ? undefined : Number(p.amountCents);
+  // A JSON number and nothing else: "4000" in quotes is refused as not a
+  // number rather than read as one, so a pane bug cannot pay by accident.
+  const amountCents = p.amountCents === undefined || p.amountCents === null ? undefined : typeof p.amountCents === "number" ? p.amountCents : NaN;
   if (amountCents !== undefined && (!Number.isInteger(amountCents) || amountCents <= 0)) {
     return NextResponse.json(
-      { error: Number.isFinite(amountCents) && amountCents <= 0 ? "The amount has to be more than zero." : "The amount did not read as a number." },
+      { error: Number.isInteger(amountCents) && amountCents <= 0 ? "The amount has to be more than zero." : "The amount did not read as a number." },
       { status: 400 },
     );
   }
@@ -100,11 +102,11 @@ export async function POST(req: Request) {
   const part = amountCents !== undefined && amountCents < dueCents;
   const payCents = amountCents ?? dueCents;
   const lines: WorkroomLine[] = part
-    ? [{ slug: null, name: `Part payment on order ${order.number}`, qty: 1, each: payCents / 100 }]
+    ? partLines(`Part payment on order ${order.number}`, payCents, ticketLines, ticketSubtotal)
     : topUp
-      ? [{ slug: null, name: `Balance on order ${order.number}`, qty: 1, each: due / 100 }]
+      ? partLines(`Balance on order ${order.number}`, due, ticketLines, ticketSubtotal)
       : ticketLines;
-  const record = (p: OrderPayment) => (topUp ? store.addOrderTopUp(order.id, p) : store.setOrderPayment(order.id, p));
+  const record = (p: OrderPayment) => recordOnce(order.id, p);
 
   // The by-hand mark: money already moved outside the board (a check, an
   // account, an unlinked register ring). Records the fact and touches
@@ -199,6 +201,50 @@ export async function POST(req: Request) {
 }
 
 /**
+ * A PAYMENT THAT IS NOT THE WHOLE TICKET, as Square sees it: a part
+ * payment, or the balance left after one. Sent as one untaxed line, it
+ * would leave her Square sales-tax report short on every split ticket
+ * (the tax is a line of the ticket, and Square only knows the tax it is
+ * told). So the amount is split the way the ticket is: the part less its
+ * share of the ticket's tax, and the tax line for that share, by
+ * proportion (amount × ticket tax ÷ ticket total, rounded). Rounding can
+ * leave the shares of a split a cent apart from the ticket's tax; the
+ * ticket itself is unchanged and the board's balance is unaffected.
+ */
+function partLines(name: string, cents: number, ticketLines: WorkroomLine[], ticketSubtotal: number): WorkroomLine[] {
+  const ticketCents = Math.round(ticketSubtotal * 100);
+  const tax = ticketLines.filter(isTaxLine);
+  const ticketTaxCents = tax.reduce((s, l) => s + Math.round(l.each * 100) * l.qty, 0);
+  const taxShare = ticketCents > 0 && ticketTaxCents > 0 ? Math.min(cents, Math.round((cents * ticketTaxCents) / ticketCents)) : 0;
+  const lines: WorkroomLine[] = [{ slug: null, name, qty: 1, each: (cents - taxShare) / 100 }];
+  if (taxShare > 0) lines.push({ slug: null, name: tax[0]?.name ?? taxLineName, qty: 1, each: taxShare / 100 });
+  return lines;
+}
+
+/**
+ * ONE WRITE PER PAYMENT PER ORDER, however many times the board write is
+ * tried. The three-try loops below retry the whole record step after a
+ * blip, and a top-up is appended, not replaced: the second try must not
+ * append again what the first one managed to write before it failed (one
+ * order of a group written, the next one's write thrown). So the order is
+ * re-read first, and the payment is skipped when it is already on it: by
+ * its Square payment id, or, for the by-hand mark that has none, by the
+ * request's own timestamp (one `at` per request, so the mark is its own
+ * marker). The webhook may have written the same Square payment first;
+ * that counts as written too.
+ */
+async function recordOnce(id: string, pmt: OrderPayment): Promise<void> {
+  const store = getStore();
+  const fresh = await store.getOrder(id);
+  if (!fresh) return;
+  const same = (q: OrderPayment | null | undefined) =>
+    !!q && (pmt.squarePaymentId ? q.squarePaymentId === pmt.squarePaymentId : q.method === "other" && q.at === pmt.at);
+  if (same(fresh.payment) || (fresh.topUps ?? []).some(same)) return;
+  if (fresh.payment) await store.addOrderTopUp(id, pmt);
+  else await store.setOrderPayment(id, pmt);
+}
+
+/**
  * ONE PAYMENT FOR SEVERAL ORDERS. Each order is charged what it is owed
  * (its balance, plus the sheet fee a delivery ticket with no delivery
  * line would get, the single-order rule), the sum goes to Square (or the
@@ -210,7 +256,10 @@ export async function POST(req: Request) {
 async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourceId: string | undefined, attempt: string, amountCents?: number) {
   const store = getStore();
   const orders = await Promise.all(ids.map((x) => store.getOrder(x)));
-  const parts: { o: WorkroomOrder; amountCents: number; lines: WorkroomLine[]; appended?: { lines: WorkroomLine[]; subtotal: number } }[] = [];
+  // Each order's ticket as it will stand once charged (the sheet fee
+  // appended to a delivery ticket that never carried one), what it is
+  // owed, and the lines Square is told.
+  const parts: { o: WorkroomOrder; amountCents: number; lines: WorkroomLine[]; ticket: { lines: WorkroomLine[]; subtotal: number }; appended?: { lines: WorkroomLine[]; subtotal: number } }[] = [];
   for (let i = 0; i < ids.length; i++) {
     const o = orders[i];
     if (!o) return NextResponse.json({ error: `No such order (${ids[i]}).` }, { status: 404 });
@@ -219,7 +268,8 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
     if (o.payment) {
       const due = balanceCents(o);
       if (due <= 0) return NextResponse.json({ error: `${o.number} is already paid.` }, { status: 409 });
-      parts.push({ o, amountCents: due, lines: [{ slug: null, name: `Balance on order ${o.number}`, qty: 1, each: due / 100 }] });
+      const ticket = { lines: o.lines, subtotal: o.subtotal };
+      parts.push({ o, amountCents: due, lines: partLines(`Balance on order ${o.number}`, due, ticket.lines, ticket.subtotal), ticket });
       continue;
     }
     const zipFee = zipFeeToAppend(o);
@@ -229,6 +279,7 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
       o,
       amountCents: Math.round(subtotal * 100),
       lines: lines.map((l) => ({ ...l, name: `${o.number}: ${l.name}` })),
+      ticket: { lines, subtotal },
       appended: zipFee !== undefined ? { lines, subtotal } : undefined,
     });
   }
@@ -248,29 +299,32 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
       const share = Math.min(left, x.amountCents);
       left -= share;
       if (share < x.amountCents) {
-        x.lines = share > 0 ? [{ slug: null, name: `Part payment on order ${x.o.number}`, qty: 1, each: share / 100 }] : [];
+        x.lines = share > 0 ? partLines(`Part payment on order ${x.o.number}`, share, x.ticket.lines, x.ticket.subtotal) : [];
         if (share === 0) x.appended = undefined;
       }
       x.amountCents = share;
     }
   }
   const totalCents = parts.reduce((s, x) => s + x.amountCents, 0);
+  // The reference stays the group's first order, whatever the amount
+  // reached; the label counts only the orders this payment touches.
   const first = parts[0].o;
-  const label = `${first.number} +${parts.length - 1}`;
+  const funded = parts.filter((x) => x.amountCents > 0);
+  const label = funded.length > 1 ? `${funded[0].o.number} +${funded.length - 1}` : funded[0].o.number;
 
+  // One timestamp for the request: the by-hand mark's own marker, so a
+  // retried write recognizes it (recordOnce).
+  const at = Date.now();
   const record = async (make: (x: (typeof parts)[number]) => OrderPayment) => {
-    for (const x of parts) {
-      if (x.amountCents <= 0) continue;
+    for (const x of funded) {
       if (x.appended) await store.setOrderLines(x.o.id, x.appended.lines, x.appended.subtotal);
-      const pmt = make(x);
-      if (x.o.payment) await store.addOrderTopUp(x.o.id, pmt);
-      else await store.setOrderPayment(x.o.id, pmt);
+      await recordOnce(x.o.id, make(x));
     }
   };
 
   if (method === "manual") {
-    await record((x) => ({ at: Date.now(), method: "other", squarePaymentId: "", totalCents: x.amountCents, feeCents: 0 }));
-    return NextResponse.json({ ok: true, payment: { at: Date.now(), method: "other", squarePaymentId: "", totalCents, feeCents: 0 } });
+    await record((x) => ({ at, method: "other", squarePaymentId: "", totalCents: x.amountCents, feeCents: 0 }));
+    return NextResponse.json({ ok: true, payment: { at, method: "other", squarePaymentId: "", totalCents, feeCents: 0 } });
   }
 
   const cfg = await resolveSquare();
@@ -303,7 +357,7 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
   let boardMissed = false;
   for (let attemptNo = 1; attemptNo <= 3; attemptNo++) {
     try {
-      await record((x) => ({ at: Date.now(), method, squarePaymentId: charged.paymentId, totalCents: x.amountCents, feeCents: 0 }));
+      await record((x) => ({ at, method, squarePaymentId: charged.paymentId, totalCents: x.amountCents, feeCents: 0 }));
       boardMissed = false;
       break;
     } catch (err) {

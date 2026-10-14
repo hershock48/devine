@@ -17,7 +17,7 @@ import {
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, type PrintLayout } from "./derive";
+import { balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, type PrintLayout } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -305,13 +305,17 @@ const deliveryLine = (o: WorkroomOrder) => o.lines.find(isDeliveryLine);
 const taxLine = (o: WorkroomOrder) => o.lines.find(isTaxLine);
 const paidWord = (o: WorkroomOrder, atPickup: boolean): string => {
   if (o.payment) {
+    // Canceled with money on it, whole or part: never PAID. The amount is
+    // the one refund figure (refundableCents), so the ticket in the file
+    // says what the Square refund has to be.
+    if (o.status === "canceled") return `CANCELED - ${money(refundableCents(o) / 100)} paid, ${o.payment.refundedAt ? "refunded" : "to be refunded"}`;
     // Paid in part (Kevin, 2026-10-14: some cash now, the rest on a card
     // later): the ticket must not read PAID. It says what came in and
     // what is still to collect, the figure the Balance due line shows.
-    if (o.status !== "canceled" && balanceCents(o) > 0) {
+    if (balanceCents(o) > 0) {
       return `PART PAID - ${money(collectedCents(o) / 100)} of ${money(o.subtotal)} - ${money(balanceCents(o) / 100)} still due`;
     }
-    if ((o.topUps?.length ?? 0) > 0) return `PAID - in parts - ${money(collectedCents(o) / 100)}`;
+    if (paidInParts(o)) return `PAID - in parts - ${money(collectedCents(o) / 100)}`;
     return `PAID - ${o.payment.method === "other" ? "by hand" : o.payment.method} - ${money(o.payment.totalCents / 100)}${
       // A website card payment carries the 99 cent ordering fee, which
       // is not a line of the order; said here so PAID and TOTAL agree.
@@ -622,7 +626,7 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
     }
     const s = new Cursor(pen, M, top - 6, W, M + 26);
     s.row(`Order ${o.number}`, pickup ? "PICKUP" : "DELIVERY", 13, pen.bold);
-    s.row(`${longDate(o.date)}, ${weekdayOf(o.date)}${o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}`, balance > 0 ? `Please collect ${money(balance)}` : o.payment ? "Paid in full" : "", 11, pen.bold);
+    s.row(`${longDate(o.date)}, ${weekdayOf(o.date)}${o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}`, o.status === "canceled" ? "CANCELED" : balance > 0 ? `Please collect ${money(balance)}` : o.payment ? "Paid in full" : "", 11, pen.bold);
     s.gap(4);
     const sl = new Cursor(pen, M, s.y, colW, M + 26);
     sl.heading("Customer");

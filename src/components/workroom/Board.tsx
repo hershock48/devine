@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, printPaperFor, refundableCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, paidInParts, printPaperFor, refundableCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -581,10 +581,11 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
   if (orders.length === 0) return null;
   const moneyWord = (o: Order) => {
     if (!o.payment) return o.status === "canceled" ? "" : "not paid";
+    // Everything paid, fees included, the one refund figure (derive.ts
+    // refundableCents): a ticket paid in parts (cash then card) is one
+    // paid order, not a $40 one, and the line agrees with the card's.
     if (o.payment.refundedAt) return `refunded ${money(refundableCents(o) / 100)}`;
-    // Everything collected, not the first payment alone: a ticket paid in
-    // parts (cash then card) is one paid order, not a $40 one.
-    return `paid ${money(collectedCents(o) / 100)}`;
+    return `paid ${money(refundableCents(o) / 100)}`;
   };
   return (
     <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0", maxWidth: 720 }}>
@@ -1136,7 +1137,7 @@ function OrderCard({
   const owedFor = (x: Order) => Math.max(0, balanceCents(x)) + (x.payment ? 0 : Math.round((zipFeeToAppend(x) ?? 0) * 100));
   const batch =
     group && group.length > 1 && group.some((x) => x.id === o.id)
-      ? { ids: group.map((x) => x.id), count: group.length, index: group.findIndex((x) => x.id === o.id) + 1, totalCents: group.reduce((s, x) => s + owedFor(x), 0), name: o.name }
+      ? { ids: group.map((x) => x.id), count: group.length, index: group.findIndex((x) => x.id === o.id) + 1, totalCents: group.reduce((s, x) => s + owedFor(x), 0), name: o.name, owed: group.map((x) => ({ number: x.number, cents: owedFor(x) })) }
       : undefined;
   const zipFlag = o.fulfillment === "delivery" && o.zip && !(site.deliveryZips as readonly string[]).includes(o.zip);
   const sympathy = o.occasion === "Sympathy or funeral";
@@ -1301,15 +1302,17 @@ function OrderCard({
               <span>{money(o.payment.feeCents / 100)}</span>
             </li>
             <li style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>
+              {/* Everything paid once there are top-ups, so this row is
+                  the sum of the payment rows below it. */}
               <span>Total paid</span>
-              <span>{money(o.payment.totalCents / 100)}</span>
+              <span>{money((paidInParts(o) ? refundableCents(o) : o.payment.totalCents) / 100)}</span>
             </li>
           </>
         )}
         {/* After an edit to a paid ticket, or a part payment (Kevin,
             2026-10-14): the payments taken since the first, and what is
             still due or owed back (derive.ts balanceCents). */}
-        {o.payment && (o.topUps?.length ?? 0) > 0 && (
+        {o.payment && paidInParts(o) && (
           <li style={{ display: "flex", justifyContent: "space-between" }}>
             {/* The first payment gets its own row once there are more,
                 so the list adds up on its own ($40 cash + $28.90 card). */}
@@ -1317,7 +1320,7 @@ function OrderCard({
             <span>{money((o.payment.totalCents - o.payment.feeCents) / 100)}</span>
           </li>
         )}
-        {o.payment && (o.topUps?.length ?? 0) > 0 && o.topUps!.map((p, i) => (
+        {o.payment && paidInParts(o) && o.topUps!.map((p, i) => (
           <li key={i} style={{ display: "flex", justifyContent: "space-between" }}>
             <span>Also paid, {p.method === "other" ? "another way" : p.method}</span>
             <span>{money(p.totalCents / 100)}</span>
@@ -1423,6 +1426,7 @@ function OrderCard({
           payment={o.payment}
           balanceCents={balanceCents(o)}
           collectedCents={collectedCents(o)}
+          paidInParts={paidInParts(o)}
           batch={batch}
           onPaid={() => onPaid().catch(() => {})}
         />

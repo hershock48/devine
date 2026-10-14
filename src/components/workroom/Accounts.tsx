@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidInParts, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -338,6 +338,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       payment={o.payment}
                       balanceCents={balanceCents(o)}
                       collectedCents={collectedCents(o)}
+                      paidInParts={paidInParts(o)}
                       onPaid={() => pull().catch(() => {})}
                     />
                   )}

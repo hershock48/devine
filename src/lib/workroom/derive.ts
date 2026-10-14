@@ -113,6 +113,12 @@ export const collectedCents = (o: { payment?: Paid | null; topUps?: Paid[] }): n
     number, so the shop and the customer are told the same amount. */
 export const refundableCents = (o: { payment?: { totalCents: number } | null; topUps?: { totalCents: number }[] }): number =>
   (o.payment?.totalCents ?? 0) + (o.topUps ?? []).reduce((s, p) => s + p.totalCents, 0);
+/** PAID IN MORE THAN ONE GO (Kevin, 2026-10-14: cash now and a card
+    later, or two cards): a real top-up sits on the order. The one test
+    the badge, the ticket rows, the closed list and the printed ticket
+    all read, so "in parts" means the same thing everywhere. */
+export const paidInParts = (o: { payment?: { totalCents: number } | null; topUps?: { totalCents: number }[] }): boolean =>
+  !!o.payment && (o.topUps ?? []).some((p) => p.totalCents > 0);
 export const balanceCents = (o: { subtotal: number; payment?: (Paid & { method?: string }) | null; topUps?: Paid[] }): number => {
   const due = Math.round(o.subtotal * 100) - collectedCents(o);
   // A ring at the register (the webhook's record) is the register's own
