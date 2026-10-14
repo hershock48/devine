@@ -106,7 +106,7 @@ async function paidFlow(order: PricedOrder, sourceId: string) {
     const fee = site.deliveryFees[order.zip];
     if (fee === undefined) {
       return NextResponse.json(
-        { ok: false, error: `We can't price delivery to ${order.zip} online, so the card was not charged. Call the shop at ${site.phone} and we'll tell you if we can get there, or choose pickup.` },
+        { ok: false, error: `We don't deliver to ${order.zip} through the website, so the card was not charged. Give us a call at ${site.phone} and let's see what we can do, or choose pickup.` },
         { status: 400 },
       );
     }

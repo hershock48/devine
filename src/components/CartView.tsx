@@ -203,8 +203,9 @@ export default function CartView() {
     <p className="muted" style={{ fontSize: 14.5, margin: 0 }}>Enter the zip and we&rsquo;ll price the delivery.</p>
   ) : deliveryFee === undefined ? (
     cfg.cards ? (
-      <p style={{ fontSize: 14.5, margin: 0, color: "var(--rose-ink)", fontWeight: 600 }} aria-live="polite">
-        We can&rsquo;t deliver to {zipTrim} online. Call the shop at <a href={site.phoneHref}>{site.phone}</a> and we&rsquo;ll tell you if we can get there, or choose pickup.
+      <p style={{ fontSize: 14.5, margin: 0, fontWeight: 600 }} aria-live="polite">
+        We don&rsquo;t deliver to {zipTrim} through the website, but give us a call at{" "}
+        <a href={site.phoneHref} style={{ whiteSpace: "nowrap" }}>{site.phone}</a> and let&rsquo;s see what we can do. Pickup is always an option.
       </p>
     ) : (
       <p className="muted" style={{ fontSize: 14.5, margin: 0 }} aria-live="polite">
@@ -862,6 +863,18 @@ export default function CartView() {
                   )}
                 </div>
 
+                {/* A zip off her sheet is a door, not a wall (Kevin,
+                    2026-10-13, after the research): the dead button gives
+                    way to a call that dials and a switch to pickup that
+                    keeps the cart. */}
+                {zipBlocked && zipTrim.length >= 5 ? (
+                  <p style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                    <a className="btn btn--solid" href={site.phoneHref}>Call {site.phone}</a>
+                    <button type="button" onClick={() => setFulfillment("pickup")} style={{ background: "none", border: 0, font: "inherit", fontSize: 15, fontWeight: 600, color: "var(--green)", cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+                      Switch to pickup
+                    </button>
+                  </p>
+                ) : (
                 <p style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
                   <button
                     className="btn btn--solid"
@@ -871,7 +884,7 @@ export default function CartView() {
                     {outcome.state === "sending"
                       ? payMethod === "card" ? "Charging…" : "Sending…"
                       : zipBlocked
-                        ? zipTrim.length >= 5 ? "We can’t deliver there online" : "Enter a delivery zip"
+                        ? "Enter a delivery zip"
                         : belowMin
                           ? `${money(deliveryMin - subtotal)} more for delivery`
                           : cardFailed
@@ -882,7 +895,7 @@ export default function CartView() {
                   </button>
                   <span className="muted" style={{ fontSize: 14.5 }}>
                     {zipBlocked
-                      ? zipTrim.length >= 5 ? `Call ${site.phone}, or choose pickup.` : "The zip prices the delivery."
+                      ? "The zip prices the delivery."
                       : belowMin
                         ? `${money(deliveryMin - subtotal)} more for delivery, or pickup.`
                         : payMethod === "card" && cardAllowed
@@ -890,6 +903,7 @@ export default function CartView() {
                           : "Nothing is charged online."}
                   </span>
                 </p>
+                )}
 
                 {/* aria-live so the outcome is announced, not just drawn */}
                 <div aria-live="polite">

@@ -404,14 +404,23 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
     c.line(`${site.address.city}, ${site.address.state} ${site.address.zip}`, 10, pen.reg, { align: "right" });
     c.line(site.phone, 10, pen.reg, { align: "right" });
   }
-  // The floor keeps room for the "more" line and the footer stamp under it.
-  const c = new Cursor(pen, M, 11 * IN - M - logoH - 10, W, M + 26);
+  /* THE TEAR-OFF STUB (Kevin's photo of the IRIS ticket, 2026-10-13):
+     the bottom of the page repeats the order, the day, the customer and
+     the recipient, says what to collect, and has a line the customer
+     signs when they take it. The body's floor sits above it. */
+  const STUB_H = 1.9 * IN;
+  const stubTop = M + 26 + STUB_H;
+  // The floor keeps room for the "more" line, the stub and the footer stamp.
+  const c = new Cursor(pen, M, 11 * IN - M - logoH - 10, W, stubTop);
   c.rule(1.5);
   c.gap(6);
   const pickup = o.fulfillment === "pickup";
   const where = whereLines(o);
+  const balance = o.payment ? 0 : o.status === "canceled" ? 0 : o.subtotal;
   c.row(pickup ? "PICKUP" : "DELIVERY", `Order ${o.number}`, 20, pen.bold);
-  c.row(`${longDate(o.date)}, ${weekdayOf(o.date)}`, o.source === "web" ? "Website order" : "Phone order", 13, pen.bold);
+  // What the counter reads first (IRIS put it top right too).
+  c.row(`${longDate(o.date)}, ${weekdayOf(o.date)}`, `Balance due: ${money(balance)}`, 13, pen.bold);
+  c.line(o.source === "web" ? "Website order" : "Phone order", 10.5, pen.reg, { align: "right" });
   if (o.occasion && o.occasion !== "Everyday") c.line(o.occasion, 10.5);
   if (o.status === "hold") c.line("ON HOLD", 16, pen.bold);
   c.gap(6);
@@ -458,11 +467,41 @@ function drawPlain(doc: PDFDocument, fonts: Omit<Pen, "page">, logo: PDFImage, o
       c.y -= h;
     }
   }
-  if (o.notes) {
-    c.heading("Notes");
-    c.line(o.notes, 10.5);
-  }
+  // Instructions are the customer's words; order notes are the shop's,
+  // a labelled space to write in (IRIS had both).
+  c.heading("Instructions");
+  c.line(o.notes || "(none)", 10.5, pen.reg, o.notes ? {} : { color: grey });
+  c.heading("Order notes");
+  c.gap(14);
   c.more();
+
+  // The stub, below a cut line, in its own cursor so the body can never
+  // run into it.
+  {
+    const top = stubTop;
+    const y = top + 6;
+    for (let x = M; x < M + W; x += 9) {
+      page.drawLine({ start: { x, y }, end: { x: Math.min(x + 4.5, M + W), y }, thickness: 0.6, color: grey });
+    }
+    const s = new Cursor(pen, M, top - 6, W, M + 26);
+    s.row(`Order ${o.number}`, pickup ? "PICKUP" : "DELIVERY", 13, pen.bold);
+    s.row(`${longDate(o.date)}, ${weekdayOf(o.date)}`, balance > 0 ? `Please collect ${money(balance)}` : o.payment ? "Paid in full" : "", 11, pen.bold);
+    s.gap(4);
+    const sl = new Cursor(pen, M, s.y, colW, M + 26);
+    sl.heading("Customer");
+    sl.line(o.name, 10.5, pen.bold);
+    if (o.phone) sl.line(o.phone, 10);
+    const sr = new Cursor(pen, M + colW + 24, s.y, colW, M + 26);
+    sr.heading("Recipient");
+    sr.line(o.recipient || o.name, 10.5, pen.bold);
+    if (where.length) sr.line(where[0], 10);
+    s.y = Math.min(sl.y, sr.y);
+    s.gap(16);
+    if (s.y - 14 > M + 26) {
+      page.drawLine({ start: { x: M, y: s.y }, end: { x: M + 3.4 * IN, y: s.y }, thickness: 0.8, color: ink });
+      page.drawText("Received by", { x: M, y: s.y - 10, size: 8, font: pen.reg, color: grey });
+    }
+  }
   // The footer stamp, at the page margin, always.
   c.y = M + 8.5 * 1.25;
   c.floor = 0;
