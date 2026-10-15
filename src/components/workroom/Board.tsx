@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -80,10 +80,6 @@ type InitialsExtra = { madeBy?: string; takenBy?: string };
 /** Editable until canceled (Kevin, 2026-10-14): paid, made or delivered,
     a ticket can still take a tax ID, an address, another item. */
 const canEdit = (o: Order) => o.status !== "canceled";
-/** Whether any of the money on this order went through Square (so a
-    refund is made from the Square dashboard) or was all taken by hand. */
-const viaSquare = (o: Order) =>
-  !!o.payment && (!!o.payment.squarePaymentId || o.payment.method !== "other" || (o.topUps ?? []).some((t) => t.squarePaymentId || t.method !== "other"));
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   switch (o.status) {
@@ -624,8 +620,8 @@ function ClosedList({ orders, onUncancel, onUnmark }: { orders: Order[]; onUncan
     // Everything paid, fees included, the one refund figure (derive.ts
     // refundableCents): a ticket paid in parts (cash then card) is one
     // paid order, not a $40 one, and the line agrees with the card's.
-    if (o.payment.refundedAt) return `refunded ${money(refundableCents(o) / 100)}`;
-    return `paid ${money(refundableCents(o) / 100)}`;
+    if (o.payment.refundedAt) return `refunded ${money(grossPaidCents(o) / 100)}`;
+    return `paid ${money(grossPaidCents(o) / 100)}${refundedCents(o) > 0 ? ` · ${money(refundedCents(o) / 100)} refunded` : ""}`;
   };
   return (
     <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0", maxWidth: 720 }}>
@@ -1099,7 +1095,9 @@ function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Pro
 function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) => Promise<void> }) {
   const line = o.lines.find(isDeliveryLine);
   const sheet = deliveryFeeFor(o.zip);
-  const current = line ? line.each : sheet;
+  // Once paid, the ticket is the record: no line means no fee was charged
+  // (the pay route appends the sheet's fee only when there is one).
+  const current = line ? line.each : o.payment ? 0 : sheet;
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1110,9 +1108,11 @@ function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) =>
       : line.each === sheet
         ? "from the zip list"
         : `adjusted; the list says ${money(sheet)}`
-    : sheet !== undefined
-      ? "from the zip list, added when charged"
-      : "not set; the zip is off the list";
+    : o.payment
+      ? "none charged"
+      : sheet !== undefined
+        ? "from the zip list, added when charged"
+        : "not set; the zip is off the list";
 
   async function save() {
     const n = Number(value);
@@ -1378,7 +1378,7 @@ function OrderCard({
               {/* Everything paid once there are top-ups, so this row is
                   the sum of the payment rows below it. */}
               <span>Total paid</span>
-              <span>{money((paidInParts(o) ? refundableCents(o) + refundedCents(o) : o.payment.totalCents) / 100)}</span>
+              <span>{money((paidInParts(o) ? grossPaidCents(o) : o.payment.totalCents) / 100)}</span>
             </li>
           </>
         )}
@@ -1487,8 +1487,9 @@ function OrderCard({
       {o.status === "canceled" && o.payment && !o.payment.refundedAt && (
         <div style={{ margin: "10px 0 0" }}>
           <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
-            Paid {money(refundableCents(o) / 100)}, then canceled. Refund it from the Square
-            dashboard (Transactions), then mark it here.
+            Paid {money(grossPaidCents(o) / 100)}
+            {refundedCents(o) > 0 ? `, ${money(refundedCents(o) / 100)} refunded` : ""}, then canceled. Refund{" "}
+            {refundedCents(o) > 0 ? `the remaining ${money(refundableCents(o) / 100)}` : "it"} from the Square dashboard (Transactions), then mark it here.
           </p>
           {onRefunded && (
             <button type="button" className="btn" onClick={() => onRefunded(o.id)}>
@@ -1506,7 +1507,7 @@ function OrderCard({
         <div style={{ margin: "10px 0 0" }}>
           <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
             Paid {money((collectedCents(o) - refundedCents(o)) / 100)}; the ticket is now {money(o.subtotal)}.{" "}
-            {viaSquare(o)
+            {squareMoney(o)
               ? `Refund ${money(-balanceCents(o) / 100)} from the Square dashboard (Transactions), then mark it here.`
               : `Give ${money(-balanceCents(o) / 100)} back (cash or a check), then mark it here.`}
           </p>
@@ -1520,7 +1521,7 @@ function OrderCard({
                 onPartRefund(o.id, -balanceCents(o)).finally(() => setRefunding(false));
               }}
             >
-              {refunding ? "Marking…" : viaSquare(o) ? `Refunded ${money(-balanceCents(o) / 100)} in Square` : `Gave ${money(-balanceCents(o) / 100)} back`}
+              {refunding ? "Marking…" : squareMoney(o) ? `Refunded ${money(-balanceCents(o) / 100)} in Square` : `Gave ${money(-balanceCents(o) / 100)} back`}
             </button>
           )}
         </div>
@@ -1538,6 +1539,7 @@ function OrderCard({
           collectedCents={collectedCents(o)}
           paidInParts={paidInParts(o)}
           handPaid={paidByHandOnly(o)}
+          squareMoney={squareMoney(o)}
           refundedCents={refundedCents(o)}
           batch={batch}
           onPaid={() => onPaid().catch(() => {})}

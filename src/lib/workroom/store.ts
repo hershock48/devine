@@ -62,7 +62,10 @@ export type WorkroomLine = {
  * ring's note). Absent means unpaid, which every order historically was,
  * so old rows need no migration.
  */
-export type OrderRefund = { at: number; cents: number; note: string };
+/** Part of a payment given back (derive.ts refundedCents). `how` is where
+    it came back from: Square's dashboard, or the till by hand; the
+    dashboard nets the by-hand kind out of the by-hand money taken. */
+export type OrderRefund = { at: number; cents: number; how: "square" | "hand"; note: string };
 export type OrderPayment = {
   at: number;
   /** "other" is the by-hand mark for money that moved outside the board (a
@@ -71,6 +74,10 @@ export type OrderPayment = {
   method: "card" | "cash" | "register" | "other";
   squarePaymentId: string;
   totalCents: number;
+  /** The ticket's total, in cents, when a register ring was linked to the
+      order (the webhook writes it). derive.ts balanceCents owes back only
+      what the ticket has lost since, never the ring's own excess (a tip). */
+  ticketCents?: number;
   /** The customer-paid fee line included in totalCents (the Convenience
       fee on web orders, the shop's card fee at the board); 0 on cash. */
   feeCents: number;
@@ -1116,17 +1123,24 @@ const postgresStore: Store = {
   },
   async addOrderRefund(id, r) {
     const pool = await pgPool();
-    // The balance arithmetic (derive.ts balanceCents) in SQL, so the append
-    // happens only while the ticket is still that much overpaid.
+    // The balance arithmetic (derive.ts balanceCents) in SQL, register rule
+    // included, so the append happens only while that much is still owed
+    // back: two taps, or two tabs, cannot record the same refund twice.
     const res = await pool.query(
       `UPDATE workroom_orders
        SET data = data || jsonb_build_object('refunds', COALESCE(data->'refunds', '[]'::jsonb) || $2::jsonb)
        WHERE id = $1 AND data->'payment' IS NOT NULL
-         AND ROUND((data->>'subtotal')::numeric * 100)
-             - (((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
-                + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0))
-             + COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0)
-             + $3::numeric <= 0
+         AND $3::numeric <= (
+           WITH m AS (
+             SELECT ROUND((data->>'subtotal')::numeric * 100) AS sub,
+                    ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
+                      + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0) AS collected,
+                    COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0) AS refunded
+           )
+           SELECT CASE WHEN data->'payment'->>'method' = 'register'
+                       THEN LEAST(collected - refunded - sub, GREATEST(0, COALESCE((data->'payment'->>'ticketCents')::numeric, sub) - sub) - refunded)
+                       ELSE collected - refunded - sub END
+           FROM m)
        RETURNING id`,
       [id, JSON.stringify([r]), r.cents],
     );

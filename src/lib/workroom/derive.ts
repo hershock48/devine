@@ -104,7 +104,7 @@ export const withTaxLine = <L extends { slug?: string | null; name: string; qty:
     ticket; the balance is the ticket's total minus that. Positive means
     still to collect, negative means a refund is owed, zero means settled.
     An unpaid order's balance is its whole total. */
-type Paid = { totalCents: number; feeCents: number };
+type Paid = { totalCents: number; feeCents: number; method?: string; squarePaymentId?: string; ticketCents?: number };
 export const collectedCents = (o: { payment?: Paid | null; topUps?: Paid[] }): number =>
   (o.payment ? o.payment.totalCents - o.payment.feeCents : 0) + (o.topUps ?? []).reduce((s, p) => s + p.totalCents - p.feeCents, 0);
 /** What a full refund gives back: every charge as it was made, fees
@@ -112,7 +112,19 @@ export const collectedCents = (o: { payment?: Paid | null; topUps?: Paid[] }): n
     "Refund it" line, the closed list and the refund note all read this one
     number, so the shop and the customer are told the same amount. */
 export const refundableCents = (o: { payment?: { totalCents: number } | null; topUps?: { totalCents: number }[]; refunds?: { cents: number }[] }): number =>
-  (o.payment?.totalCents ?? 0) + (o.topUps ?? []).reduce((s, p) => s + p.totalCents, 0) - refundedCents(o);
+  grossPaidCents(o) - refundedCents(o);
+/** Every charge as it was made, fees included, before anything was given
+    back: the "paid" figure a closed row, a canceled card and the ticket's
+    Total paid all state. */
+export const grossPaidCents = (o: { payment?: { totalCents: number } | null; topUps?: { totalCents: number }[] }): number =>
+  (o.payment?.totalCents ?? 0) + (o.topUps ?? []).reduce((s, p) => s + p.totalCents, 0);
+/** Whether Square holds any of this order's money (a card, cash or
+    register payment, or a top-up of one). One copy: a refund of such an
+    order is made from the Square dashboard, the by-hand mark on it cannot
+    be taken back, and the wording on the card, the paid line and the
+    route's own message all follow this test. */
+export const squareMoney = (o: { payment?: { method: string; squarePaymentId?: string } | null; topUps?: { method: string; squarePaymentId?: string }[] }): boolean =>
+  [o.payment, ...(o.topUps ?? [])].some((p) => !!p && (!!p.squarePaymentId || p.method !== "other"));
 /** Money already given back in part (a delivery fee off a ticket the
     customer picked up instead), marked on the board after the Square
     refund. Not a whole-order refund; that is payment.refundedAt. */
@@ -126,20 +138,23 @@ export const paidInParts = (o: { payment?: { totalCents: number } | null; topUps
 /** Paid only by hand ("Paid another way"), no Square money anywhere on it:
     the one kind of payment the board may take back, because nothing moved. */
 export const paidByHandOnly = (o: { payment?: { method: string; squarePaymentId?: string } | null; topUps?: { method: string; squarePaymentId?: string }[]; refunds?: { cents: number }[] }): boolean =>
-  !!o.payment &&
-  o.payment.method === "other" &&
-  !o.payment.squarePaymentId &&
-  (o.topUps ?? []).every((t) => t.method === "other" && !t.squarePaymentId) &&
-  // Once part of it was given back in Square, money has moved: no undo.
-  !(o.refunds ?? []).length;
-export const balanceCents = (o: { subtotal: number; payment?: (Paid & { method?: string }) | null; topUps?: Paid[]; refunds?: { cents: number }[] }): number => {
+  // Once part of it was given back, the mark is a record, not a slip: no undo.
+  !!o.payment && !squareMoney(o) && !(o.refunds ?? []).length;
+export const balanceCents = (o: { subtotal: number; payment?: Paid | null; topUps?: Paid[]; refunds?: { cents: number }[] }): number => {
   // What was collected, less what was already given back, against the
   // ticket as it stands now.
-  const due = Math.round(o.subtotal * 100) - collectedCents(o) + refundedCents(o);
+  const sub = Math.round(o.subtotal * 100);
+  const due = sub - collectedCents(o) + refundedCents(o);
+  if (o.payment?.method !== "register" || due >= 0) return due;
   // A ring at the register (the webhook's record) is the register's own
   // business: a tip or a rounded-up ring is not money the shop owes back.
-  // A shortfall after an edit still shows, so it can be collected.
-  return o.payment?.method === "register" ? Math.max(0, due) : due;
+  // What IS owed back is the part the ticket lost since the ring (a fee
+  // off, the customer picks up): the webhook keeps the ticket's total at
+  // link time (ticketCents) for exactly this. A ring with no such record
+  // owes nothing back, as before. A shortfall after an edit still shows.
+  const lost = Math.max(0, (o.payment.ticketCents ?? sub) - sub) - refundedCents(o);
+  // (`|| 0` turns the -0 of a clamped excess into 0, so it prints as $0.00.)
+  return Math.max(due, -Math.max(0, lost)) || 0;
 };
 
 /** A ticket's money without its tax line: what the shop sold, as opposed

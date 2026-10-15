@@ -3,7 +3,7 @@ import "server-only";
 import { shopMail } from "@/lib/mail";
 import { bySlug, money } from "@/lib/catalog";
 import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
-import { clock12, isTaxLine, refundableCents, taxFor, taxLineName } from "@/lib/workroom/derive";
+import { clock12, isTaxLine, refundableCents, squareMoney, taxFor, taxLineName } from "@/lib/workroom/derive";
 import { occasions as OCCASIONS } from "@/lib/occasions";
 import { block, esc, logoAttachment, longDay, orderTable, phoneLink, shell, textBlock, type MoneyRow } from "@/lib/email-html";
 
@@ -484,24 +484,31 @@ export async function sendWorkroomReceipt(input: ReceiptOrder | ReceiptOrder[]):
  * awaited, same rules as every send; the route only calls it on the
  * mark that transitioned.
  */
-export async function sendRefundEmail(o: {
-  number: string;
-  name: string;
-  email: string;
-  payment?: { method: string; totalCents: number } | null;
-  topUps?: { totalCents: number }[];
-}): Promise<void> {
+export async function sendRefundEmail(
+  o: {
+    number: string;
+    name: string;
+    email: string;
+    payment?: { method: string; squarePaymentId?: string; totalCents: number } | null;
+    topUps?: { method: string; squarePaymentId?: string; totalCents: number }[];
+    refunds?: { cents: number }[];
+  },
+  /** A part given back (a delivery fee off a ticket picked up instead):
+      that amount; left out, the whole refund of a canceled order. */
+  partCents?: number,
+): Promise<void> {
   const mail = shopMail();
   if (!mail || !o.email) {
     console.log(`[devine] refund note for ${o.number} not sent (no ${o.email ? "SMTP" : "email on the order"}).`);
     return;
   }
   const transport = mail.transport;
-  const amount = money(refundableCents(o) / 100);
+  const amount = money((partCents ?? refundableCents(o)) / 100);
+  const part = partCents !== undefined;
   const how =
     o.payment?.method === "card"
       ? "Back to the card you paid with. Allow a few business days for your bank to show it."
-      : o.payment?.method === "cash"
+      : o.payment?.method === "cash" || (part && !squareMoney(o))
         ? "In cash at the shop."
         : "The way you paid.";
   const subject = `Your refund from ${site.shortName}, order ${o.number}`;
@@ -515,7 +522,7 @@ export async function sendRefundEmail(o: {
         `Hi ${o.name}. Your refund is complete.`,
         "",
         `Order ${o.number}`,
-        `Refunded ${amount}`,
+        `Refunded ${amount}${part ? " (part of the order; the rest stands)" : ""}`,
         how,
         "",
         `Questions: call the shop at ${site.phone}.`,
@@ -523,9 +530,9 @@ export async function sendRefundEmail(o: {
       html: shell({
         title: subject,
         heading: "Your refund is complete.",
-        intro: `Hi ${esc(o.name)}. ${esc(site.shortName)} has refunded <strong>${amount}</strong> for order ${esc(o.number)}.`,
+        intro: `Hi ${esc(o.name)}. ${esc(site.shortName)} has refunded <strong>${amount}</strong> ${part ? "of" : "for"} order ${esc(o.number)}.${part ? " The rest of the order stands." : ""}`,
         sections: [
-          block(`Order ${o.number}`, orderTable([], [{ label: "Refunded", value: amount, strong: true }])),
+          block(`Order ${o.number}`, orderTable([], [{ label: part ? "Refunded (part)" : "Refunded", value: amount, strong: true }])),
           block("Where it goes", esc(how)),
         ],
         outro: `Questions: call the shop at ${phoneLink()}.`,

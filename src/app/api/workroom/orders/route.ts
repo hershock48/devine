@@ -3,7 +3,7 @@ import { deliveryFeeFor, site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { bySlug } from "@/lib/catalog";
-import { deliveryLineName, isDeliveryLine, isTaxLine, normalizeVariety, withTaxLine, balanceCents } from "@/lib/workroom/derive";
+import { balanceCents, deliveryLineName, isDeliveryLine, isTaxLine, normalizeVariety, squareMoney, withTaxLine } from "@/lib/workroom/derive";
 import { INITIALS_ERROR } from "@/lib/workroom/initials";
 import { sendDeliveredEmail, sendRefundEmail, sendWorkroomReceipt } from "@/lib/intake";
 
@@ -468,9 +468,12 @@ export async function PATCH(req: Request) {
     if (cents > owedBack) return NextResponse.json({ error: owedBack > 0 ? `Only ${(owedBack / 100).toFixed(2)} is owed back on this order.` : "Nothing is owed back on this order." }, { status: 409 });
     // Where the money went back from: Square for a card, cash or register
     // payment; by hand (cash or a check) for a by-hand mark.
-    const viaSquare = !!o.payment.squarePaymentId || o.payment.method !== "other" || (o.topUps ?? []).some((t) => t.squarePaymentId || t.method !== "other");
-    const written = await getStore().addOrderRefund(id, { at: Date.now(), cents, note: viaSquare ? "Refunded from the Square dashboard" : "Given back by hand" });
+    const how = squareMoney(o) ? "square" : "hand";
+    const written = await getStore().addOrderRefund(id, { at: Date.now(), cents, how, note: how === "square" ? "Refunded from the Square dashboard" : "Given back by hand" });
     if (!written) return NextResponse.json({ error: "That refund is already recorded, or more than is owed back. Reload the board and look at the card." }, { status: 409 });
+    // The customer hears that it is done (Kevin, 2026-10-14), for a part
+    // as for the whole.
+    if (o.email) await sendRefundEmail(o, cents);
     return NextResponse.json({ ok: true });
   }
   // UNDO A BY-HAND MARK (Katy, 2026-10-15: two account orders marked "Paid
@@ -487,10 +490,9 @@ export async function PATCH(req: Request) {
     if ((o.refunds ?? []).length) return NextResponse.json({ error: "Part of that payment was refunded, so the paid mark stays." }, { status: 409 });
     const cleared = await getStore().clearHandPayments(id);
     if (!cleared) {
-      const squareMoney = !!o.payment.squarePaymentId || o.payment.method !== "other" || (o.topUps ?? []).some((t) => t.squarePaymentId || t.method !== "other");
       return NextResponse.json(
         {
-          error: squareMoney
+          error: squareMoney(o)
             ? "That payment is Square's record (a card, cash or a register ring), so it cannot be undone here. If it was wrong, refund it from the Square dashboard."
             : "That did not change. Reload the board and look at the card.",
         },

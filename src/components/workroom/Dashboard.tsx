@@ -64,6 +64,7 @@ type Order = {
   createdAt: number;
   payment?: OrderPayment | null;
   topUps?: OrderPayment[];
+  refunds?: { at: number; cents: number; how?: "square" | "hand" }[];
 };
 type SaleLine = { slug: string | null; name: string; qty: number; eachCents: number; totalCents: number };
 type Sale = { id: string; paidAt: string; source: string; totalCents: number; createdAt: number; workroomOrderId?: string; lines: SaleLine[] };
@@ -778,7 +779,11 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       // marked "Paid another way" (2026-10-14) is register-less money too.
       const handPays = (o: Order) => [o.payment, ...(o.topUps ?? [])].filter((p): p is OrderPayment => !!p && p.method === "other" && inMs(p.at));
       const handMarked = orders.filter((o) => handPays(o).length > 0);
-      const handMarkedCents = handMarked.reduce((sum, o) => sum + handPays(o).reduce((s, p) => s + p.totalCents, 0), 0);
+      // Less what was given back by hand in the window (a fee off a ticket
+      // picked up instead): that money is not in the till either. A Square
+      // refund is Square's own figure and is left to its summary.
+      const handBack = orders.reduce((sum, o) => sum + (o.refunds ?? []).filter((r) => r.how === "hand" && inMs(r.at)).reduce((s, r) => s + r.cents, 0), 0);
+      const handMarkedCents = handMarked.reduce((sum, o) => sum + handPays(o).reduce((s, p) => s + p.totalCents, 0), 0) - handBack;
 
       /* orders */
       const ordersIn = orders.filter(

@@ -204,6 +204,9 @@ export async function POST(req: Request) {
           squarePaymentId: payment.id,
           totalCents: payment.total_money?.amount ?? 0,
           feeCents: 0,
+          // The ticket as rung, so a later trim (a fee off) is owed back
+          // while a tip or a rounded-up ring is not (derive.ts balanceCents).
+          ...(order ? { ticketCents: Math.round(order.subtotal * 100) } : {}),
         };
         if (order && !order.payment && order.status !== "hold") {
           await getStore().setOrderPayment(workroomOrderId, record);
