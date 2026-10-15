@@ -302,6 +302,18 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   /** The human attestation that the Square refund happened; the workroom
       cannot see refunds on its own (no refund webhook subscribed) and
       should not pretend to. */
+  /** Take back a by-hand paid mark (Katy, 2026-10-15); the route refuses
+      anything Square recorded. */
+  async function unmarkPaid(id: string) {
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, unmarkPaid: true }),
+    });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) window.alert(d?.error || "That did not save.");
+    pull().catch(() => {});
+  }
   async function markRefunded(id: string) {
     await fetch("/api/workroom/orders", {
       method: "PATCH",
@@ -559,7 +571,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
                 Finished &amp; canceled ({buckets.closed.length})
               </h2>
-              <ClosedList orders={buckets.closed} onUncancel={uncancel} />
+              <ClosedList orders={buckets.closed} onUncancel={uncancel} onUnmark={unmarkPaid} />
             </section>
           )}
         </>
@@ -587,7 +599,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
               {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
             </button>
           </p>
-          {showDone && <ClosedList orders={buckets.closed} onUncancel={uncancel} />}
+          {showDone && <ClosedList orders={buckets.closed} onUncancel={uncancel} onUnmark={unmarkPaid} />}
         </>
       )}
     </>
@@ -601,7 +613,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
  * these too, so a caller asking about last month's order is one search and
  * one glance.
  */
-function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id: string) => Promise<void> }) {
+function ClosedList({ orders, onUncancel, onUnmark }: { orders: Order[]; onUncancel?: (id: string) => Promise<void>; onUnmark?: (id: string) => Promise<void> }) {
   if (orders.length === 0) return null;
   const moneyWord = (o: Order) => {
     if (!o.payment) return o.status === "canceled" ? "" : "not paid";
@@ -662,9 +674,25 @@ function ClosedList({ orders, onUncancel }: { orders: Order[]; onUncancel?: (id:
               {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
               {o.payment && (
                 <p className="muted" style={{ margin: 0 }}>
-                  Paid by {o.payment.method === "other" ? "another way" : o.payment.method}, {money(o.payment.totalCents / 100)}
+                  Paid {o.payment.method === "other" ? "by hand (marked paid another way)" : `by ${o.payment.method}`}, {money(o.payment.totalCents / 100)}
                   {o.payment.feeCents > 0 ? ` (includes the ${money(o.payment.feeCents / 100)} ${o.source === "web" ? "convenience" : "card"} fee)` : ""}
                   {o.payment.refundedAt ? " · refunded" : ""}
+                </p>
+              )}
+              {/* A delivered account order marked paid by hand lands here, so
+                  the undo lives here too (Katy, 2026-10-15); never for Square
+                  money, never once refunded. */}
+              {o.status !== "canceled" && !o.payment?.refundedAt && paidByHandOnly(o) && onUnmark && (
+                <p style={{ margin: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm("Take back the paid mark? The order goes back to owed; nothing in Square changes.")) onUnmark(o.id).catch(() => {});
+                    }}
+                    style={{ ...textButton, fontSize: 13, color: "var(--muted)" }}
+                  >
+                    Marked paid by mistake? Undo
+                  </button>
                 </p>
               )}
               {o.cardMessage && <p style={{ margin: 0, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{o.cardMessage}&rdquo;</p>}
