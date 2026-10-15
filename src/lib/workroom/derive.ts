@@ -119,6 +119,10 @@ export const refundableCents = (o: { payment?: { totalCents: number } | null; to
     all read, so "in parts" means the same thing everywhere. */
 export const paidInParts = (o: { payment?: { totalCents: number } | null; topUps?: { totalCents: number }[] }): boolean =>
   !!o.payment && (o.topUps ?? []).some((p) => p.totalCents > 0);
+/** Paid only by hand ("Paid another way"), no Square money anywhere on it:
+    the one kind of payment the board may take back, because nothing moved. */
+export const paidByHandOnly = (o: { payment?: { method: string; squarePaymentId?: string } | null; topUps?: { method: string; squarePaymentId?: string }[] }): boolean =>
+  !!o.payment && o.payment.method === "other" && !o.payment.squarePaymentId && (o.topUps ?? []).every((t) => t.method === "other" && !t.squarePaymentId);
 export const balanceCents = (o: { subtotal: number; payment?: (Paid & { method?: string }) | null; topUps?: Paid[] }): number => {
   const due = Math.round(o.subtotal * 100) - collectedCents(o);
   // A ring at the register (the webhook's record) is the register's own

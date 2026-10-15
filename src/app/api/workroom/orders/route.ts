@@ -381,7 +381,7 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as {
-    id?: unknown; status?: unknown; markRefunded?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
+    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
   };
   const id = typeof p.id === "string" ? p.id : "";
   // UNCANCEL (Katy, 2026-10-06): a canceled order goes back to the status
@@ -448,6 +448,18 @@ export async function PATCH(req: Request) {
   // (Kevin, 2026-10-14): once, on the mark that actually transitions, so
   // a second tap or an order already stamped sends nothing. Best-effort
   // after the stamp is safely stored.
+  // UNDO A BY-HAND MARK (Katy, 2026-10-15: two account orders marked "Paid
+  // another way" that nobody had paid). Only a mark with no Square money
+  // behind it can be taken back; a card or cash payment is real and stays.
+  if (p.unmarkPaid === true) {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    if (!o.payment) return NextResponse.json({ error: "That order is not marked paid." }, { status: 409 });
+    const cleared = await getStore().clearHandPayments(id);
+    if (!cleared) return NextResponse.json({ error: "That payment went through Square (card or cash), so it cannot be undone here. Refund it from the Square dashboard if it was wrong." }, { status: 409 });
+    return NextResponse.json({ ok: true });
+  }
   if (p.markRefunded === true) {
     if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
     const o = await getStore().getOrder(id);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidByHandOnly, paidInParts, refundableCents, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -333,7 +333,11 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                   <p className="muted" style={{ margin: "4px 0 0", fontSize: 13.5 }}>
                     {itemsOf(o).map((l) => `${l.qty} × ${l.name}`).join(", ")}
                   </p>
-                  {owed > 0 && (
+                  {/* The money corner while anything is owed, and also for an
+                      order marked paid by hand (Katy, 2026-10-15: two "show
+                      settled but haven't been paid"), so the mark can be taken
+                      back right here and the order goes back to owing. */}
+                  {(owed > 0 || (o.status !== "canceled" && paidByHandOnly(o))) && (
                     <PayControls
                       orderId={o.id}
                       subtotal={o.subtotal}
@@ -342,6 +346,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       balanceCents={balanceCents(o)}
                       collectedCents={collectedCents(o)}
                       paidInParts={paidInParts(o)}
+                      handPaid={paidByHandOnly(o)}
                       onPaid={() => pull().catch(() => {})}
                     />
                   )}
