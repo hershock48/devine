@@ -42,6 +42,7 @@ export default function PayControls({
   start = "idle",
   partPay = true,
   handPaid = false,
+  refundedCents = 0,
   onPaid,
 }: {
   orderId: string;
@@ -73,6 +74,8 @@ export default function PayControls({
   /** derive.ts paidByHandOnly: every payment on it was a by-hand mark, so
       the mark can be taken back (nothing moved in Square). */
   handPaid?: boolean;
+  /** derive.ts refundedCents: part of the payment already given back. */
+  refundedCents?: number;
   /** Paid: which way, how many cents, and what that leaves. `settled` is
       whether this payment covered everything due; `boardMissed` is the
       charge that went through while the board write failed (said in red
@@ -296,6 +299,7 @@ export default function PayControls({
         : paidInParts
           ? `Paid in full · ${dollars(collectedCents)} · in parts`
           : `Paid · ${payment.method === "other" || payment.method === "manual" ? "marked by hand" : payment.method} · ${dollars(payment.totalCents)}`}
+      {refundedCents > 0 ? ` · ${dollars(refundedCents)} refunded` : ""}
       {balanceCents < 0 ? ` · ${dollars(-balanceCents)} to refund (Square dashboard)` : ""}
     </p>
   ) : null;

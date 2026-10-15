@@ -62,6 +62,7 @@ export type WorkroomLine = {
  * ring's note). Absent means unpaid, which every order historically was,
  * so old rows need no migration.
  */
+export type OrderRefund = { at: number; cents: number; note: string };
 export type OrderPayment = {
   at: number;
   /** "other" is the by-hand mark for money that moved outside the board (a
@@ -131,6 +132,12 @@ export type WorkroomOrder = {
       total (Kevin, 2026-10-14). derive.ts sums them; the first payment
       stays what it was. */
   topUps?: OrderPayment[];
+  /** PART OF A PAYMENT GIVEN BACK (Katy, 2026-10-15: "refund a delivery
+      off of an order, sometimes people decide to pick up instead"). The
+      shop refunds from the Square dashboard and marks it here, so the
+      board's balance matches Square. derive.ts adds these back into the
+      balance; a whole-order refund is still payment.refundedAt. */
+  refunds?: OrderRefund[];
   /** The status the order held when it was canceled, so Uncancel can put
       it back where it was (Katy, 2026-10-06 meeting) instead of guessing. */
   canceledFrom?: OrderStatus;
@@ -556,6 +563,8 @@ type Store = {
   setOrderPayment(id: string, p: OrderPayment): Promise<void>;
   /** A further payment on an order already paid once (a balance after an edit). */
   addOrderTopUp(id: string, p: OrderPayment): Promise<void>;
+  /** A partial refund the shop made in Square, recorded here. */
+  addOrderRefund(id: string, r: OrderRefund): Promise<void>;
   /** The pay route appends the delivery-fee line when it charges a
       delivery ticket that never carried one, so the ticket's rows and its
       payment agree. */
@@ -737,6 +746,10 @@ const memoryStore: Store = {
     const o = bag().orders.get(id);
     if (o) o.topUps = [...(o.topUps ?? []), p];
   },
+  async addOrderRefund(id, r) {
+    const o = bag().orders.get(id);
+    if (o) o.refunds = [...(o.refunds ?? []), r];
+  },
   async setOrderLines(id, lines, subtotal) {
     const o = bag().orders.get(id);
     if (o) {
@@ -754,6 +767,7 @@ const memoryStore: Store = {
     const o = bag().orders.get(id);
     if (!o?.payment || o.payment.method !== "other" || o.payment.squarePaymentId) return false;
     if ((o.topUps ?? []).some((t) => t.method !== "other" || t.squarePaymentId)) return false;
+    if ((o.refunds ?? []).length) return false;
     o.payment = null;
     delete o.topUps;
     return true;
@@ -1095,6 +1109,13 @@ const postgresStore: Store = {
       [id, JSON.stringify([p])],
     );
   },
+  async addOrderRefund(id, r) {
+    const pool = await pgPool();
+    await pool.query(
+      `UPDATE workroom_orders SET data = data || jsonb_build_object('refunds', COALESCE(data->'refunds', '[]'::jsonb) || $2::jsonb) WHERE id = $1`,
+      [id, JSON.stringify([r])],
+    );
+  },
   async setOrderLines(id, lines, subtotal) {
     const pool = await pgPool();
     await pool.query(
@@ -1128,6 +1149,7 @@ const postgresStore: Store = {
        WHERE id = $1
          AND data->'payment'->>'method' = 'other'
          AND COALESCE(data->'payment'->>'squarePaymentId', '') = ''
+         AND COALESCE(jsonb_array_length(data->'refunds'), 0) = 0
          AND NOT EXISTS (
            SELECT 1 FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t
            WHERE t->>'method' <> 'other' OR COALESCE(t->>'squarePaymentId', '') <> ''

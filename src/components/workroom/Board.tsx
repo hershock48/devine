@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, paidByHandOnly, paidInParts, printPaperFor, refundableCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -59,6 +59,7 @@ type Order = {
   createdAt: number;
   payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
   topUps?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number }[];
+  refunds?: { at: number; cents: number; note: string }[];
   batchId?: string;
   canceledFrom?: string;
   madeBy?: string;
@@ -309,6 +310,18 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, unmarkPaid: true }),
+    });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) window.alert(d?.error || "That did not save.");
+    pull().catch(() => {});
+  }
+  /** A part of a payment given back in Square (a fee off a ticket the
+      customer picked up instead), recorded for the amount owed back. */
+  async function markPartRefund(id: string, cents: number) {
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, refunded: cents }),
     });
     const d = await r.json().catch(() => null);
     if (!r.ok) window.alert(d?.error || "That did not save.");
@@ -565,7 +578,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
@@ -577,12 +590,12 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </>
       ) : (
         <>
-          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onRefunded={markRefunded} />
+          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
 
           {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
@@ -721,6 +734,7 @@ function Bucket({
   onUncancel,
   onEdit,
   onAddTo,
+  onPartRefund,
 }: {
   title: string;
   tone?: "late";
@@ -734,6 +748,7 @@ function Bucket({
   onUncancel?: (id: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
+  onPartRefund?: (id: string, cents: number) => void;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -761,7 +776,7 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} batches={batches} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} onAddTo={onAddTo} />
+          <OrderCard key={o.id} o={o} contacts={contacts} batches={batches} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} onAddTo={onAddTo} onPartRefund={onPartRefund} />
         ))}
       </div>
     </section>
@@ -1174,6 +1189,7 @@ function OrderCard({
   onUncancel,
   onEdit,
   onAddTo,
+  onPartRefund,
 }: {
   o: Order;
   contacts: Contact[];
@@ -1185,6 +1201,7 @@ function OrderCard({
   onUncancel?: (id: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
+  onPartRefund?: (id: string, cents: number) => void;
 }) {
   const next = nextMove(o);
   const today = todayISO();
@@ -1397,7 +1414,7 @@ function OrderCard({
         )}
       </ul>
 
-      {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
+      {o.fulfillment === "delivery" && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
       {/* Not on a quick sale: a walk-in has no account to bill. */}
       {!o.payment && o.status !== "canceled" && !o.quick && <AccountToggle o={o} onDone={() => onPaid().catch(() => {})} />}
 
@@ -1479,6 +1496,23 @@ function OrderCard({
         </div>
       )}
 
+      {/* MONEY OWED BACK ON A LIVE ORDER (Katy, 2026-10-15): the ticket shrank
+          after it was paid (a delivery fee off, the customer picks up). The
+          workroom never moves money out; it says what to refund in Square
+          and records that it was done, so the two match. */}
+      {o.status !== "canceled" && o.payment && balanceCents(o) < 0 && (
+        <div style={{ margin: "10px 0 0" }}>
+          <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
+            Paid {money(refundableCents(o) / 100)}; the ticket is now {money(o.subtotal)}. Refund {money(-balanceCents(o) / 100)} from the
+            Square dashboard (Transactions), then mark it here.
+          </p>
+          {onPartRefund && (
+            <button type="button" className="btn" onClick={() => onPartRefund(o.id, -balanceCents(o))}>
+              Refunded {money(-balanceCents(o) / 100)} in Square
+            </button>
+          )}
+        </div>
+      )}
       {o.status !== "canceled" && o.status !== "hold" && (
         <PayControls
           orderId={o.id}
@@ -1492,6 +1526,7 @@ function OrderCard({
           collectedCents={collectedCents(o)}
           paidInParts={paidInParts(o)}
           handPaid={paidByHandOnly(o)}
+          refundedCents={refundedCents(o)}
           batch={batch}
           onPaid={() => onPaid().catch(() => {})}
         />

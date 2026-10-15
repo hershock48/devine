@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidByHandOnly, paidInParts, refundableCents, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidByHandOnly, paidInParts, refundableCents, refundedCents, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -48,6 +48,7 @@ type Order = {
   createdAt: number;
   payment?: Payment | null;
   topUps?: Payment[];
+  refunds?: { at: number; cents: number; note: string }[];
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
@@ -347,6 +348,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       collectedCents={collectedCents(o)}
                       paidInParts={paidInParts(o)}
                       handPaid={paidByHandOnly(o)}
+                      refundedCents={refundedCents(o)}
                       onPaid={() => pull().catch(() => {})}
                     />
                   )}
