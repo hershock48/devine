@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidByHandOnly, paidInParts, refundableCents, refundedCents, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, paidByHandOnly, paidInParts, refundedCents, squareMoney, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -325,8 +325,12 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                     <span style={{ whiteSpace: "nowrap" }}>
                       {o.payment && owed === 0
                         ? o.status === "canceled" && !o.payment.refundedAt
-                          ? <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Paid {money(refundableCents(o) / 100)}, canceled: refund due · {when(o.payment.at)}</span>
-                          : <span style={{ color: "var(--green)", fontWeight: 600 }}>{o.payment.refundedAt ? `Refunded ${money(refundableCents(o) / 100)}` : `Paid ${money((collectedCents(o) - refundedCents(o)) / 100)}${refundedCents(o) > 0 ? ` (${money(refundedCents(o) / 100)} refunded)` : ""}`} · {when(o.payment.at)}</span>
+                          ? <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Paid {money(grossPaidCents(o) / 100)}, canceled: refund due · {when(o.payment.at)}</span>
+                          : balanceCents(o) < 0
+                            /* The ticket shrank after it was paid (a fee off): not
+                               settled. The board card is where the refund is marked. */
+                            ? <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Paid {money(grossPaidCents(o) / 100)}; {money(-balanceCents(o) / 100)} to refund, mark it on the board card · {when(o.payment.at)}</span>
+                            : <span style={{ color: "var(--green)", fontWeight: 600 }}>{o.payment.refundedAt ? `Refunded ${money(grossPaidCents(o) / 100)}` : `Paid ${money((collectedCents(o) - refundedCents(o)) / 100)}${refundedCents(o) > 0 ? ` (${money(refundedCents(o) / 100)} refunded)` : ""}`} · {when(o.payment.at)}</span>
                         : owed > 0
                           ? <strong>{money(owed / 100)} owed</strong>
                           : <span className="muted">nothing owed</span>}
@@ -349,6 +353,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       collectedCents={collectedCents(o)}
                       paidInParts={paidInParts(o)}
                       handPaid={paidByHandOnly(o)}
+                      squareMoney={squareMoney(o)}
                       refundedCents={refundedCents(o)}
                       onPaid={() => pull().catch(() => {})}
                     />

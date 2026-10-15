@@ -42,6 +42,7 @@ export default function PayControls({
   start = "idle",
   partPay = true,
   handPaid = false,
+  squareMoney = true,
   refundedCents = 0,
   onPaid,
 }: {
@@ -74,6 +75,10 @@ export default function PayControls({
   /** derive.ts paidByHandOnly: every payment on it was a by-hand mark, so
       the mark can be taken back (nothing moved in Square). */
   handPaid?: boolean;
+  /** derive.ts squareMoney: Square holds some of this order's money, so
+      anything owed back is refunded from the Square dashboard; false, it
+      is given back by hand. */
+  squareMoney?: boolean;
   /** derive.ts refundedCents: part of the payment already given back. */
   refundedCents?: number;
   /** Paid: which way, how many cents, and what that leaves. `settled` is
@@ -300,7 +305,7 @@ export default function PayControls({
           ? `Paid in full · ${dollars(collectedCents)} · in parts`
           : `Paid · ${payment.method === "other" || payment.method === "manual" ? "marked by hand" : payment.method} · ${dollars(payment.totalCents)}`}
       {refundedCents > 0 ? ` · ${dollars(refundedCents)} refunded` : ""}
-      {balanceCents < 0 ? ` · ${dollars(-balanceCents)} ${handPaid ? "to give back" : "to refund (Square dashboard)"}` : ""}
+      {balanceCents < 0 ? ` · ${dollars(-balanceCents)} ${squareMoney ? "to refund (Square dashboard)" : "to give back"}` : ""}
     </p>
   ) : null;
   /* THE MARK CAN BE TAKEN BACK (Katy, 2026-10-15: "two that show settled

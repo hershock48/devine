@@ -17,7 +17,7 @@ import {
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, refundedCents, type PrintLayout } from "./derive";
+import { balanceCents, clock12, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, refundedCents, type PrintLayout } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -308,7 +308,10 @@ const paidWord = (o: WorkroomOrder, atPickup: boolean): string => {
     // Canceled with money on it, whole or part: never PAID. The amount is
     // the one refund figure (refundableCents), so the ticket in the file
     // says what the Square refund has to be.
-    if (o.status === "canceled") return `CANCELED - ${money(refundableCents(o) / 100)} paid, ${o.payment.refundedAt ? "refunded" : "to be refunded"}`;
+    if (o.status === "canceled") {
+      const back = refundedCents(o) > 0 ? `, ${money(refundedCents(o) / 100)} refunded` : "";
+      return `CANCELED - ${money(grossPaidCents(o) / 100)} paid${o.payment.refundedAt ? ", refunded" : `${back}, ${money(refundableCents(o) / 100)} to be refunded`}`;
+    }
     // Paid in part (Kevin, 2026-10-14: some cash now, the rest on a card
     // later): the ticket must not read PAID. It says what came in and
     // what is still to collect, the figure the Balance due line shows.
