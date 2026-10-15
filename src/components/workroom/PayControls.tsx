@@ -300,7 +300,7 @@ export default function PayControls({
           ? `Paid in full · ${dollars(collectedCents)} · in parts`
           : `Paid · ${payment.method === "other" || payment.method === "manual" ? "marked by hand" : payment.method} · ${dollars(payment.totalCents)}`}
       {refundedCents > 0 ? ` · ${dollars(refundedCents)} refunded` : ""}
-      {balanceCents < 0 ? ` · ${dollars(-balanceCents)} to refund (Square dashboard)` : ""}
+      {balanceCents < 0 ? ` · ${dollars(-balanceCents)} ${handPaid ? "to give back" : "to refund (Square dashboard)"}` : ""}
     </p>
   ) : null;
   /* THE MARK CAN BE TAKEN BACK (Katy, 2026-10-15: "two that show settled

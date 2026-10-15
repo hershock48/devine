@@ -427,7 +427,8 @@ export async function PATCH(req: Request) {
   // 2026-10-06): web orders arrive with no delivery line and phone orders
   // with the sheet's, and either may need changing before the card is
   // taken. Replaces the Delivery line (or adds one) and recomputes the
-  // subtotal. Refused once paid: the ticket and the payment must agree.
+  // subtotal. On a paid order too (2026-10-15): the balance then says what
+  // is still due or owed back, and the card asks for the refund.
   if (p.deliveryFee !== undefined) {
     const fee = typeof p.deliveryFee === "number" && Number.isFinite(p.deliveryFee) && p.deliveryFee >= 0 ? Math.round(p.deliveryFee * 100) / 100 : null;
     if (!id || fee === null) return NextResponse.json({ error: "A delivery fee is a number, zero or more." }, { status: 400 });
@@ -465,7 +466,11 @@ export async function PATCH(req: Request) {
     const owedBack = -balanceCents(o);
     if (!Number.isInteger(cents) || cents <= 0) return NextResponse.json({ error: "The refund has to be more than zero." }, { status: 400 });
     if (cents > owedBack) return NextResponse.json({ error: owedBack > 0 ? `Only ${(owedBack / 100).toFixed(2)} is owed back on this order.` : "Nothing is owed back on this order." }, { status: 409 });
-    await getStore().addOrderRefund(id, { at: Date.now(), cents, note: "Refunded from the Square dashboard" });
+    // Where the money went back from: Square for a card, cash or register
+    // payment; by hand (cash or a check) for a by-hand mark.
+    const viaSquare = !!o.payment.squarePaymentId || o.payment.method !== "other" || (o.topUps ?? []).some((t) => t.squarePaymentId || t.method !== "other");
+    const written = await getStore().addOrderRefund(id, { at: Date.now(), cents, note: viaSquare ? "Refunded from the Square dashboard" : "Given back by hand" });
+    if (!written) return NextResponse.json({ error: "That refund is already recorded, or more than is owed back. Reload the board and look at the card." }, { status: 409 });
     return NextResponse.json({ ok: true });
   }
   // UNDO A BY-HAND MARK (Katy, 2026-10-15: two account orders marked "Paid
@@ -478,6 +483,8 @@ export async function PATCH(req: Request) {
     if (!o.payment) return NextResponse.json({ error: "That order is not marked paid." }, { status: 409 });
     // A refunded mark is a closed book (the customer was told): it stays.
     if (o.payment.refundedAt) return NextResponse.json({ error: "That payment was marked refunded, so it stays as it is." }, { status: 409 });
+    // Part of it was given back already: the mark is a record now, not a slip.
+    if ((o.refunds ?? []).length) return NextResponse.json({ error: "Part of that payment was refunded, so the paid mark stays." }, { status: 409 });
     const cleared = await getStore().clearHandPayments(id);
     if (!cleared) {
       const squareMoney = !!o.payment.squarePaymentId || o.payment.method !== "other" || (o.topUps ?? []).some((t) => t.squarePaymentId || t.method !== "other");

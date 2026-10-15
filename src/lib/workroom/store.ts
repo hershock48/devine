@@ -563,8 +563,10 @@ type Store = {
   setOrderPayment(id: string, p: OrderPayment): Promise<void>;
   /** A further payment on an order already paid once (a balance after an edit). */
   addOrderTopUp(id: string, p: OrderPayment): Promise<void>;
-  /** A partial refund the shop made in Square, recorded here. */
-  addOrderRefund(id: string, r: OrderRefund): Promise<void>;
+  /** A partial refund the shop gave back, recorded here. Guarded on the
+      stored state: appended only while that much is still owed back, so a
+      double tap or two devices record it once. True when written. */
+  addOrderRefund(id: string, r: OrderRefund): Promise<boolean>;
   /** The pay route appends the delivery-fee line when it charges a
       delivery ticket that never carried one, so the ticket's rows and its
       payment agree. */
@@ -748,7 +750,9 @@ const memoryStore: Store = {
   },
   async addOrderRefund(id, r) {
     const o = bag().orders.get(id);
-    if (o) o.refunds = [...(o.refunds ?? []), r];
+    if (!o?.payment || -balanceCents(o) < r.cents) return false;
+    o.refunds = [...(o.refunds ?? []), r];
+    return true;
   },
   async setOrderLines(id, lines, subtotal) {
     const o = bag().orders.get(id);
@@ -1045,7 +1049,8 @@ const postgresStore: Store = {
             OR (status = 'done' AND data->>'payment' IS NOT NULL AND
                 ROUND((data->>'subtotal')::numeric * 100) <>
                   ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
-                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0))
+                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
+                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0))
             OR created_at >= $1
          ORDER BY created_at DESC LIMIT 2000
        ) t ORDER BY created_at ASC`,
@@ -1111,10 +1116,21 @@ const postgresStore: Store = {
   },
   async addOrderRefund(id, r) {
     const pool = await pgPool();
-    await pool.query(
-      `UPDATE workroom_orders SET data = data || jsonb_build_object('refunds', COALESCE(data->'refunds', '[]'::jsonb) || $2::jsonb) WHERE id = $1`,
-      [id, JSON.stringify([r])],
+    // The balance arithmetic (derive.ts balanceCents) in SQL, so the append
+    // happens only while the ticket is still that much overpaid.
+    const res = await pool.query(
+      `UPDATE workroom_orders
+       SET data = data || jsonb_build_object('refunds', COALESCE(data->'refunds', '[]'::jsonb) || $2::jsonb)
+       WHERE id = $1 AND data->'payment' IS NOT NULL
+         AND ROUND((data->>'subtotal')::numeric * 100)
+             - (((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
+                + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0))
+             + COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0)
+             + $3::numeric <= 0
+       RETURNING id`,
+      [id, JSON.stringify([r]), r.cents],
     );
+    return res.rows.length > 0;
   },
   async setOrderLines(id, lines, subtotal) {
     const pool = await pgPool();

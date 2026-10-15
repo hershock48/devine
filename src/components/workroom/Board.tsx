@@ -80,6 +80,10 @@ type InitialsExtra = { madeBy?: string; takenBy?: string };
 /** Editable until canceled (Kevin, 2026-10-14): paid, made or delivered,
     a ticket can still take a tax ID, an address, another item. */
 const canEdit = (o: Order) => o.status !== "canceled";
+/** Whether any of the money on this order went through Square (so a
+    refund is made from the Square dashboard) or was all taken by hand. */
+const viaSquare = (o: Order) =>
+  !!o.payment && (!!o.payment.squarePaymentId || o.payment.method !== "other" || (o.topUps ?? []).some((t) => t.squarePaymentId || t.method !== "other"));
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   switch (o.status) {
@@ -300,44 +304,31 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     await pull();
   }
 
+  /** One PATCH to the orders route, then a refresh; the route's own
+      message is what the alert shows when it refuses. */
+  async function patchOrder(body: Record<string, unknown>) {
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) window.alert(d?.error || "That did not save.");
+    await pull().catch(() => {});
+  }
+  /** Take back a by-hand paid mark (Katy, 2026-10-15); the route refuses
+      anything Square recorded. */
+  const unmarkPaid = (id: string) => patchOrder({ id, unmarkPaid: true });
+  /** A part of a payment given back (a fee off a ticket the customer
+      picked up instead), recorded for the amount owed back. */
+  const markPartRefund = (id: string, cents: number) => patchOrder({ id, refunded: cents });
   /** The human attestation that the Square refund happened; the workroom
       cannot see refunds on its own (no refund webhook subscribed) and
       should not pretend to. */
-  /** Take back a by-hand paid mark (Katy, 2026-10-15); the route refuses
-      anything Square recorded. */
-  async function unmarkPaid(id: string) {
-    const r = await fetch("/api/workroom/orders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, unmarkPaid: true }),
-    });
-    const d = await r.json().catch(() => null);
-    if (!r.ok) window.alert(d?.error || "That did not save.");
-    pull().catch(() => {});
-  }
-  /** A part of a payment given back in Square (a fee off a ticket the
-      customer picked up instead), recorded for the amount owed back. */
-  async function markPartRefund(id: string, cents: number) {
-    const r = await fetch("/api/workroom/orders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, refunded: cents }),
-    });
-    const d = await r.json().catch(() => null);
-    if (!r.ok) window.alert(d?.error || "That did not save.");
-    pull().catch(() => {});
-  }
-  async function markRefunded(id: string) {
-    await fetch("/api/workroom/orders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, markRefunded: true }),
-    });
-    pull().catch(() => {});
-  }
+  const markRefunded = (id: string) => patchOrder({ id, markRefunded: true });
 
   /** The delivery fee adjusted on the card itself, before the card is
-      taken (Katy, 2026-10-06). The route refuses once the order is paid. */
+      taken (Katy, 2026-10-06). On a paid order the card then shows what is owed back. */
   async function setFee(id: string, fee: number) {
     const r = await fetch("/api/workroom/orders", {
       method: "PATCH",
@@ -748,7 +739,7 @@ function Bucket({
   onUncancel?: (id: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
-  onPartRefund?: (id: string, cents: number) => void;
+  onPartRefund?: (id: string, cents: number) => Promise<void>;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -1101,8 +1092,9 @@ function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Pro
  * with no delivery line and shows the sheet's fee as "added when charged",
  * which is exactly what the pay route does; a phone order carries the line
  * the form wrote. Saving writes (or replaces) the line and the subtotal,
- * so the ticket, the Take-card total and the receipt all agree. Once paid
- * this renders nothing: the ticket and the payment must stay in step.
+ * so the ticket, the Take-card total and the receipt all agree. On a paid
+ * order (Katy, 2026-10-15) it stays: dropping the fee leaves money owed
+ * back, and the card then says what to refund and records that it was.
  */
 function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) => Promise<void> }) {
   const line = o.lines.find(isDeliveryLine);
@@ -1201,10 +1193,11 @@ function OrderCard({
   onUncancel?: (id: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
-  onPartRefund?: (id: string, cents: number) => void;
+  onPartRefund?: (id: string, cents: number) => Promise<void>;
 }) {
   const next = nextMove(o);
   const today = todayISO();
+  const [refunding, setRefunding] = useState(false);
   /* This order's group, when two or more of them still need paying: what
      the pay pane offers to settle at once, each for its own share. */
   const group = batches?.get(o.batchId || o.id);
@@ -1385,9 +1378,18 @@ function OrderCard({
               {/* Everything paid once there are top-ups, so this row is
                   the sum of the payment rows below it. */}
               <span>Total paid</span>
-              <span>{money((paidInParts(o) ? refundableCents(o) : o.payment.totalCents) / 100)}</span>
+              <span>{money((paidInParts(o) ? refundableCents(o) + refundedCents(o) : o.payment.totalCents) / 100)}</span>
             </li>
           </>
+        )}
+        {/* Money given back after the payment (a fee off a ticket picked up
+            instead): on the ticket itself, so Total, the payment and the
+            refund read as one record. */}
+        {o.payment && refundedCents(o) > 0 && (
+          <li style={{ display: "flex", justifyContent: "space-between", color: "var(--rose-ink)" }}>
+            <span>Refunded</span>
+            <span>−{money(refundedCents(o) / 100)}</span>
+          </li>
         )}
         {/* After an edit to a paid ticket, or a part payment (Kevin,
             2026-10-14): the payments taken since the first, and what is
@@ -1503,12 +1505,22 @@ function OrderCard({
       {o.status !== "canceled" && o.payment && balanceCents(o) < 0 && (
         <div style={{ margin: "10px 0 0" }}>
           <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
-            Paid {money(refundableCents(o) / 100)}; the ticket is now {money(o.subtotal)}. Refund {money(-balanceCents(o) / 100)} from the
-            Square dashboard (Transactions), then mark it here.
+            Paid {money((collectedCents(o) - refundedCents(o)) / 100)}; the ticket is now {money(o.subtotal)}.{" "}
+            {viaSquare(o)
+              ? `Refund ${money(-balanceCents(o) / 100)} from the Square dashboard (Transactions), then mark it here.`
+              : `Give ${money(-balanceCents(o) / 100)} back (cash or a check), then mark it here.`}
           </p>
           {onPartRefund && (
-            <button type="button" className="btn" onClick={() => onPartRefund(o.id, -balanceCents(o))}>
-              Refunded {money(-balanceCents(o) / 100)} in Square
+            <button
+              type="button"
+              className="btn"
+              disabled={refunding}
+              onClick={() => {
+                setRefunding(true);
+                onPartRefund(o.id, -balanceCents(o)).finally(() => setRefunding(false));
+              }}
+            >
+              {refunding ? "Marking…" : viaSquare(o) ? `Refunded ${money(-balanceCents(o) / 100)} in Square` : `Gave ${money(-balanceCents(o) / 100)} back`}
             </button>
           )}
         </div>
