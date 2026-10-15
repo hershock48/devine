@@ -675,6 +675,9 @@ function ClosedList({ orders, onUncancel, onUnmark }: { orders: Order[]; onUncan
               {o.payment && (
                 <p className="muted" style={{ margin: 0 }}>
                   Paid {o.payment.method === "other" ? "by hand (marked paid another way)" : `by ${o.payment.method}`}, {money(o.payment.totalCents / 100)}
+                  {/* When, on the shop's clock, so "did I mark that yesterday?"
+                      (Katy, 2026-10-15) is answered by the row itself. */}
+                  {o.payment.at > 0 ? ` · ${new Date(o.payment.at).toLocaleString("en-US", { timeZone: site.timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
                   {o.payment.feeCents > 0 ? ` (includes the ${money(o.payment.feeCents / 100)} ${o.source === "web" ? "convenience" : "card"} fee)` : ""}
                   {o.payment.refundedAt ? " · refunded" : ""}
                 </p>
