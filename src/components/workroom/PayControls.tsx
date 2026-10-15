@@ -295,7 +295,7 @@ export default function PayControls({
         ? `Paid ${dollars(collectedCents)} of ${dollars(Math.round(subtotal * 100))} · ${dollars(balanceCents)} still due`
         : paidInParts
           ? `Paid in full · ${dollars(collectedCents)} · in parts`
-          : `Paid · ${payment.method === "other" ? "marked by hand" : payment.method} · ${dollars(payment.totalCents)}`}
+          : `Paid · ${payment.method === "other" || payment.method === "manual" ? "marked by hand" : payment.method} · ${dollars(payment.totalCents)}`}
       {balanceCents < 0 ? ` · ${dollars(-balanceCents)} to refund (Square dashboard)` : ""}
     </p>
   ) : null;
@@ -376,6 +376,7 @@ export default function PayControls({
   return (
     <div style={{ margin: "10px 0 0" }}>
       {paidLine}
+      {undoMark}
       {mode === "idle" && (
         <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           <button type="button" className="btn" onClick={() => setMode("card")}>

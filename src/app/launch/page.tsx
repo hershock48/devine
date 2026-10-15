@@ -108,9 +108,9 @@ function asksFor(s: Awaited<ReturnType<typeof readStatus>>): Ask[] {
       ),
       why: (
         <>
-          The last thing on the list. The site is live and the build is paid; the monthly keeps it up, backed up and
-          yours to change. The link opens one secure card form for the monthly in <a href="/agreement">the agreement</a>;
-          this light turns green on its own once it is in.
+          The one thing left that only you can do; the other open dots below are ours to collect. The site is live and
+          the build is paid; the monthly keeps it up, backed up and yours to change. The link opens one secure card form
+          for the monthly in <a href="/agreement">the agreement</a>; this dot turns green on its own once it is in.
         </>
       ),
       done: s.monthly,
@@ -121,7 +121,9 @@ function asksFor(s: Awaited<ReturnType<typeof readStatus>>): Ask[] {
           Your name and the business entity, signed at <a href="/agreement">the agreement</a>.
         </>
       ),
-      why: "Unblocked everything below. The terms and numbers live there, one tap away, and this page never repeats them.",
+      why: s.signed
+        ? "Signed. The terms and numbers live there, one tap away, and this page never repeats them."
+        : "Unblocks everything below. The terms and numbers live there, one tap away, and this page never repeats them.",
       done: s.signed,
     },
     {
@@ -130,17 +132,21 @@ function asksFor(s: Awaited<ReturnType<typeof readStatus>>): Ask[] {
           The build fee, from <a href="/agreement">the agreement</a>.
         </>
       ),
-      why: "Paid in full, October 2026. Thank you.",
+      why: s.build === "lit" ? "Paid in full, October 2026. Thank you." : "The agreement page is where you pay; this dot reads the payment record.",
       done: s.build === "lit",
     },
     {
       what: "Your Square account, connected to the site.",
-      why: "Real card payments, online and at the board, through your own Square.",
+      why: s.square
+        ? "Connected: real card payments, online and at the board, through your own Square."
+        : "Unblocks real card payments through your own Square; a short guided step we do together.",
       done: s.square,
     },
     {
       what: "Your domain, pointed at the new site.",
-      why: "The cutover happened October 14: your address serves this site, and the old one is closed.",
+      why: s.domain
+        ? "The cutover happened October 14: your address serves this site, and the old one is closed."
+        : "Unblocks the cutover: the day your address serves this site instead of the old one.",
       done: s.domain,
     },
     {
@@ -251,9 +257,9 @@ export default async function LaunchPage() {
         only you can supply.
       </p>
       <p className="agr-note">
-        The signature and money lights read live from the records themselves. The list is ticked
-        by us as things arrive, so if a dot is still open, we have not received it yet. No meeting
-        to schedule and nothing to remember; the page remembers.
+        The signature, money, Square and domain dots read live from the records themselves; the
+        rest of the list is ticked by us as things arrive, so an open one of those means we have
+        not received it yet. No meeting to schedule and nothing to remember; the page remembers.
       </p>
 
       <h2>Where things stand</h2>

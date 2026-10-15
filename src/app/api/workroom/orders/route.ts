@@ -456,8 +456,20 @@ export async function PATCH(req: Request) {
     const o = await getStore().getOrder(id);
     if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
     if (!o.payment) return NextResponse.json({ error: "That order is not marked paid." }, { status: 409 });
+    // A refunded mark is a closed book (the customer was told): it stays.
+    if (o.payment.refundedAt) return NextResponse.json({ error: "That payment was marked refunded, so it stays as it is." }, { status: 409 });
     const cleared = await getStore().clearHandPayments(id);
-    if (!cleared) return NextResponse.json({ error: "That payment went through Square (card or cash), so it cannot be undone here. Refund it from the Square dashboard if it was wrong." }, { status: 409 });
+    if (!cleared) {
+      const squareMoney = !!o.payment.squarePaymentId || o.payment.method !== "other" || (o.topUps ?? []).some((t) => t.squarePaymentId || t.method !== "other");
+      return NextResponse.json(
+        {
+          error: squareMoney
+            ? "That payment is Square's record (a card, cash or a register ring), so it cannot be undone here. If it was wrong, refund it from the Square dashboard."
+            : "That did not change. Reload the board and look at the card.",
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ ok: true });
   }
   if (p.markRefunded === true) {
