@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, paidInParts, printPaperFor, refundableCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, paidByHandOnly, paidInParts, printPaperFor, refundableCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -1460,6 +1460,7 @@ function OrderCard({
           balanceCents={balanceCents(o)}
           collectedCents={collectedCents(o)}
           paidInParts={paidInParts(o)}
+          handPaid={paidByHandOnly(o)}
           batch={batch}
           onPaid={() => onPaid().catch(() => {})}
         />

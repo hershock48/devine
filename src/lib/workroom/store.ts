@@ -564,6 +564,11 @@ type Store = {
       2026-10-14) goes on that transition and never on a repeat tap, so
       an order with no payment or one already stamped reports false. */
   markOrderRefunded(id: string): Promise<boolean>;
+  /** Take back a by-hand mark (Katy, 2026-10-15: two account orders
+      "show settled but haven't been paid"). Only when every payment on
+      the order was marked by hand with no Square id: real money is never
+      erased here. True when something was cleared. */
+  clearHandPayments(id: string): Promise<boolean>;
   /** THE LAUNCH RESET (Kevin, 2026-10-13): every order written before the
       moment given, gone. For the test orders before go-live; nothing else
       (sales heard from the register, her lists, quotes, stems) is touched.
@@ -743,6 +748,14 @@ const memoryStore: Store = {
     const o = bag().orders.get(id);
     if (!o?.payment || o.payment.refundedAt) return false;
     o.payment.refundedAt = Date.now();
+    return true;
+  },
+  async clearHandPayments(id) {
+    const o = bag().orders.get(id);
+    if (!o?.payment || o.payment.method !== "other" || o.payment.squarePaymentId) return false;
+    if ((o.topUps ?? []).some((t) => t.method !== "other" || t.squarePaymentId)) return false;
+    o.payment = null;
+    delete o.topUps;
     return true;
   },
   async listOrderContacts() {
@@ -1102,6 +1115,25 @@ const postgresStore: Store = {
        WHERE id = $1 AND data->'payment' IS NOT NULL AND data->'payment'->>'refundedAt' IS NULL
        RETURNING id`,
       [id, Date.now()],
+    );
+    return r.rows.length > 0;
+  },
+  async clearHandPayments(id) {
+    const pool = await pgPool();
+    // Guarded in SQL: the first payment by hand with no Square id, and no
+    // top-up that is anything else; then both keys leave the blob.
+    const r = await pool.query(
+      `UPDATE workroom_orders
+       SET data = (data - 'payment') - 'topUps'
+       WHERE id = $1
+         AND data->'payment'->>'method' = 'other'
+         AND COALESCE(data->'payment'->>'squarePaymentId', '') = ''
+         AND NOT EXISTS (
+           SELECT 1 FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t
+           WHERE t->>'method' <> 'other' OR COALESCE(t->>'squarePaymentId', '') <> ''
+         )
+       RETURNING id`,
+      [id],
     );
     return r.rows.length > 0;
   },

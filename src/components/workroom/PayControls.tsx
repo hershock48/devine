@@ -41,6 +41,7 @@ export default function PayControls({
   batch,
   start = "idle",
   partPay = true,
+  handPaid = false,
   onPaid,
 }: {
   orderId: string;
@@ -69,6 +70,9 @@ export default function PayControls({
   start?: "idle" | "card";
   /** False hides "Pay part of it now": a walk-in pays in full. */
   partPay?: boolean;
+  /** derive.ts paidByHandOnly: every payment on it was a by-hand mark, so
+      the mark can be taken back (nothing moved in Square). */
+  handPaid?: boolean;
   /** Paid: which way, how many cents, and what that leaves. `settled` is
       whether this payment covered everything due; `boardMissed` is the
       charge that went through while the board write failed (said in red
@@ -291,11 +295,50 @@ export default function PayControls({
         ? `Paid ${dollars(collectedCents)} of ${dollars(Math.round(subtotal * 100))} · ${dollars(balanceCents)} still due`
         : paidInParts
           ? `Paid in full · ${dollars(collectedCents)} · in parts`
-          : `Paid · ${payment.method === "other" ? "another way" : payment.method} · ${dollars(payment.totalCents)}`}
+          : `Paid · ${payment.method === "other" ? "marked by hand" : payment.method} · ${dollars(payment.totalCents)}`}
       {balanceCents < 0 ? ` · ${dollars(-balanceCents)} to refund (Square dashboard)` : ""}
     </p>
   ) : null;
-  if (payment && balanceCents <= 0) return paidLine;
+  /* THE MARK CAN BE TAKEN BACK (Katy, 2026-10-15: "two that show settled
+     but haven't been paid"). "Paid another way" is a hand mark with no
+     money behind it in Square, so undoing it loses nothing; the order goes
+     back to owed (and stays on its account). Card and cash never offer
+     this: that money is real and is refunded from Square, not erased. */
+  const undoMark = payment && handPaid ? (
+    <p style={{ margin: "4px 0 0" }}>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          if (!window.confirm("Take back the paid mark? The order goes back to owed; nothing in Square changes.")) return;
+          setBusy(true);
+          setError("");
+          try {
+            const r = await fetch("/api/workroom/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: orderId, unmarkPaid: true }) });
+            const d = await r.json().catch(() => null);
+            if (!r.ok) setError(d?.error || "That did not save.");
+            else onPaid();
+          } catch {
+            setError("The connection dropped. Reload the board and look at the card.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        style={{ ...textButton, fontSize: 13, color: "var(--muted)" }}
+      >
+        Marked paid by mistake? Undo
+      </button>
+      {error && <span style={{ marginLeft: 10, fontSize: 13.5, color: "var(--rose-ink)", fontWeight: 600 }}>{error}</span>}
+    </p>
+  ) : null;
+  if (payment && balanceCents <= 0) {
+    return (
+      <>
+        {paidLine}
+        {undoMark}
+      </>
+    );
+  }
 
   const partBlock = !partPay ? null : (
     <div style={{ margin: "0 0 10px", fontSize: 14 }}>
@@ -372,8 +415,9 @@ export default function PayControls({
           {partBlock}
           <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: 14 }}>
-              Marks it paid without touching Square. For money that already moved: the register, a
-              check, an account.
+              Marks it paid without touching Square, for money the shop already has: a check in hand,
+              a ring at the register. Not for a customer who will pay later: that is{" "}
+              <strong>Put on account</strong> on the card, and it stays owed until the money comes.
             </span>
             <button type="button" className="btn btn--solid" disabled={busy || !!partError} onClick={() => pay("manual")}>
               {busy ? "Marking…" : part ? `Mark ${dollars(charge)} paid` : "Mark paid"}
