@@ -17,7 +17,7 @@ import {
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, type PrintLayout } from "./derive";
+import { balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, refundedCents, type PrintLayout } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -315,12 +315,15 @@ const paidWord = (o: WorkroomOrder, atPickup: boolean): string => {
     if (balanceCents(o) > 0) {
       return `PART PAID - ${money(collectedCents(o) / 100)} of ${money(o.subtotal)} - ${money(balanceCents(o) / 100)} still due`;
     }
-    if (paidInParts(o)) return `PAID - in parts - ${money(collectedCents(o) / 100)}`;
+    // Part given back (a delivery fee off a ticket picked up instead): said
+    // after the payment, so PAID and the TOTAL agree again.
+    const back = refundedCents(o) > 0 ? ` - ${money(refundedCents(o) / 100)} refunded` : "";
+    if (paidInParts(o)) return `PAID - in parts - ${money(collectedCents(o) / 100)}${back}`;
     return `PAID - ${o.payment.method === "other" ? "by hand" : o.payment.method} - ${money(o.payment.totalCents / 100)}${
       // A website card payment carries the 99 cent ordering fee, which
       // is not a line of the order; said here so PAID and TOTAL agree.
       o.payment.feeCents > 0 ? ` (incl. ${money(o.payment.feeCents / 100)} online fee)` : ""
-    }`;
+    }${back}`;
   }
   return o.status === "canceled" ? "CANCELED" : o.account ? "ON ACCOUNT - billed, not paid" : atPickup ? "NOT PAID - collect at pickup" : "NOT PAID";
 };

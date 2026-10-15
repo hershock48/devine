@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidByHandOnly, paidInParts, refundableCents, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, isDeliveryLine, isTaxLine, paidByHandOnly, paidInParts, refundableCents, refundedCents, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -48,6 +48,7 @@ type Order = {
   createdAt: number;
   payment?: Payment | null;
   topUps?: Payment[];
+  refunds?: { at: number; cents: number; note: string }[];
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
@@ -106,7 +107,8 @@ function groupAccounts(orders: Order[]): Account[] {
       a.open += 1;
       if (!a.oldestOpenAt || o.createdAt < a.oldestOpenAt) a.oldestOpenAt = o.createdAt;
     }
-    if (o.payment && !o.payment.refundedAt) a.paidCents += collectedCents(o);
+    // Net of anything given back in part (a delivery fee off).
+    if (o.payment && !o.payment.refundedAt) a.paidCents += collectedCents(o) - refundedCents(o);
     if (o.createdAt > a.lastAt) {
       a.lastAt = o.createdAt;
       // The newest order names the account: a corrected spelling wins.
@@ -324,7 +326,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       {o.payment && owed === 0
                         ? o.status === "canceled" && !o.payment.refundedAt
                           ? <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Paid {money(refundableCents(o) / 100)}, canceled: refund due · {when(o.payment.at)}</span>
-                          : <span style={{ color: "var(--green)", fontWeight: 600 }}>{o.payment.refundedAt ? `Refunded ${money(refundableCents(o) / 100)}` : `Paid ${money(collectedCents(o) / 100)}`} · {when(o.payment.at)}</span>
+                          : <span style={{ color: "var(--green)", fontWeight: 600 }}>{o.payment.refundedAt ? `Refunded ${money(refundableCents(o) / 100)}` : `Paid ${money((collectedCents(o) - refundedCents(o)) / 100)}${refundedCents(o) > 0 ? ` (${money(refundedCents(o) / 100)} refunded)` : ""}`} · {when(o.payment.at)}</span>
                         : owed > 0
                           ? <strong>{money(owed / 100)} owed</strong>
                           : <span className="muted">nothing owed</span>}
@@ -347,6 +349,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       collectedCents={collectedCents(o)}
                       paidInParts={paidInParts(o)}
                       handPaid={paidByHandOnly(o)}
+                      refundedCents={refundedCents(o)}
                       onPaid={() => pull().catch(() => {})}
                     />
                   )}

@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, paidByHandOnly, paidInParts, printPaperFor, refundableCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, balanceCents, clock12, collectedCents, isDeliveryLine, isTaxLine, normalizeVariety, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -59,6 +59,7 @@ type Order = {
   createdAt: number;
   payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
   topUps?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number }[];
+  refunds?: { at: number; cents: number; note: string }[];
   batchId?: string;
   canceledFrom?: string;
   madeBy?: string;
@@ -79,6 +80,10 @@ type InitialsExtra = { madeBy?: string; takenBy?: string };
 /** Editable until canceled (Kevin, 2026-10-14): paid, made or delivered,
     a ticket can still take a tax ID, an address, another item. */
 const canEdit = (o: Order) => o.status !== "canceled";
+/** Whether any of the money on this order went through Square (so a
+    refund is made from the Square dashboard) or was all taken by hand. */
+const viaSquare = (o: Order) =>
+  !!o.payment && (!!o.payment.squarePaymentId || o.payment.method !== "other" || (o.topUps ?? []).some((t) => t.squarePaymentId || t.method !== "other"));
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   switch (o.status) {
@@ -299,32 +304,31 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     await pull();
   }
 
-  /** The human attestation that the Square refund happened; the workroom
-      cannot see refunds on its own (no refund webhook subscribed) and
-      should not pretend to. */
-  /** Take back a by-hand paid mark (Katy, 2026-10-15); the route refuses
-      anything Square recorded. */
-  async function unmarkPaid(id: string) {
+  /** One PATCH to the orders route, then a refresh; the route's own
+      message is what the alert shows when it refuses. */
+  async function patchOrder(body: Record<string, unknown>) {
     const r = await fetch("/api/workroom/orders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, unmarkPaid: true }),
+      body: JSON.stringify(body),
     });
     const d = await r.json().catch(() => null);
     if (!r.ok) window.alert(d?.error || "That did not save.");
-    pull().catch(() => {});
+    await pull().catch(() => {});
   }
-  async function markRefunded(id: string) {
-    await fetch("/api/workroom/orders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, markRefunded: true }),
-    });
-    pull().catch(() => {});
-  }
+  /** Take back a by-hand paid mark (Katy, 2026-10-15); the route refuses
+      anything Square recorded. */
+  const unmarkPaid = (id: string) => patchOrder({ id, unmarkPaid: true });
+  /** A part of a payment given back (a fee off a ticket the customer
+      picked up instead), recorded for the amount owed back. */
+  const markPartRefund = (id: string, cents: number) => patchOrder({ id, refunded: cents });
+  /** The human attestation that the Square refund happened; the workroom
+      cannot see refunds on its own (no refund webhook subscribed) and
+      should not pretend to. */
+  const markRefunded = (id: string) => patchOrder({ id, markRefunded: true });
 
   /** The delivery fee adjusted on the card itself, before the card is
-      taken (Katy, 2026-10-06). The route refuses once the order is paid. */
+      taken (Katy, 2026-10-06). On a paid order the card then shows what is owed back. */
   async function setFee(id: string, fee: number) {
     const r = await fetch("/api/workroom/orders", {
       method: "PATCH",
@@ -565,7 +569,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
@@ -577,12 +581,12 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </>
       ) : (
         <>
-          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} />
-          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onRefunded={markRefunded} />
+          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
 
           {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
@@ -721,6 +725,7 @@ function Bucket({
   onUncancel,
   onEdit,
   onAddTo,
+  onPartRefund,
 }: {
   title: string;
   tone?: "late";
@@ -734,6 +739,7 @@ function Bucket({
   onUncancel?: (id: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
+  onPartRefund?: (id: string, cents: number) => Promise<void>;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -761,7 +767,7 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} batches={batches} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} onAddTo={onAddTo} />
+          <OrderCard key={o.id} o={o} contacts={contacts} batches={batches} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} onAddTo={onAddTo} onPartRefund={onPartRefund} />
         ))}
       </div>
     </section>
@@ -1086,8 +1092,9 @@ function Uncancel({ o, onUncancel }: { o: Order; onUncancel: (id: string) => Pro
  * with no delivery line and shows the sheet's fee as "added when charged",
  * which is exactly what the pay route does; a phone order carries the line
  * the form wrote. Saving writes (or replaces) the line and the subtotal,
- * so the ticket, the Take-card total and the receipt all agree. Once paid
- * this renders nothing: the ticket and the payment must stay in step.
+ * so the ticket, the Take-card total and the receipt all agree. On a paid
+ * order (Katy, 2026-10-15) it stays: dropping the fee leaves money owed
+ * back, and the card then says what to refund and records that it was.
  */
 function FeeAdjust({ o, onFee }: { o: Order; onFee: (id: string, fee: number) => Promise<void> }) {
   const line = o.lines.find(isDeliveryLine);
@@ -1174,6 +1181,7 @@ function OrderCard({
   onUncancel,
   onEdit,
   onAddTo,
+  onPartRefund,
 }: {
   o: Order;
   contacts: Contact[];
@@ -1185,9 +1193,11 @@ function OrderCard({
   onUncancel?: (id: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
+  onPartRefund?: (id: string, cents: number) => Promise<void>;
 }) {
   const next = nextMove(o);
   const today = todayISO();
+  const [refunding, setRefunding] = useState(false);
   /* This order's group, when two or more of them still need paying: what
      the pay pane offers to settle at once, each for its own share. */
   const group = batches?.get(o.batchId || o.id);
@@ -1368,9 +1378,18 @@ function OrderCard({
               {/* Everything paid once there are top-ups, so this row is
                   the sum of the payment rows below it. */}
               <span>Total paid</span>
-              <span>{money((paidInParts(o) ? refundableCents(o) : o.payment.totalCents) / 100)}</span>
+              <span>{money((paidInParts(o) ? refundableCents(o) + refundedCents(o) : o.payment.totalCents) / 100)}</span>
             </li>
           </>
+        )}
+        {/* Money given back after the payment (a fee off a ticket picked up
+            instead): on the ticket itself, so Total, the payment and the
+            refund read as one record. */}
+        {o.payment && refundedCents(o) > 0 && (
+          <li style={{ display: "flex", justifyContent: "space-between", color: "var(--rose-ink)" }}>
+            <span>Refunded</span>
+            <span>−{money(refundedCents(o) / 100)}</span>
+          </li>
         )}
         {/* After an edit to a paid ticket, or a part payment (Kevin,
             2026-10-14): the payments taken since the first, and what is
@@ -1397,7 +1416,7 @@ function OrderCard({
         )}
       </ul>
 
-      {o.fulfillment === "delivery" && !o.payment && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
+      {o.fulfillment === "delivery" && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
       {/* Not on a quick sale: a walk-in has no account to bill. */}
       {!o.payment && o.status !== "canceled" && !o.quick && <AccountToggle o={o} onDone={() => onPaid().catch(() => {})} />}
 
@@ -1479,6 +1498,33 @@ function OrderCard({
         </div>
       )}
 
+      {/* MONEY OWED BACK ON A LIVE ORDER (Katy, 2026-10-15): the ticket shrank
+          after it was paid (a delivery fee off, the customer picks up). The
+          workroom never moves money out; it says what to refund in Square
+          and records that it was done, so the two match. */}
+      {o.status !== "canceled" && o.payment && balanceCents(o) < 0 && (
+        <div style={{ margin: "10px 0 0" }}>
+          <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
+            Paid {money((collectedCents(o) - refundedCents(o)) / 100)}; the ticket is now {money(o.subtotal)}.{" "}
+            {viaSquare(o)
+              ? `Refund ${money(-balanceCents(o) / 100)} from the Square dashboard (Transactions), then mark it here.`
+              : `Give ${money(-balanceCents(o) / 100)} back (cash or a check), then mark it here.`}
+          </p>
+          {onPartRefund && (
+            <button
+              type="button"
+              className="btn"
+              disabled={refunding}
+              onClick={() => {
+                setRefunding(true);
+                onPartRefund(o.id, -balanceCents(o)).finally(() => setRefunding(false));
+              }}
+            >
+              {refunding ? "Marking…" : viaSquare(o) ? `Refunded ${money(-balanceCents(o) / 100)} in Square` : `Gave ${money(-balanceCents(o) / 100)} back`}
+            </button>
+          )}
+        </div>
+      )}
       {o.status !== "canceled" && o.status !== "hold" && (
         <PayControls
           orderId={o.id}
@@ -1492,6 +1538,7 @@ function OrderCard({
           collectedCents={collectedCents(o)}
           paidInParts={paidInParts(o)}
           handPaid={paidByHandOnly(o)}
+          refundedCents={refundedCents(o)}
           batch={batch}
           onPaid={() => onPaid().catch(() => {})}
         />
