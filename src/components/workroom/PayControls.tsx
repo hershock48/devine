@@ -25,10 +25,68 @@ type Payment = { at: number; method: string; totalCents: number; feeCents: numbe
 
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 /** "40", "40.5", "$1,200.00" to cents; null when it is not a money amount. */
-const parseDollars = (s: string): number | null => {
+export const parseDollars = (s: string): number | null => {
   const t = s.trim().replace(/^\$/, "").replace(/,/g, "");
   return /^\d+(\.\d{1,2})?$/.test(t) ? Math.round(Number(t) * 100) : null;
 };
+/** What a customer is likely to hand over for an amount: the exact figure,
+    then the next whole $5, $10, $20, $50 and $100 above it, four at most
+    ($51.35 offers 51.35, 55, 60 and 100). */
+export const billChips = (dueCents: number): number[] => {
+  const out: number[] = [];
+  const add = (c: number) => {
+    if (c > 0 && !out.includes(c) && out.length < 4) out.push(c);
+  };
+  add(dueCents);
+  for (const bill of [500, 1000, 2000, 5000, 10000]) {
+    const up = Math.ceil(dueCents / bill) * bill;
+    if (up > dueCents) add(up);
+  }
+  return out;
+};
+/** The change owed, in cents, for cash given against an amount due; null
+    when nothing (or not a number) was typed. Negative means short. */
+export const changeFor = (given: string, dueCents: number): number | null => {
+  const g = parseDollars(given);
+  return g === null ? null : g - dueCents;
+};
+
+/**
+ * CHANGE AT THE COUNTER (Kevin, 2026-10-16: "input how much cash is given
+ * and it calculates our change"). Display only: what is recorded is the
+ * amount due, and this box is the arithmetic the till used to do. Shown
+ * wherever cash is recorded (a card's money corner, the quick sale), so
+ * the figure is in the same place every time.
+ */
+export function CashTendered({ dueCents, value, onChange, disabled = false }: { dueCents: number; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const change = changeFor(value, dueCents);
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 14.5 }}>
+        Cash given
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          inputMode="decimal"
+          disabled={disabled}
+          placeholder={(dueCents / 100).toFixed(2)}
+          aria-label="Cash given, in dollars"
+          style={{ ...field, width: 84, padding: "6px 10px" }}
+        />
+        {billChips(dueCents).map((c) => (
+          <button key={c} type="button" disabled={disabled} onClick={() => onChange((c / 100).toFixed(2))} style={{ ...textButton, fontSize: 13.5 }}>
+            {c % 100 === 0 ? `$${c / 100}` : dollars(c)}
+          </button>
+        ))}
+      </label>
+      {change !== null && (
+        <p role="status" style={{ margin: 0, fontSize: 18, fontWeight: 700, color: change < 0 ? "var(--rose-ink)" : "var(--green)" }}>
+          {change < 0 ? `${dollars(-change)} short of ${dollars(dueCents)}` : change === 0 ? "Exact. No change." : `Change ${dollars(change)}`}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function PayControls({
   orderId,
@@ -124,6 +182,14 @@ export default function PayControls({
      here in words, and again by the pay route. */
   const [part, setPart] = useState(false);
   const [partText, setPartText] = useState("");
+  /** Cash given at the counter (CashTendered), and the change it left
+      once the cash was recorded: kept on the card until the next payment
+      is opened, because the drawer is counted after the tap, not before. */
+  const [tendered, setTendered] = useState("");
+  const [changeBack, setChangeBack] = useState<number | null>(null);
+  useEffect(() => {
+    if (mode !== "idle") setChangeBack(null);
+  }, [mode]);
   const partCents = part ? parseDollars(partText) : null;
   const partError = !part
     ? ""
@@ -154,6 +220,7 @@ export default function PayControls({
   const close = () => {
     setMode("idle");
     setPart(false);
+    setTendered("");
   };
 
   // Mount Square's card field when card mode opens; tear it down when it
@@ -254,6 +321,10 @@ export default function PayControls({
       }
       attemptRef.current = "";
       setUnsure(false);
+      if (method === "cash") {
+        const back = changeFor(tendered, charge);
+        setChangeBack(back !== null && back > 0 ? back : null);
+      }
       close();
       if (d.boardMissed) {
         // The charge is real; only the board missed it. Said loudly, so
@@ -475,6 +546,7 @@ export default function PayControls({
       {mode === "cash" && (
         <>
           {partBlock}
+          <CashTendered dueCents={charge} value={tendered} onChange={setTendered} disabled={busy} />
           <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
             <button type="button" className="btn btn--solid" disabled={busy || !!partError} onClick={() => pay("cash")}>
               {busy ? "Recording…" : `Record ${dollars(charge)} cash`}
@@ -486,6 +558,11 @@ export default function PayControls({
         </>
       )}
 
+      {changeBack !== null && mode === "idle" && (
+        <p role="status" style={{ margin: "8px 0 0", fontSize: 18, fontWeight: 700, color: "var(--green)" }}>
+          Change {dollars(changeBack)} back to the customer.
+        </p>
+      )}
       {error && (
         <p role="alert" style={{ margin: "8px 0 0", fontSize: 14, fontWeight: 600, color: "var(--rose-ink)" }}>
           {error}

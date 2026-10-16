@@ -64,16 +64,16 @@
   "w": 750
  },
  "product/designers-choice": {
-  "w": 1000,
-  "h": 1100
+  "w": 421,
+  "h": 525
  },
  "product/designers-choice-2": {
-  "w": 1000,
-  "h": 1100
+  "w": 421,
+  "h": 525
  },
  "product/designers-choice-3": {
-  "w": 1000,
-  "h": 1100
+  "w": 421,
+  "h": 525
  },
  "product/dozen-roses": {
   "w": 1000,
@@ -134,6 +134,10 @@
  "product/looking-lovely": {
   "w": 1000,
   "h": 1046
+ },
+ "product/lucy": {
+  "w": 1000,
+  "h": 1005
  },
  "product/maeve": {
   "h": 750,

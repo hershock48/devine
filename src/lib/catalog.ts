@@ -159,12 +159,11 @@ export const products: Product[] = [
 
   // ---- Just Because ----
   /* DESIGNER'S CHOICE PICTURE (Kevin, 2026-10-14: the generated print "looks
-     like old people wallpaper"). Her own shop used a line-art placeholder
-     for all three; ours drew the botanical print. Now all three show one
-     of her own photographs, a mixed purple-and-pink arrangement from the
-     shop's atmosphere set (public/img/shop/shop-4), until she sends a
-     photo of an actual Designer's Choice piece through /photos, which the
-     ingest tool drops in by slug. */
+     like old people wallpaper"; 2026-10-16: the shop's own choice of photo,
+     a designer at a bench of cut flowers, sent by Kevin). All three slugs
+     carry that photograph in the image manifest (tools/ingest-photo.mjs),
+     which is what the site reads; the img paths below are the old shop's
+     line-art placeholder and are not used while the manifest has them. */
   { slug: "designers-choice", name: "Designer's Choice", price: 55, cats: ["just-because", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png",
     desc: "Put the creative agency in the hands of the designer. Container and flowers are chosen for seasonality, availability and inspiration on the day. Tell us any colors or flowers you have in mind in your order notes." },
   { slug: "maeve", name: "Maeve", price: 65, cats: ["just-because"], img: "2026/08/IMG_0759-scaled.jpeg",
@@ -205,12 +204,11 @@ export const products: Product[] = [
     desc: "A garden of bold color. Orange daisies, purple alstroemeria, magenta mini carnations, lavender button mums, solidago and a sunflower in mixed seasonal greenery." },
   { slug: "blooming-candle", name: "Blooming Candle", price: 70, cats: ["birthday"], img: "2024/07/IMG_8580-scaled.jpeg",
     desc: "Two gifts in one. Fresh flowers arranged into the top of a scented tinned candle, full of mixed greens, purple stock and larkspur, light blue delphinium, purple button mums, white cushion mums and filler." },
-  /* LUCY (Kevin, 2026-10-14: "Add Lucy to b-day", $105). New since the
-     harvest: no photo and no copy yet. The product page says so in the
-     owner's note until her description arrives, and a photo named
-     lucy.jpg through /photos becomes hers by slug. */
+  /* LUCY (Kevin, 2026-10-14: "Add Lucy to b-day", $105; photo and the
+     flower list on 2026-10-16, the copy written from that list in the
+     catalog's own voice). */
   { slug: "lucy", name: "Lucy", price: 105, cats: ["birthday"], img: "",
-    desc: "PLACEHOLDER: a new arrangement (2026-10-14); the owner's description is still to come." },
+    desc: "Sunshine in a vase. Pale yellow lisianthus, sunflowers, orange snapdragons, dahlias, orange wallflower and orange lilies, arranged tall in a clear glass vase with seasonal greenery. Warm, bright and glad to see you." },
   { slug: "clementine", name: "Clementine", price: 85, cats: ["birthday"], img: "2026/06/Screenshot-2026-06-01-105732.png",
     desc: "The warmth of summer, in double petaled gerbera daisies, snapdragons, sunset orange daisies, whimsical yellow butterfly ranunculus, purple statice and solidago, in a gray ceramic container with seasonal summer greenery." },
   { slug: "nicole", name: "Nicole", price: 110, cats: ["birthday"], img: "2025/04/Nicole-2-1.jpg",
