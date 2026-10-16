@@ -6,7 +6,7 @@ import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
-import PayControls from "@/components/workroom/PayControls";
+import PayControls, { CashTendered, changeFor } from "@/components/workroom/PayControls";
 
 /**
  * The order board. Adapted from the pjs kitchen screen, at florist pace:
@@ -2387,6 +2387,8 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
   const [placed, setPlaced] = useState<PlacedSale | null>(null);
   /** The last sale's one line, over the cleared panel. */
   const [done, setDone] = useState("");
+  /** Cash given (CashTendered): the change is said in the Done line. */
+  const [tendered, setTendered] = useState("");
 
   // The write-up's own arithmetic (stopMath), on a pickup stop with no
   // fee: items at the rule the route applies, tax on them unless exempt.
@@ -2405,6 +2407,7 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
     setLines([blankLine()]);
     setTaxExempt(false);
     setPlaced(null);
+    setTendered("");
     setError("");
   }
   /** PayControls answered: paid whole, paid in part, or charged while the
@@ -2419,7 +2422,8 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
       return;
     }
     const word = method === "manual" ? "paid another way" : method ?? "paid";
-    setDone(`Done: ${money(paidCents / 100)} ${word}.`);
+    const back = method === "cash" ? changeFor(tendered, paidCents) : null;
+    setDone(`Done: ${money(paidCents / 100)} ${word}.${back !== null && back > 0 ? ` Change ${money(back / 100)}.` : ""}`);
     clear();
   };
 
@@ -2596,6 +2600,7 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
             {" = "}
             <strong>{money(m.total)}</strong>
           </p>
+          {m.total > 0 && <CashTendered dueCents={Math.round(m.total * 100)} value={tendered} onChange={setTendered} disabled={busy !== ""} />}
           <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
             <button type="button" className="btn btn--solid" disabled={busy !== ""} onClick={() => ring("cash")}>
               {busy === "cash" ? "Recording…" : `Record ${money(m.total)} cash`}
@@ -2911,9 +2916,11 @@ function PhoneOrderForm({
           (f) => !hits.some(({ c }) => (phoneKey(c.phone) && phoneKey(c.phone) === phoneKey(f.phone)) || c.name.trim().toLowerCase() === f.name.trim().toLowerCase()),
         );
         if (hits.length === 0 && onFile.length === 0) return null;
-        // WHERE fills the first order on the form: the customer's usual
-        // address is the first stop's business, never the fourth's.
-        const first = stops[0].key;
+        // WHO ONLY (Kevin, 2026-10-16: the pick "will also autofill all the
+        // most recent previous recipient's information"; "for now it's just
+        // not working for us"). A pick fills the customer's own fields and
+        // their account settings; where the flowers go is typed fresh, with
+        // the recipient chips (StopFields) for a name that has been used.
         return (
           <div role="status" style={{ margin: "-6px 0 0", display: "flex", flexWrap: "wrap", gap: 8 }}>
             {onFile.map((f) => (
@@ -2931,7 +2938,6 @@ function PhoneOrderForm({
                   setBusiness(f.business && f.business !== f.name ? f.business : "");
                   setPhone(f.phone);
                   setEmail(f.email);
-                  patchStop(first, { street: f.street, town: f.town, zip: f.zip });
                 }}
                 style={chipDashed}
               >
@@ -2958,20 +2964,10 @@ function PhoneOrderForm({
                   setAccount(c.account === true);
                   setTaxExempt(c.taxExempt === true);
                   setTaxId(c.taxExempt ? c.taxId ?? "" : "");
-                  patchStop(first, {
-                    ...(c.fulfillment ? { fulfillment: c.fulfillment } : {}),
-                    recipient: c.recipient ?? "",
-                    recipientPhone: c.recipientPhone ?? "",
-                    company: c.company ?? "",
-                    street: c.street ?? "",
-                    town: c.town ?? "",
-                    zip: c.zip ?? "",
-                  });
                 }}
                 style={chipSolid}
               >
                 {c.business ? `${c.business} · ` : ""}{c.name} · {c.phone || c.email || "no phone"} · {count} order{count === 1 ? "" : "s"}
-                {c.fulfillment === "delivery" && c.recipient ? ` · last to ${c.recipient}` : ""}
               </button>
             ))}
           </div>
@@ -2979,12 +2975,12 @@ function PhoneOrderForm({
       })()}
       {/* Said once, so a prefilled form is never mistaken for a blank one
           and the chips' silence after a pick is understood: the rest of the
-          order is its own. */}
+          order, where it goes included, is typed fresh. */}
       {picked && (
         <p role="status" style={{ margin: "-6px 0 0", fontSize: 14, fontWeight: 600, color: "var(--green)" }}>
           {pickedFromFile
-            ? <>Filled from {picked.name || "their"} file in the old system; check the address is current. What they want today is below.</>
-            : <>Filled from {picked.name || "their file"}&rsquo;s last order. What they want today is below.</>}
+            ? <>Who is ordering, filled from {picked.name || "their"} file in the old system. Where it goes and what they want today are below.</>
+            : <>Who is ordering, filled from {picked.name || "their file"}&rsquo;s last order. Where it goes and what they want today are below.</>}
         </p>
       )}
 
