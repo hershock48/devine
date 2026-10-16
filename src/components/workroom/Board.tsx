@@ -232,6 +232,15 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       loads 60 days, and the order a caller asks about can be older. */
   const [deep, setDeep] = useState<Order[] | null>(null);
 
+  /** A payment landed on a card: refresh, and when cash was given, say
+      the change at the top of the board too (Kevin, 2026-10-16). The
+      card's own line can vanish with the refresh when the order changes
+      bucket (an out-the-door order paid at pickup goes to Finished), so
+      the figure is said where it survives. */
+  const paid = (changeCents?: number | null) => {
+    if (changeCents) setNotice(`Change ${money(changeCents / 100)} back to the customer.`);
+    return pull();
+  };
   const pull = useCallback(async () => {
     const r = await fetch("/api/workroom/orders", { cache: "no-store" });
     if (r.status === 401) {
@@ -565,7 +574,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
@@ -577,12 +586,12 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
         </>
       ) : (
         <>
-          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={pull} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
+          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
 
           {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
@@ -729,7 +738,10 @@ function Bucket({
   contacts: Contact[];
   batches?: Map<string, Order[]>;
   onMove: (id: string, s: Order["status"], extra?: InitialsExtra) => void;
-  onPaid: () => Promise<void>;
+  /** After a payment: refresh, and the change to hand back when cash
+      was given (PayControls), so the board can say it even when the card
+      moves bucket and remounts. */
+  onPaid: (changeCents?: number | null) => Promise<void>;
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
   onUncancel?: (id: string) => Promise<void>;
@@ -1187,7 +1199,10 @@ function OrderCard({
   contacts: Contact[];
   batches?: Map<string, Order[]>;
   onMove: (id: string, s: Order["status"], extra?: InitialsExtra) => void;
-  onPaid: () => Promise<void>;
+  /** After a payment: refresh, and the change to hand back when cash
+      was given (PayControls), so the board can say it even when the card
+      moves bucket and remounts. */
+  onPaid: (changeCents?: number | null) => Promise<void>;
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
   onUncancel?: (id: string) => Promise<void>;
@@ -1542,7 +1557,7 @@ function OrderCard({
           squareMoney={squareMoney(o)}
           refundedCents={refundedCents(o)}
           batch={batch}
-          onPaid={() => onPaid().catch(() => {})}
+          onPaid={(_m, _c, out) => onPaid(out?.changeCents ?? null).catch(() => {})}
         />
       )}
 
@@ -2414,7 +2429,7 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
       board missed it. Only the first is "Done"; the other two keep the
       sale in the panel, with its pay buttons and the warning, so the
       rest is taken or the mark is made before the next customer. */
-  const finish = (method?: "card" | "cash" | "manual", cents?: number, outcome?: { settled: boolean; boardMissed: boolean }) => {
+  const finish = (method?: "card" | "cash" | "manual", cents?: number, outcome?: { settled: boolean; boardMissed: boolean; changeCents: number | null }) => {
     onChanged();
     const paidCents = cents ?? Math.round(m.total * 100);
     if (method && outcome && (!outcome.settled || outcome.boardMissed)) {
@@ -2422,7 +2437,10 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
       return;
     }
     const word = method === "manual" ? "paid another way" : method ?? "paid";
-    const back = method === "cash" ? changeFor(tendered, paidCents) : null;
+    // The change comes with the outcome, from whichever pane took the
+    // cash (this panel's own button, or PayControls once the sale is on
+    // the board), so one figure is computed for one payment.
+    const back = outcome?.changeCents ?? null;
     setDone(`Done: ${money(paidCents / 100)} ${word}.${back !== null && back > 0 ? ` Change ${money(back / 100)}.` : ""}`);
     clear();
   };
@@ -2439,8 +2457,8 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
         body: JSON.stringify({ id, method: "manual", amountCents: cents }),
       });
       const pd = (await pr.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-      if (pr.ok && pd?.ok) finish("card", cents, { settled: true, boardMissed: false });
-      else if (/already paid/i.test(pd?.error ?? "")) finish("card", cents, { settled: true, boardMissed: false });
+      if (pr.ok && pd?.ok) finish("card", cents, { settled: true, boardMissed: false, changeCents: null });
+      else if (/already paid/i.test(pd?.error ?? "")) finish("card", cents, { settled: true, boardMissed: false, changeCents: null });
       else setError(pd?.error || "That did not save. Reload the board and mark it from its card.");
     } catch {
       setError("The connection dropped. Reload the board and mark it from its card.");
@@ -2514,7 +2532,9 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
         setPlaced({ id: o.id, number: o.number, subtotal: o.subtotal, start: "idle", why: `${pd?.error || "The payment did not go through."} Take the payment here or from its card; nothing was charged.` });
         return;
       }
-      finish(method, Math.round(o.subtotal * 100), { settled: true, boardMissed: false });
+      const due = Math.round(o.subtotal * 100);
+      const back = method === "cash" ? changeFor(tendered, due) : null;
+      finish(method, due, { settled: true, boardMissed: false, changeCents: back !== null && back > 0 ? back : null });
     } catch {
       if (o) {
         // On the board already; the retry pays this one, never a second.
@@ -2870,11 +2890,12 @@ function PhoneOrderForm({
 
       {/* THE CUSTOMER BASE IS THE ORDER HISTORY, surfaced while typing: a
           few characters of name or phone offer the matching customers, and
-          one tap fills WHO and WHERE from their latest order. Deliberately
-          not the lines or the occasion: an earlier same-day version filled
-          those too and Kevin cut it, because what they are ordering and why
-          is this call's business, and a prefilled Sympathy on a birthday
-          order is the kind of wrong that ships. No separate customer table
+          one tap fills WHO from their latest order (WHERE as well until
+          2026-10-16, when Kevin cut it: see the WHO ONLY note below).
+          Deliberately not the lines or the occasion: an earlier same-day
+          version filled those too and Kevin cut it, because what they are
+          ordering and why is this call's business, and a prefilled
+          Sympathy on a birthday order is the kind of wrong that ships. No separate customer table
           to maintain or drift: the orders already know everyone.
 
           The interaction follows the canonical autocomplete rules (checked
@@ -2928,7 +2949,7 @@ function PhoneOrderForm({
                 key={f.id}
                 type="button"
                 onClick={() => {
-                  setPicked({ name: f.name, phone: f.phone, email: f.email, createdAt: 0, street: f.street, town: f.town, zip: f.zip });
+                  setPicked({ name: f.name, phone: f.phone, email: f.email, createdAt: 0 });
                   setPickedFromFile(true);
                   setTyped({ name: false, phone: false });
                   setName(f.name);

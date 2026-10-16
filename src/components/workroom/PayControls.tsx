@@ -30,19 +30,18 @@ export const parseDollars = (s: string): number | null => {
   return /^\d+(\.\d{1,2})?$/.test(t) ? Math.round(Number(t) * 100) : null;
 };
 /** What a customer is likely to hand over for an amount: the exact figure,
-    then the next whole $5, $10, $20, $50 and $100 above it, four at most
-    ($51.35 offers 51.35, 55, 60 and 100). */
+    then the amount rounded up to the next $5, $20, $50 and $100, each
+    once ($42.40 offers 42.40, 45, 60, 50 and 100, sorted; $120 offers
+    120, 125, 140, 150 and 200). The $10 step is left out: the $20 step
+    covers the twenties a customer actually holds. */
 export const billChips = (dueCents: number): number[] => {
-  const out: number[] = [];
-  const add = (c: number) => {
-    if (c > 0 && !out.includes(c) && out.length < 4) out.push(c);
-  };
-  add(dueCents);
-  for (const bill of [500, 1000, 2000, 5000, 10000]) {
+  const out = new Set<number>();
+  if (dueCents > 0) out.add(dueCents);
+  for (const bill of [500, 2000, 5000, 10000]) {
     const up = Math.ceil(dueCents / bill) * bill;
-    if (up > dueCents) add(up);
+    if (up > dueCents) out.add(up);
   }
-  return out;
+  return [...out].sort((a, b) => a - b);
 };
 /** The change owed, in cents, for cash given against an amount due; null
     when nothing (or not a number) was typed. Negative means short. */
@@ -145,7 +144,7 @@ export default function PayControls({
       here too). A caller that clears itself on "paid" must read both:
       a part payment is not a finished sale, and a missed board write is
       a card that must NOT be taken again. */
-  onPaid: (method?: "card" | "cash" | "manual", cents?: number, outcome?: { settled: boolean; boardMissed: boolean }) => void;
+  onPaid: (method?: "card" | "cash" | "manual", cents?: number, outcome?: { settled: boolean; boardMissed: boolean; changeCents: number | null }) => void;
 }) {
   /** "one" or "all": which the buttons charge when a batch is offered. */
   const [scope, setScope] = useState<"one" | "all">("all");
@@ -183,13 +182,17 @@ export default function PayControls({
   const [part, setPart] = useState(false);
   const [partText, setPartText] = useState("");
   /** Cash given at the counter (CashTendered), and the change it left
-      once the cash was recorded: kept on the card until the next payment
-      is opened, because the drawer is counted after the tap, not before. */
+      once the cash was recorded: shown here until the next payment is
+      opened, because the drawer is counted after the tap, not before.
+      The same figure goes up through onPaid, for the screens where this
+      pane does not stay on the page after the payment (the board's
+      notice, the quick sale's Done line, the Accounts tab). */
   const [tendered, setTendered] = useState("");
   const [changeBack, setChangeBack] = useState<number | null>(null);
-  useEffect(() => {
-    if (mode !== "idle") setChangeBack(null);
-  }, [mode]);
+  const openMode = (m: "card" | "cash" | "manual") => {
+    setChangeBack(null);
+    setMode(m);
+  };
   const partCents = part ? parseDollars(partText) : null;
   const partError = !part
     ? ""
@@ -277,6 +280,7 @@ export default function PayControls({
   async function pay(method: "card" | "cash" | "manual") {
     setBusy(true);
     setError("");
+    setChangeBack(null);
     try {
       if (partError) throw new Error(partError);
       let sourceId: string | undefined;
@@ -321,10 +325,9 @@ export default function PayControls({
       }
       attemptRef.current = "";
       setUnsure(false);
-      if (method === "cash") {
-        const back = changeFor(tendered, charge);
-        setChangeBack(back !== null && back > 0 ? back : null);
-      }
+      const back = method === "cash" ? changeFor(tendered, charge) : null;
+      const changeCents = back !== null && back > 0 ? back : null;
+      setChangeBack(changeCents);
       close();
       if (d.boardMissed) {
         // The charge is real; only the board missed it. Said loudly, so
@@ -347,7 +350,7 @@ export default function PayControls({
               : "CHARGED, but the board did not save it. Do NOT charge again. Reload in a minute; the payment will appear.",
         );
       }
-      onPaid(method, charge, { settled: charge >= amount, boardMissed: !!d.boardMissed });
+      onPaid(method, charge, { settled: charge >= amount, boardMissed: !!d.boardMissed, changeCents });
     } catch (err) {
       setError(err instanceof Error ? err.message : "The payment did not go through.");
     } finally {
@@ -459,17 +462,17 @@ export default function PayControls({
       {undoMark}
       {mode === "idle" && (
         <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" className="btn" onClick={() => setMode("card")}>
+          <button type="button" className="btn" onClick={() => openMode("card")}>
             {batch ? `Take card (${batch.count} orders)` : "Take card"}
           </button>
-          <button type="button" onClick={() => setMode("cash")} style={{ ...textButton, fontSize: 14 }}>
+          <button type="button" onClick={() => openMode("cash")} style={{ ...textButton, fontSize: 14 }}>
             Record cash
           </button>
           {/* The escape hatch for money that moved outside the board (rung
               at the register without the DV note, a check, an account
               customer). Without it, orders paid off-system nag in the owed
               section forever, which teaches staff to ignore the section. */}
-          <button type="button" onClick={() => setMode("manual")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+          <button type="button" onClick={() => openMode("manual")} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
             Paid another way
           </button>
         </p>
