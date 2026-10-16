@@ -88,6 +88,10 @@ for (const file of files) {
   manifest[`product/${slug}`] = { w: lg.width, h: lg.height };
   done.push(slug);
   console.log(`${slug}  ->  ${lg.width}x${lg.height} + 400 card`);
+  // withoutEnlargement keeps a small source small, so the detail page and
+  // the 1200x630 link card will stretch it. Said out loud (2026-10-16: a
+  // 421px Designer's Choice photo went through without a word).
+  if (lg.width < 1000) console.warn(`  WARNING: ${slug} is only ${lg.width}px wide; the product page and its link card will look soft. Ask for a larger original.`);
 }
 
 if (done.length) {

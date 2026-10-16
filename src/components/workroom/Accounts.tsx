@@ -178,6 +178,9 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
   const [copied, setCopied] = useState<string | null>(null);
   /** Per account: "sending", or the time it went, or an error line. */
   const [sent, setSent] = useState<Record<string, { at?: string; error?: string; busy?: boolean }>>({});
+  /** The change to hand back after cash on an account order: said here,
+      because the row's pay pane leaves the page once nothing is owed. */
+  const [changeNote, setChangeNote] = useState("");
   const [error, setError] = useState("");
 
   const pull = useCallback(async () => {
@@ -355,7 +358,10 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       handPaid={paidByHandOnly(o)}
                       squareMoney={squareMoney(o)}
                       refundedCents={refundedCents(o)}
-                      onPaid={() => pull().catch(() => {})}
+                      onPaid={(_m, _c, out) => {
+                        setChangeNote(out?.changeCents ? `Change ${money(out.changeCents / 100)} back to the customer (${o.number}).` : "");
+                        pull().catch(() => {});
+                      }}
                     />
                   )}
                 </li>
@@ -371,6 +377,11 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
     <>
       <h1>Accounts</h1>
       <MemoryWarning backend={backend} />
+      {changeNote && (
+        <p role="status" style={{ margin: "0 0 14px", fontSize: 17, fontWeight: 700, color: "var(--green)" }}>
+          {changeNote}
+        </p>
+      )}
       <p className="muted" style={{ margin: "0 0 18px", maxWidth: 640 }}>
         Every order with <strong>On account</strong> ticked, by customer. An order stays here, and in the board&rsquo;s
         owed list, until it is settled below: card, cash, or <em>Paid another way</em> for a check or a transfer. A
