@@ -203,7 +203,9 @@ export const products: Product[] = [
   { slug: "looking-lovely", name: "Looking Lovely", price: 55, cats: ["birthday"], img: "2026/03/IMG_9491-scaled.jpeg",
     desc: "A garden of bold color. Orange daisies, purple alstroemeria, magenta mini carnations, lavender button mums, solidago and a sunflower in mixed seasonal greenery." },
   { slug: "blooming-candle", name: "Blooming Candle", price: 70, cats: ["birthday"], img: "2024/07/IMG_8580-scaled.jpeg",
-    desc: "Two gifts in one. Fresh flowers arranged into the top of a scented tinned candle, full of mixed greens, purple stock and larkspur, light blue delphinium, purple button mums, white cushion mums and filler." },
+    /* Copy from the owner's own recipe (Kevin, 2026-10-17: "the recipe is
+       just off"); the harvested text named flowers that are not in it. */
+    desc: "Two gifts in one. Fresh flowers arranged into the top of a scented tinned candle: Free Spirit roses, Viking poms, purple alstroemeria, carnations and bright fillers in seasonal mixed greenery." },
   /* LUCY (Kevin, 2026-10-14: "Add Lucy to b-day", $105; photo and the
      flower list on 2026-10-16, the copy written from that list in the
      catalog's own voice). */

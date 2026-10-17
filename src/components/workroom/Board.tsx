@@ -1213,6 +1213,8 @@ function OrderCard({
   const next = nextMove(o);
   const today = todayISO();
   const [refunding, setRefunding] = useState(false);
+  const delivery = o.fulfillment === "delivery";
+  const callNumber = delivery ? o.recipientPhone ?? "" : o.phone;
   /* This order's group, when two or more of them still need paying: what
      the pay pane offers to settle at once, each for its own share. */
   const group = batches?.get(o.batchId || o.id);
@@ -1247,10 +1249,24 @@ function OrderCard({
         background: o.fulfillment === "delivery" ? "var(--wash-delivery)" : "var(--wash-pickup)",
       }}
     >
+      {/* WHO IS ON THE CARD FIRST (Kevin, 2026-10-17): a delivery card leads
+          with the recipient and where it goes, because that is what the
+          workroom and the driver act on; who ordered it sits below the
+          items (the "Ordered by" line), with their phone. A pickup card
+          keeps the customer first: they are the one walking in. */}
       <header style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
         <strong style={{ fontSize: 17 }}>
-          {o.business || o.name}
-          {o.business && o.name ? <span style={{ fontWeight: 400 }}> · {o.name}</span> : null}
+          {delivery ? (
+            <>
+              {o.recipient || o.name}
+              {o.company ? <span style={{ fontWeight: 400 }}> · {o.company}</span> : null}
+            </>
+          ) : (
+            <>
+              {o.business || o.name}
+              {o.business && o.name ? <span style={{ fontWeight: 400 }}> · {o.name}</span> : null}
+            </>
+          )}
         </strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
           <span
@@ -1295,21 +1311,33 @@ function OrderCard({
         </p>
       ) : null}
 
-      {prior.length > 0 && (
+      {!delivery && prior.length > 0 && (
         <p style={{ margin: "2px 0 0", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--green)" }}>
           Returning · their {ordinal(prior.length + 1)} order
         </p>
       )}
 
-      {/* The customer's tap-to-call, up here with their name where it reads
-          as "call them", not dangling under the money where it read as part
-          of the payment controls (Kevin, mid-test: "why is this number
-          here?"). */}
-      {o.phone && (
+      {/* The tap-to-call, up here with the name where it reads as "call
+          them", not dangling under the money where it read as part of the
+          payment controls (Kevin, mid-test: "why is this number here?").
+          On a delivery this is the recipient's number when there is one;
+          the customer's is on the Ordered by line below. */}
+      {callNumber && (
         <p style={{ margin: "2px 0", fontSize: 14.5 }}>
-          <a href={`tel:${o.phone.replace(/[^\d+]/g, "")}`} style={{ display: "inline-block", padding: "5px 0" }}>
-            {o.phone}
+          <a href={`tel:${callNumber.replace(/[^\d+]/g, "")}`} style={{ display: "inline-block", padding: "5px 0" }}>
+            {callNumber}
           </a>
+        </p>
+      )}
+
+      {delivery && (
+        <p style={{ margin: "0 0 2px", fontSize: 14.5 }}>
+          {/* The place (company) is in the header beside the name; here the
+              street and town, or the plain fact that there is none yet. */}
+          {[o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") || "No delivery address yet"}
+          {zipFlag && (
+            <strong style={{ color: "var(--rose-ink)" }}> · off the delivery list</strong>
+          )}
         </p>
       )}
 
@@ -1342,20 +1370,6 @@ function OrderCard({
       {o.fulfillment === "pickup" && o.company && (
         <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>{o.company}</p>
       )}
-      {o.fulfillment === "delivery" && (
-        <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>
-          {(() => {
-            const where = [o.company, o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-            const who = `${o.recipient || o.name}${o.recipientPhone ? ` (${o.recipientPhone})` : ""}`;
-            if (where) return `${who} · ${where}`;
-            return o.recipient ? who : "No delivery address yet";
-          })()}
-          {zipFlag && (
-            <strong style={{ color: "var(--rose-ink)" }}> · off the delivery list</strong>
-          )}
-        </p>
-      )}
-
       <ul style={{ listStyle: "none", padding: 0, margin: "8px 0", fontSize: 14.5 }}>
         {o.lines.map((l, i) => (
           <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -1431,6 +1445,26 @@ function OrderCard({
         )}
       </ul>
 
+      {/* WHO ORDERED IT, under the ticket on a delivery card (Kevin,
+          2026-10-17): the customer (their business first when there is
+          one), their phone to call, and whether they are a regular. */}
+      {delivery && (
+        <p style={{ margin: "0 0 8px", fontSize: 14.5, borderTop: "1px solid var(--line)", paddingTop: 6 }}>
+          <span className="muted" style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Ordered by</span>{" "}
+          <strong>{o.business || o.name}</strong>
+          {o.business && o.name ? ` · ${o.name}` : ""}
+          {!o.recipient || o.recipient.trim().toLowerCase() === o.name.trim().toLowerCase() ? <span className="muted"> (the recipient)</span> : null}
+          {o.phone && (
+            <>
+              {" · "}
+              <a href={`tel:${o.phone.replace(/[^\d+]/g, "")}`} style={{ display: "inline-block", padding: "4px 0" }}>
+                {o.phone}
+              </a>
+            </>
+          )}
+          {prior.length > 0 && <span style={{ color: "var(--green)", fontWeight: 700 }}> · returning, their {ordinal(prior.length + 1)} order</span>}
+        </p>
+      )}
       {o.fulfillment === "delivery" && o.status !== "canceled" && o.status !== "hold" && onFee && <FeeAdjust o={o} onFee={onFee} />}
       {/* Not on a quick sale: a walk-in has no account to bill. */}
       {!o.payment && o.status !== "canceled" && !o.quick && <AccountToggle o={o} onDone={() => onPaid().catch(() => {})} />}
@@ -2272,6 +2306,21 @@ function ItemsEditor({
                 onChange={(e) => setLine(i, { qty: Number(e.target.value) || 1 })}
                 style={{ ...field, flex: "0 0 72px", minWidth: 0, width: "auto" }}
               />
+              {/* TAKE IT OFF (Kevin, 2026-10-17: "they wanted to add an add
+                  on but decided against it while we're still putting the
+                  order together"). The last line clears instead of going,
+                  so the form always has a row to type into. Hidden on a
+                  single blank row, where it would do nothing. */}
+              {(lines.length > 1 || lineStarted(l)) && (
+                <button
+                  type="button"
+                  aria-label={aria(`Remove item ${i + 1}`)}
+                  onClick={() => setLines((cur) => (cur.length > 1 ? cur.filter((_, at) => at !== i) : [blankLine()]))}
+                  style={{ ...textButton, fontSize: 13.5, color: "var(--muted)", alignSelf: "center" }}
+                >
+                  Remove
+                </button>
+              )}
             </div>
 
             {/* BUILT BY STEMS (Katy, 2026-10-06: "select rose x 3 and that
