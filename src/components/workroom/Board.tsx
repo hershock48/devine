@@ -144,6 +144,19 @@ function priorOrders(contacts: Contact[], phone: string, email: string, before: 
   );
 }
 
+/** One sanitizer for every tap-to-call link on the board. */
+const telHref = (phone: string) => `tel:${phone.replace(/[^\d+]/g, "")}`;
+/** The customer as the board names them: their business first when they
+    have one, their own name after it in a lighter weight. The pickup
+    header and the delivery card's Ordered by line read this one. */
+function CustomerName({ o }: { o: { business?: string; name: string } }) {
+  return (
+    <>
+      {o.business || o.name}
+      {o.business && o.name ? <span style={{ fontWeight: 400 }}> · {o.name}</span> : null}
+    </>
+  );
+}
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th"}`;
 
 export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
@@ -1262,10 +1275,7 @@ function OrderCard({
               {o.company ? <span style={{ fontWeight: 400 }}> · {o.company}</span> : null}
             </>
           ) : (
-            <>
-              {o.business || o.name}
-              {o.business && o.name ? <span style={{ fontWeight: 400 }}> · {o.name}</span> : null}
-            </>
+            <CustomerName o={o} />
           )}
         </strong>
         <span className="muted" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
@@ -1324,22 +1334,29 @@ function OrderCard({
           the customer's is on the Ordered by line below. */}
       {callNumber && (
         <p style={{ margin: "2px 0", fontSize: 14.5 }}>
-          <a href={`tel:${callNumber.replace(/[^\d+]/g, "")}`} style={{ display: "inline-block", padding: "5px 0" }}>
+          <a href={telHref(callNumber)} style={{ display: "inline-block", padding: "5px 0" }}>
             {callNumber}
           </a>
         </p>
       )}
 
-      {delivery && (
-        <p style={{ margin: "0 0 2px", fontSize: 14.5 }}>
-          {/* The place (company) is in the header beside the name; here the
-              street and town, or the plain fact that there is none yet. */}
-          {[o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") || "No delivery address yet"}
-          {zipFlag && (
-            <strong style={{ color: "var(--rose-ink)" }}> · off the delivery list</strong>
-          )}
-        </p>
-      )}
+      {/* Built from the parts that exist: a phone order can be taken before
+          the address is known, and "Smoke Test · ," is not an address. The
+          place (company) is in the header beside the name, so a place with
+          no street is a real address, not a missing one: a funeral quote
+          sends flowers to "Kempf Funeral Home" and the driver knows where
+          that is. Only a card with neither says so. */}
+      {delivery &&
+        (() => {
+          const where = [o.street, [o.town, o.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+          if (!where && o.company) return null;
+          return (
+            <p style={{ margin: "0 0 2px", fontSize: 14.5 }}>
+              {where || "No delivery address yet"}
+              {zipFlag && <strong style={{ color: "var(--rose-ink)" }}> · off the delivery list</strong>}
+            </p>
+          );
+        })()}
 
       <p style={{ margin: "6px 0", fontSize: 14.5 }}>
         <strong>{o.date}{o.neededBy ? ` · by ${clock12(o.neededBy)}` : ""}</strong>
@@ -1362,11 +1379,7 @@ function OrderCard({
       {o.takenBy && <InitialsLine o={o} which="takenBy" onMove={onMove} />}
       {o.madeBy && <InitialsLine o={o} which="madeBy" onMove={onMove} />}
 
-      {/* Built from the parts that exist: a phone order can be taken before
-          the address is known, and "Smoke Test · ," is not an address. A named
-          recipient with no street is a real case too, not a missing one — a
-          funeral quote sends flowers to "Kempf Funeral Home" and the driver
-          knows where that is. */}
+      {/* A pickup for a place: the company line under the customer. */}
       {o.fulfillment === "pickup" && o.company && (
         <p style={{ margin: "0 0 6px", fontSize: 14.5 }}>{o.company}</p>
       )}
@@ -1451,13 +1464,12 @@ function OrderCard({
       {delivery && (
         <p style={{ margin: "0 0 8px", fontSize: 14.5, borderTop: "1px solid var(--line)", paddingTop: 6 }}>
           <span className="muted" style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Ordered by</span>{" "}
-          <strong>{o.business || o.name}</strong>
-          {o.business && o.name ? ` · ${o.name}` : ""}
-          {!o.recipient || o.recipient.trim().toLowerCase() === o.name.trim().toLowerCase() ? <span className="muted"> (the recipient)</span> : null}
+          <strong><CustomerName o={o} /></strong>
+          {o.recipient && o.recipient.trim().toLowerCase() === o.name.trim().toLowerCase() ? <span className="muted"> (the recipient)</span> : null}
           {o.phone && (
             <>
               {" · "}
-              <a href={`tel:${o.phone.replace(/[^\d+]/g, "")}`} style={{ display: "inline-block", padding: "4px 0" }}>
+              <a href={telHref(o.phone)} style={{ display: "inline-block", padding: "4px 0" }}>
                 {o.phone}
               </a>
             </>
@@ -1504,7 +1516,7 @@ function OrderCard({
         <p style={{ margin: "10px 0 0", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
           New web order:{" "}
           {o.phone ? (
-            <a href={`tel:${o.phone.replace(/[^\d+]/g, "")}`} style={{ color: "inherit" }}>
+            <a href={telHref(o.phone)} style={{ color: "inherit" }}>
               call {o.phone}
             </a>
           ) : (
@@ -1636,8 +1648,12 @@ function OrderCard({
 const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name));
 
 type DraftPart = { variety: string; stems: string };
-type DraftLine = { slug: string; custom: string; each: string; qty: number; byStems: boolean; parts: DraftPart[] };
-const blankLine = (): DraftLine => ({ slug: "", custom: "", each: "", qty: 1, byStems: false, parts: [{ variety: "", stems: "" }] });
+/** `uid` is the row's identity for React (a Remove in the middle of the
+    list must not hand row 3's input to row 2's data); it is never sent. */
+type DraftLine = { uid: number; slug: string; custom: string; each: string; qty: number; byStems: boolean; parts: DraftPart[] };
+let lineUid = 0;
+const newUid = () => ++lineUid;
+const blankLine = (): DraftLine => ({ uid: newUid(), slug: "", custom: "", each: "", qty: 1, byStems: false, parts: [{ variety: "", stems: "" }] });
 /** The lines that can be built by stems: her Designer's Choice three and
     anything custom. A Peace Lily is a Peace Lily. */
 const canBuild = (l: DraftLine) => !l.slug || l.slug.startsWith("designers-choice");
@@ -1654,6 +1670,7 @@ const fromLines = (o: Order): DraftLine[] => {
     each: l.slug ? "" : String(l.each),
     qty: l.qty,
     byStems: !!(l.parts && l.parts.length),
+    uid: newUid(),
     parts: l.parts && l.parts.length ? l.parts.map((pt) => ({ variety: pt.variety, stems: String(pt.stems) })) : [{ variety: "", stems: "" }],
   }));
 };
@@ -1745,6 +1762,9 @@ const carryOver = (last: Stop): Partial<Stop> => ({
     a by-stems build with a flower and a count. The payload sends these
     and only these; the quick sale counts and prices the same set. */
 const lineStarted = (l: DraftLine) => !!(l.slug || l.custom.trim() || (l.byStems && l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0)));
+/** Anything at all typed or ticked on the row (a price with no name, a
+    flower with no count): what the Remove button is for. */
+const lineTouched = (l: DraftLine) => lineStarted(l) || l.each.trim() !== "" || l.qty !== 1 || l.byStems || l.parts.some((pt) => pt.variety.trim() || pt.stems.trim());
 /** Anything typed into it that deserves an "are you sure" before Remove. */
 const stopHasWork = (s: Stop) =>
   !!(
@@ -2254,7 +2274,7 @@ function ItemsEditor({
             /* Flex with wrap, not a fixed grid: four cells at their minimums
                are ~440px, and a 390px phone needs the row to fold instead of
                shoving the page sideways. */
-            <div key={i} style={{ display: "grid", gap: 8, minWidth: 0 }}>
+            <div key={l.uid} style={{ display: "grid", gap: 8, minWidth: 0 }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
               <select
                 aria-label={aria(`Item ${i + 1} product`)}
@@ -2311,7 +2331,7 @@ function ItemsEditor({
                   order together"). The last line clears instead of going,
                   so the form always has a row to type into. Hidden on a
                   single blank row, where it would do nothing. */}
-              {(lines.length > 1 || lineStarted(l)) && (
+              {(lines.length > 1 || lineTouched(l)) && (
                 <button
                   type="button"
                   aria-label={aria(`Remove item ${i + 1}`)}
