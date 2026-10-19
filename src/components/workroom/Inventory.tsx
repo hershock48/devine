@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { products } from "@/lib/catalog";
 import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, VarietyGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, consumption, isoDate, lotCosting, normalizeVariety, recipeUnitCost, saleInstantMs } from "@/lib/workroom/derive";
+import { HISTORY_DAYS, consumption, costPerStemMap, isoDate, lotCosting, normalizeVariety, recipeUnitCost, saleInstantMs } from "@/lib/workroom/derive";
 
 /**
  * INVENTORY: the flower ledger, whole. Stems & shrink and Inventory were
@@ -142,6 +142,10 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
      fill on a new buy). */
   const lots = useMemo(() => lotCosting({ events, orders, sales, recipeBySlug }), [events, orders, sales, recipeBySlug]);
   const costPerStem = lots.currentUnitCost;
+  /* The library's reference column only: total paid over total stems across
+     the loaded history. Never feeds the money math (tosses, margins, cost
+     of what sold stay on lot costing, per the 2026-09-01 ruling). */
+  const avgPaid = useMemo(() => costPerStemMap(events), [events]);
 
   /** Stem cost of ONE unit of a product at today's on-hand prices
       (derive.ts), null when any part has never been bought. */
@@ -309,7 +313,7 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
         }
         defaultOpen={varieties.length === 0}
       >
-        <VarietyList varieties={varieties} varietyByName={varietyByName} onHand={onHand} onSaved={pull} />
+        <VarietyList varieties={varieties} varietyByName={varietyByName} onHand={onHand} lastPaid={lots.lastUnitCost} avgPaid={avgPaid} onSaved={pull} />
       </Block>
 
       {/* ---------------- 2. the ledgers ---------------- */}
@@ -1054,11 +1058,17 @@ function VarietyList({
   varieties,
   varietyByName,
   onHand,
+  lastPaid,
+  avgPaid,
   onSaved,
 }: {
   varieties: Variety[];
   varietyByName: Map<string, Variety>;
   onHand: (v: string) => number;
+  /** Cost per stem off the most recent invoice; absent until a buy exists. */
+  lastPaid: Map<string, number>;
+  /** Total paid over total stems, across the loaded history. Reference only. */
+  avgPaid: Map<string, number>;
   onSaved: () => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
@@ -1124,13 +1134,33 @@ function VarietyList({
   const tdR: React.CSSProperties = { ...td, textAlign: "right" };
   const tiny: React.CSSProperties = { ...field, padding: "5px 7px", fontSize: 14 };
 
+  /* The three derived cells, shared by the read row and the edit row. Blank
+     means no buy on record: a cost is never guessed. Markup is her sell
+     price per stem over the last invoice price. */
+  const costCells = (v: Variety) => {
+    const last = lastPaid.get(v.name);
+    const avg = avgPaid.get(v.name);
+    const markup = last != null && last > 0 && v.sellStem != null ? v.sellStem / last : null;
+    const thin = markup != null && markup < 2;
+    return (
+      <>
+        <td style={tdR}>{last == null ? "" : money(last)}</td>
+        <td style={{ ...tdR, color: "var(--muted)" }}>{avg == null ? "" : money(avg)}</td>
+        <td style={{ ...tdR, color: thin ? "var(--rose-ink)" : undefined, fontWeight: thin ? 700 : undefined }}>
+          {markup == null ? "" : `${markup.toFixed(1)}×`}
+        </td>
+      </>
+    );
+  };
+
   return (
     <>
       {/* Second person, not third: this copy talks TO the shop. */}
       <p className="muted" style={{ margin: "8px 0 0", fontSize: 14 }}>
         Every variety on this page, the weekly order and the recipes picks from these names; nothing
         else may invent one. Prices came off the laminated lists behind the counter; blanks are yours
-        to fill, never guessed.
+        to fill, never guessed. Last paid and Avg paid come from logged buys and received trucks, and
+        stay blank until one exists.
       </p>
 
       {varieties.length === 0 ? (
@@ -1153,10 +1183,10 @@ function VarietyList({
 
       {varieties.length > 0 && (
         <div tabIndex={0} role="region" aria-label="Stem library" style={{ overflowX: "auto", marginTop: 8, position: "relative" }}>
-          <table style={{ width: "100%", minWidth: 640, borderCollapse: "collapse", fontSize: 14.5 }}>
+          <table style={{ width: "100%", minWidth: 860, borderCollapse: "collapse", fontSize: 14.5 }}>
             <thead>
               <tr>
-                {["Variety", "Kind", "Sell/stem", "Sell/bunch", "Stems/bunch", "On hand", ""].map((h, i) => (
+                {["Variety", "Kind", "Sell/stem", "Sell/bunch", "Stems/bunch", "Last paid", "Avg paid", "Markup", "On hand", ""].map((h, i) => (
                   <th key={h || "x"} style={{ textAlign: i === 0 || i === 1 ? "left" : "right", padding: "6px 8px", borderBottom: "1px solid var(--line)", fontSize: 12.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--muted)" }}>
                     {h}
                   </th>
@@ -1185,6 +1215,7 @@ function VarietyList({
                         />
                       </td>
                     ))}
+                    {costCells(v)}
                     <td style={tdR}>{onHand(v.name)}</td>
                     <td style={{ ...tdR, whiteSpace: "nowrap" }}>
                       <button type="button" onClick={() => save(v.name)} style={{ ...textButton, color: "var(--green)", fontWeight: 700 }}>Save</button>{" "}
@@ -1198,6 +1229,7 @@ function VarietyList({
                     <td style={tdR}>{v.sellStem == null ? "" : money(v.sellStem)}</td>
                     <td style={tdR}>{v.sellBunch == null ? "" : money(v.sellBunch)}</td>
                     <td style={tdR}>{v.stemsPerBunch ?? ""}</td>
+                    {costCells(v)}
                     <td style={{ ...tdR, fontWeight: 600 }}>{onHand(v.name) || ""}</td>
                     <td style={{ ...tdR, whiteSpace: "nowrap" }}>
                       <button type="button" onClick={() => beginEdit(v)} style={textButton}>Edit</button>{" "}
