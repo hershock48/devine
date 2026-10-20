@@ -52,6 +52,7 @@ type Order = {
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
+  thirdParty?: boolean;
   takenBy?: string;
 };
 
@@ -320,6 +321,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       <strong>{o.number}</strong> · {o.date} · {o.fulfillment}
                       {o.recipient && o.recipient !== o.name ? ` · for ${o.recipient}` : ""}
                       {o.taxExempt ? ` · tax exempt${o.taxId ? ` (ID ${o.taxId})` : ""}` : ""}
+                      {o.thirdParty ? " · third-party order, no tax" : ""}
                       {o.takenBy ? ` · taken by ${o.takenBy}` : ""}
                       {o.status === "canceled" ? " · canceled" : o.status === "hold" ? " · on hold, not yet owed" : ""}
                       {" · "}

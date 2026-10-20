@@ -59,6 +59,10 @@
   "h": 1250,
   "w": 1000
  },
+ "product/delilah": {
+  "w": 1000,
+  "h": 1016
+ },
  "product/della": {
   "h": 750,
   "w": 750
@@ -134,6 +138,10 @@
  "product/looking-lovely": {
   "w": 1000,
   "h": 1046
+ },
+ "product/lorna": {
+  "w": 1000,
+  "h": 922
  },
  "product/lucy": {
   "w": 1000,

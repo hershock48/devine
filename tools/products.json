@@ -11,11 +11,11 @@
     { "slug": "plants", "name": "Plants" }
   ],
   "products": [
-    { "slug": "natures-home", "name": "Nature's Home", "price": 95.00, "cats": ["celebration-of-life"], "img": "2026/08/IMG_0661-1-scaled.jpeg" },
-    { "slug": "eden", "name": "Eden", "price": 125.00, "cats": ["celebration-of-life"], "img": "2026/07/IMG_0211-scaled.jpeg" },
+    { "slug": "natures-home", "name": "Nature's Home", "price": 95.00, "offMenu": true, "cats": ["celebration-of-life"], "img": "2026/08/IMG_0661-1-scaled.jpeg" },
+    { "slug": "eden", "name": "Eden", "price": 135.00, "cats": ["celebration-of-life"], "img": "2026/07/IMG_0211-scaled.jpeg" },
     { "slug": "gayles-garden", "name": "Gayle's Garden", "price": 215.00, "cats": ["celebration-of-life"], "img": "2024/07/Gayles-Garden.jpg" },
     { "slug": "mary", "name": "Mary", "price": 95.00, "cats": ["celebration-of-life"], "img": "2024/07/Mary.jpg" },
-    { "slug": "crystal-cross", "name": "Crystal Cross Garden", "price": 130.00, "cats": ["celebration-of-life"], "img": "2024/07/Crystal-Cross.jpg" },
+    { "slug": "crystal-cross", "name": "Crystal Cross Garden", "price": 155.00, "cats": ["celebration-of-life"], "img": "2024/07/Crystal-Cross.jpg" },
 
     { "slug": "magic-hour-vitality-tea", "name": "Magic Hour Vitality Tea", "price": 12.00, "cats": ["gifts-add-ons"], "img": "2026/07/Vitality-2-scaled.jpeg" },
     { "slug": "magic-hour-balance-tea", "name": "Magic Hour Balance Tea", "price": 12.00, "cats": ["gifts-add-ons"], "img": "2026/07/IMG_0167-scaled.jpeg" },
@@ -49,6 +49,8 @@
     { "slug": "ginger", "name": "Ginger", "price": 85.00, "cats": ["just-because"], "img": "2026/08/IMG_0741-scaled.jpeg" },
     { "slug": "bridget", "name": "Bridget", "price": 85.00, "cats": ["just-because"], "img": "2026/08/IMG_0676-scaled.jpeg" },
     { "slug": "helene", "name": "Helene", "price": 115.00, "cats": ["just-because"], "img": "2026/08/IMG_0805-scaled.jpeg" },
+    { "slug": "lorna", "name": "Lorna", "price": 85.00, "cats": ["just-because"], "img": "" },
+    { "slug": "delilah", "name": "Delilah", "price": 100.00, "cats": ["just-because"], "img": "" },
 
     { "slug": "hanna", "name": "Hanna", "price": 60.00, "cats": ["anniversary"], "img": "2026/08/IMG_0557-scaled.jpeg" },
     { "slug": "dozen-roses", "name": "Classic Red Dozen", "price": 75.00, "regularPrice": 126.95, "onSale": true, "cats": ["anniversary"], "img": "2026/01/IMG_0513-scaled.jpeg" },
@@ -58,10 +60,10 @@
     { "slug": "eliza", "name": "Eliza", "price": 135.00, "cats": ["anniversary"], "img": "2026/08/IMG_0478-scaled.jpeg" },
 
     { "slug": "looking-lovely", "name": "Looking Lovely", "price": 55.00, "cats": ["birthday"], "img": "2026/03/IMG_9491-scaled.jpeg" },
-    { "slug": "blooming-candle", "name": "Blooming Candle", "price": 70.00, "cats": ["birthday"], "img": "2024/07/IMG_8580-scaled.jpeg" },
+    { "slug": "blooming-candle", "name": "Blooming Candle", "price": 75.00, "cats": ["birthday"], "img": "2024/07/IMG_8580-scaled.jpeg" },
     { "slug": "clementine", "name": "Clementine", "price": 85.00, "cats": ["birthday"], "img": "2026/06/Screenshot-2026-06-01-105732.png" },
     { "slug": "lucy", "name": "Lucy", "price": 105.00, "cats": ["birthday"], "img": "" },
-    { "slug": "nicole", "name": "Nicole", "price": 110.00, "cats": ["birthday"], "img": "2025/04/Nicole-2-1.jpg" },
+    { "slug": "nicole", "name": "Nicole", "price": 120.00, "cats": ["birthday"], "img": "2025/04/Nicole-2-1.jpg" },
 
     { "slug": "6-peace-lily", "name": "6″ Peace Lily", "price": 46.95, "cats": ["plants"], "img": "2024/08/6-inch-Peace-Lily.jpg" },
     { "slug": "small-ceramic-dish-garden", "name": "Small Ceramic Dish Garden", "price": 50.95, "cats": ["plants"], "img": "2026/02/IMG_0028-scaled.jpeg" },

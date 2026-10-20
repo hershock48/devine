@@ -67,6 +67,7 @@ type Order = {
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
+  thirdParty?: boolean;
   printedAt?: number;
   /** Rung up from the Quick sale panel: a done pickup for "Walk-in". */
   quick?: boolean;
@@ -124,6 +125,7 @@ type Contact = {
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
+  thirdParty?: boolean;
   street?: string;
   town?: string;
   zip?: string;
@@ -433,15 +435,20 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       const key = o.batchId || o.id;
       batches.set(key, [...(batches.get(key) ?? []), o]);
     }
+    // ON ACCOUNT, OUT THE DOOR (Katy, 2026-10-20): a billed order that has
+    // gone out is finished as far as the board is concerned; the money is
+    // the Accounts tab's business, not the red section's. It files under
+    // Finished with its "on account · not paid" words.
     const isClosed = (o: Order) =>
       (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
-      (o.status === "done" && !!o.payment && balanceCents(o) === 0);
+      (o.status === "done" && !!o.payment && balanceCents(o) === 0) ||
+      (o.status === "done" && !!o.account && balanceCents(o) > 0);
     return {
       held: held.sort(byDate),
       overdue: open.filter((o) => o.date < today).sort(byDate),
       today: open.filter((o) => o.date === today).sort(byDate),
       upcoming: open.filter((o) => o.date > today).sort(byDate),
-      owed: shown.filter((o) => o.status === "done" && balanceCents(o) > 0).sort(byDate),
+      owed: shown.filter((o) => o.status === "done" && !o.account && balanceCents(o) > 0).sort(byDate),
       // Canceled after paying, or trimmed below what was paid: both are
       // money to give back, and both get the red bucket.
       toRefund: shown
@@ -638,7 +645,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 function ClosedList({ orders, onUncancel, onUnmark }: { orders: Order[]; onUncancel?: (id: string) => Promise<void>; onUnmark?: (id: string) => Promise<void> }) {
   if (orders.length === 0) return null;
   const moneyWord = (o: Order) => {
-    if (!o.payment) return o.status === "canceled" ? "" : "not paid";
+    if (!o.payment) return o.status === "canceled" ? "" : o.account ? "on account · not paid" : "not paid";
     // Everything paid, fees included, the one refund figure (derive.ts
     // refundableCents): a ticket paid in parts (cash then card) is one
     // paid order, not a $40 one, and the line agrees with the card's.
@@ -690,6 +697,7 @@ function ClosedList({ orders, onUncancel, onUnmark }: { orders: Order[]; onUncan
                 {o.email ? ` · ${o.email}` : ""}
                 {o.account ? " · on account" : ""}
                 {o.taxExempt ? " · tax exempt" : ""}
+                {o.thirdParty ? " · third party, no tax" : ""}
                 {o.takenBy ? ` · taken by ${o.takenBy}` : ""}
                 {o.madeBy ? ` · made by ${o.madeBy}` : ""}
               </p>
@@ -1375,6 +1383,7 @@ function OrderCard({
         {o.account ? <strong> · ON ACCOUNT</strong> : ""}
         {batch ? <strong> · order {batch.index} of {batch.count}, one card for all</strong> : ""}
         {o.taxExempt ? ` · tax exempt${o.taxId ? ` (ID ${o.taxId})` : ""}` : ""}
+        {o.thirdParty ? " · third-party order, no tax" : ""}
       </p>
       {o.takenBy && <InitialsLine o={o} which="takenBy" onMove={onMove} />}
       {o.madeBy && <InitialsLine o={o} which="madeBy" onMove={onMove} />}
@@ -1882,7 +1891,7 @@ function StopFields({
   library,
   index,
   count,
-  taxExempt,
+  taxWord,
   m,
   focus,
   onFocused,
@@ -1894,7 +1903,9 @@ function StopFields({
   library: StemPrice[];
   index: number;
   count: number;
-  taxExempt: boolean;
+  /** Why there is no tax line ("tax exempt", "no tax, third-party order"),
+      or "" when the tax is charged. */
+  taxWord: string;
   /** This order's arithmetic, computed once by the form (it sums them). */
   m: ReturnType<typeof stopMath>;
   /** Land the cursor in this one when it appears (the one just added). */
@@ -2182,7 +2193,7 @@ function StopFields({
         <p className="muted" style={{ margin: 0, fontSize: 14.5 }}>
           {many ? `Order ${index}: items` : "Items"} {money(m.items)}
           {m.fee > 0 ? ` + delivery ${money(m.fee)}` : ""}
-          {taxExempt ? " · tax exempt" : ` + sales tax ${money(m.tax)}`}
+          {taxWord ? ` · ${taxWord}` : ` + sales tax ${money(m.tax)}`}
           {" = "}
           <strong>{money(m.total)}</strong>
         </p>
@@ -2802,6 +2813,12 @@ function PhoneOrderForm({
   const [account, setAccount] = useState(seed?.account ?? false);
   const [taxExempt, setTaxExempt] = useState(seed?.taxExempt ?? false);
   const [taxId, setTaxId] = useState(seed?.taxId ?? "");
+  /** THROUGH A THIRD PARTY (Katy, 2026-10-20): Tribute and the like
+      collect the tax from their own customer, so the ticket here carries
+      none, but the order is not tax exempt and must not read as one. */
+  const [thirdParty, setThirdParty] = useState(seed?.thirdParty ?? false);
+  const noTax = taxExempt || thirdParty;
+  const taxWord = taxExempt ? "tax exempt" : thirdParty ? "no tax, third-party order" : "";
   /** The orders on this write-up, one or more. */
   const [stops, setStops] = useState<Stop[]>(() => [
     editing ? stopFromOrder(editing) : addTo ? blankStop(carryOver(stopFromOrder(addTo))) : blankStop(),
@@ -2858,6 +2875,7 @@ function PhoneOrderForm({
       account,
       taxExempt,
       taxId: taxExempt ? taxId.trim() : "",
+      thirdParty,
       name,
       business: business.trim(),
       phone,
@@ -2895,7 +2913,7 @@ function PhoneOrderForm({
   }
 
   const many = stops.length > 1;
-  const maths = stops.map((s) => stopMath(s, library, taxExempt));
+  const maths = stops.map((s) => stopMath(s, library, noTax));
   const sum = (pick: (m: ReturnType<typeof stopMath>) => number) => Math.round(maths.reduce((t, m) => t + pick(m), 0) * 100) / 100;
   const grand = { items: sum((m) => m.items), fee: sum((m) => m.fee), tax: sum((m) => m.tax), total: sum((m) => m.total) };
 
@@ -3085,6 +3103,10 @@ function PhoneOrderForm({
             <input type="checkbox" checked={taxExempt} onChange={(e) => setTaxExempt(e.target.checked)} style={radio} />
             Tax exempt (no sales tax)
           </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0" }}>
+            <input type="checkbox" checked={thirdParty} onChange={(e) => setThirdParty(e.target.checked)} style={radio} />
+            Third-party order (Tribute): they bill the tax, none here
+          </label>
         </div>
         {/* The exemption number, asked for once the box is ticked (Kevin,
             2026-10-14). Kept with the order and printed on the ticket. */}
@@ -3111,7 +3133,7 @@ function PhoneOrderForm({
           library={library}
           index={i + 1}
           count={stops.length}
-          taxExempt={taxExempt}
+          taxWord={taxWord}
           m={maths[i]}
           focus={s.key === focusKey}
           onFocused={clearFocus}
@@ -3153,7 +3175,7 @@ function PhoneOrderForm({
         <p style={{ margin: 0, fontSize: 15 }}>
           <strong>{stops.length} orders:</strong> items {money(grand.items)}
           {grand.fee > 0 ? ` + delivery ${money(grand.fee)}` : ""}
-          {taxExempt ? " · tax exempt" : ` + sales tax ${money(grand.tax)}`}
+          {taxWord ? ` · ${taxWord}` : ` + sales tax ${money(grand.tax)}`}
           {" = "}
           <strong>{money(grand.total)}</strong>
           <span className="muted"> · one card for all of them</span>
