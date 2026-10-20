@@ -154,7 +154,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
   const taxExempt = p.taxExempt === true;
   // A third-party order (Tribute): no tax line either, the service bills
   // its own customer for it; kept apart from exempt on the record.
-  const thirdParty = p.thirdParty === true;
+  const thirdParty = p.thirdParty === true && !taxExempt;
   const stated = typeof p.tax === "number" && Number.isFinite(p.tax) && p.tax >= 0 ? p.tax : undefined;
   const taxed = withTaxLine(lines, taxExempt || thirdParty, stated);
   lines.splice(0, lines.length, ...taxed);

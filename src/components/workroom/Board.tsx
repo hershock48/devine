@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
 import PayControls, { CashTendered, changeFor } from "@/components/workroom/PayControls";
 
 /**
@@ -125,7 +125,6 @@ type Contact = {
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
-  thirdParty?: boolean;
   street?: string;
   town?: string;
   zip?: string;
@@ -346,6 +345,8 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       cannot see refunds on its own (no refund webhook subscribed) and
       should not pretend to. */
   const markRefunded = (id: string) => patchOrder({ id, markRefunded: true });
+  /** Off account (a delivered order billed by mistake): back to owed. */
+  const accountOff = (id: string) => patchOrder({ id, account: false });
 
   /** The delivery fee adjusted on the card itself, before the card is
       taken (Katy, 2026-10-06). On a paid order the card then shows what is owed back. */
@@ -429,12 +430,6 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     // order, the first included, with the first's id; a group grown from
     // the old post-save button left its first order with no batchId. So
     // the key is "batchId, else my own id", and both shapes group right.
-    const batches = new Map<string, Order[]>();
-    for (const o of shown) {
-      if (o.status === "canceled" || o.status === "hold" || balanceCents(o) <= 0) continue;
-      const key = o.batchId || o.id;
-      batches.set(key, [...(batches.get(key) ?? []), o]);
-    }
     // ON ACCOUNT, OUT THE DOOR (Katy, 2026-10-20): a billed order that has
     // gone out is finished as far as the board is concerned; the money is
     // the Accounts tab's business, not the red section's. It files under
@@ -443,6 +438,14 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       (o.status === "canceled" && (!o.payment || !!o.payment.refundedAt)) ||
       (o.status === "done" && !!o.payment && balanceCents(o) === 0) ||
       (o.status === "done" && !!o.account && balanceCents(o) > 0);
+    const batches = new Map<string, Order[]>();
+    for (const o of shown) {
+      // A filed-away order (closed) is never part of "one card for all":
+      // a billed order's money is the Accounts tab's, not the group's.
+      if (o.status === "canceled" || o.status === "hold" || balanceCents(o) <= 0 || isClosed(o)) continue;
+      const key = o.batchId || o.id;
+      batches.set(key, [...(batches.get(key) ?? []), o]);
+    }
     return {
       held: held.sort(byDate),
       overdue: open.filter((o) => o.date < today).sort(byDate),
@@ -600,7 +603,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
                 Finished &amp; canceled ({buckets.closed.length})
               </h2>
-              <ClosedList orders={buckets.closed} onUncancel={uncancel} onUnmark={unmarkPaid} />
+              <ClosedList orders={buckets.closed} onUncancel={uncancel} onUnmark={unmarkPaid} onAccountOff={accountOff} />
             </section>
           )}
         </>
@@ -628,7 +631,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
               {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
             </button>
           </p>
-          {showDone && <ClosedList orders={buckets.closed} onUncancel={uncancel} onUnmark={unmarkPaid} />}
+          {showDone && <ClosedList orders={buckets.closed} onUncancel={uncancel} onUnmark={unmarkPaid} onAccountOff={accountOff} />}
         </>
       )}
     </>
@@ -642,7 +645,19 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
  * these too, so a caller asking about last month's order is one search and
  * one glance.
  */
-function ClosedList({ orders, onUncancel, onUnmark }: { orders: Order[]; onUncancel?: (id: string) => Promise<void>; onUnmark?: (id: string) => Promise<void> }) {
+function ClosedList({
+  orders,
+  onUncancel,
+  onUnmark,
+  onAccountOff,
+}: {
+  orders: Order[];
+  onUncancel?: (id: string) => Promise<void>;
+  onUnmark?: (id: string) => Promise<void>;
+  /** A delivered, unpaid order put on account by mistake goes back to
+      the red section to be paid at the counter. */
+  onAccountOff?: (id: string) => Promise<void>;
+}) {
   if (orders.length === 0) return null;
   const moneyWord = (o: Order) => {
     if (!o.payment) return o.status === "canceled" ? "" : o.account ? "on account · not paid" : "not paid";
@@ -650,6 +665,9 @@ function ClosedList({ orders, onUncancel, onUnmark }: { orders: Order[]; onUncan
     // refundableCents): a ticket paid in parts (cash then card) is one
     // paid order, not a $40 one, and the line agrees with the card's.
     if (o.payment.refundedAt) return `refunded ${money(grossPaidCents(o) / 100)}`;
+    // A billed order paid in part (cash at the counter, the rest on
+    // account) files here too; the row says what is still owed.
+    if (balanceCents(o) > 0) return `paid ${money(collectedCents(o) / 100)} · ${money(balanceCents(o) / 100)} owed${o.account ? ", on account" : ""}`;
     return `paid ${money(grossPaidCents(o) / 100)}${refundedCents(o) > 0 ? ` · ${money(refundedCents(o) / 100)} refunded` : ""}`;
   };
   return (
@@ -715,6 +733,17 @@ function ClosedList({ orders, onUncancel, onUnmark }: { orders: Order[]; onUncan
               {/* A delivered account order marked paid by hand lands here, so
                   the undo lives here too (Katy, 2026-10-15); never for Square
                   money, never once refunded. */}
+              {o.status === "done" && o.account && !o.payment && onAccountOff && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("Take it off account? It goes back to Out the door, not paid, to be paid at the counter.")) onAccountOff(o.id).catch(() => {});
+                  }}
+                  style={{ ...textButton, fontSize: 13.5 }}
+                >
+                  Not on account? Take it off
+                </button>
+              )}
               {o.status !== "canceled" && !o.payment?.refundedAt && paidByHandOnly(o) && onUnmark && (
                 <p style={{ margin: 0 }}>
                   <button
@@ -1239,7 +1268,7 @@ function OrderCard({
   /* This order's group, when two or more of them still need paying: what
      the pay pane offers to settle at once, each for its own share. */
   const group = batches?.get(o.batchId || o.id);
-  const owedFor = (x: Order) => Math.max(0, balanceCents(x)) + (x.payment ? 0 : Math.round((zipFeeToAppend(x) ?? 0) * 100));
+  const owedFor = (x: Order) => owedNowCents(x);
   const batch =
     group && group.length > 1 && group.some((x) => x.id === o.id)
       ? { ids: group.map((x) => x.id), count: group.length, index: group.findIndex((x) => x.id === o.id) + 1, totalCents: group.reduce((s, x) => s + owedFor(x), 0), name: o.business || o.name, owed: group.map((x) => ({ number: x.number, cents: owedFor(x) })) }
@@ -3100,11 +3129,29 @@ function PhoneOrderForm({
             On account (billed, not paid now)
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0" }}>
-            <input type="checkbox" checked={taxExempt} onChange={(e) => setTaxExempt(e.target.checked)} style={radio} />
+            <input
+              type="checkbox"
+              checked={taxExempt}
+              onChange={(e) => {
+                // One reason for no tax, never both: the record would carry
+                // two contradictory stories and print only one.
+                setTaxExempt(e.target.checked);
+                if (e.target.checked) setThirdParty(false);
+              }}
+              style={radio}
+            />
             Tax exempt (no sales tax)
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0" }}>
-            <input type="checkbox" checked={thirdParty} onChange={(e) => setThirdParty(e.target.checked)} style={radio} />
+            <input
+              type="checkbox"
+              checked={thirdParty}
+              onChange={(e) => {
+                setThirdParty(e.target.checked);
+                if (e.target.checked) setTaxExempt(false);
+              }}
+              style={radio}
+            />
             Third-party order (Tribute): they bill the tax, none here
           </label>
         </div>

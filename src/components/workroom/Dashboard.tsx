@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MemoryWarning, PinGate, field, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
-import { balanceCents, consumption, HISTORY_DAYS, isDeliveryLine, isoDate, isTaxLine, lotCosting, mondayOf, netOfTax, saleInstantMs, type SoldCost, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, consumption, HISTORY_DAYS, isDeliveryLine, isoDate, isTaxLine, lotCosting, mondayOf, netOfTax, owedNowCents, saleInstantMs, type SoldCost, zipFeeToAppend } from "@/lib/workroom/derive";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
@@ -938,11 +938,10 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
     // What Take-card will actually charge: a delivery ticket with no
     // delivery line yet gets the zip's sheet fee appended at payment, so
     // both tiles count it too (the pay route's rule, mirrored).
-    const owedOn = (o: Order) => Math.max(0, balanceCents(o)) + (o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100));
     const owed = orders.filter((o) => o.status === "done" && !o.account && balanceCents(o) > 0);
-    const owedCents = owed.reduce((sum, o) => sum + owedOn(o), 0);
+    const owedCents = owed.reduce((sum, o) => sum + owedNowCents(o), 0);
     const onAccount = orders.filter((o) => !!o.account && o.status !== "canceled" && o.status !== "hold" && balanceCents(o) > 0);
-    const onAccountCents = onAccount.reduce((sum, o) => sum + owedOn(o), 0);
+    const onAccountCents = onAccount.reduce((sum, o) => sum + owedNowCents(o), 0);
 
     return { now, prev, owedCount: owed.length, owedCents, onAccountCount: onAccount.length, onAccountCents };
   }, [events, recipes, orders, sales, contacts, win, sourceFilter]);
