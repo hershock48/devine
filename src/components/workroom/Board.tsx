@@ -5,7 +5,7 @@ import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
-import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeCentsToAppend } from "@/lib/workroom/derive";
 import PayControls, { CashTendered, changeFor } from "@/components/workroom/PayControls";
 
 /**
@@ -125,6 +125,7 @@ type Contact = {
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
+  thirdParty?: boolean;
   street?: string;
   town?: string;
   zip?: string;
@@ -440,9 +441,10 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       (o.status === "done" && !!o.account && balanceCents(o) > 0);
     const batches = new Map<string, Order[]>();
     for (const o of shown) {
-      // A filed-away order (closed) is never part of "one card for all":
-      // a billed order's money is the Accounts tab's, not the group's.
-      if (o.status === "canceled" || o.status === "hold" || balanceCents(o) <= 0 || isClosed(o)) continue;
+      // Not groupable: canceled or held, on account (a billed order's
+      // money is the Accounts tab's, not the group's, from the moment it
+      // is billed), filed away, or with nothing left to pay.
+      if (o.status === "canceled" || o.status === "hold" || o.account || isClosed(o) || balanceCents(o) <= 0) continue;
       const key = o.batchId || o.id;
       batches.set(key, [...(batches.get(key) ?? []), o]);
     }
@@ -1632,7 +1634,7 @@ function OrderCard({
           /* Mirrors the pay route's own computation: a delivery ticket with
              no delivery line yet gets the zip's fee appended at charge time,
              and the buttons must quote what will actually be charged. */
-          deliveryCents={o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100)}
+          deliveryCents={zipFeeCentsToAppend(o)}
           payment={o.payment}
           balanceCents={balanceCents(o)}
           collectedCents={collectedCents(o)}
@@ -2840,14 +2842,18 @@ function PhoneOrderForm({
       settled. Tax exempt: the route writes no tax line. Both are the
       customer's, so they apply to every order on the write-up. */
   const [account, setAccount] = useState(seed?.account ?? false);
-  const [taxExempt, setTaxExempt] = useState(seed?.taxExempt ?? false);
-  const [taxId, setTaxId] = useState(seed?.taxId ?? "");
-  /** THROUGH A THIRD PARTY (Katy, 2026-10-20): Tribute and the like
-      collect the tax from their own customer, so the ticket here carries
-      none, but the order is not tax exempt and must not read as one. */
-  const [thirdParty, setThirdParty] = useState(seed?.thirdParty ?? false);
-  const noTax = taxExempt || thirdParty;
+  /** WHY THERE IS NO TAX, one reason or none. "exempt": a school, a
+      church, a reseller with a certificate. "third": THROUGH A THIRD PARTY
+      (Katy, 2026-10-20), Tribute and the like, who collect the tax from
+      their own customer, so the ticket here carries none but the order is
+      not exempt and must not read as one. One field, so the two can never
+      both be on: the boxes, a picked customer and an edit all set it. */
+  const [noTaxWhy, setNoTaxWhy] = useState<"" | "exempt" | "third">(seed?.taxExempt ? "exempt" : seed?.thirdParty ? "third" : "");
+  const taxExempt = noTaxWhy === "exempt";
+  const thirdParty = noTaxWhy === "third";
+  const noTax = noTaxWhy !== "";
   const taxWord = taxExempt ? "tax exempt" : thirdParty ? "no tax, third-party order" : "";
+  const [taxId, setTaxId] = useState(seed?.taxId ?? "");
   /** The orders on this write-up, one or more. */
   const [stops, setStops] = useState<Stop[]>(() => [
     editing ? stopFromOrder(editing) : addTo ? blankStop(carryOver(stopFromOrder(addTo))) : blankStop(),
@@ -3099,7 +3105,7 @@ function PhoneOrderForm({
                   // An account customer stays one: their last order's
                   // account and tax-exempt settings come along, ID too.
                   setAccount(c.account === true);
-                  setTaxExempt(c.taxExempt === true);
+                  setNoTaxWhy(c.taxExempt ? "exempt" : c.thirdParty ? "third" : "");
                   setTaxId(c.taxExempt ? c.taxId ?? "" : "");
                 }}
                 style={chipSolid}
@@ -3132,12 +3138,7 @@ function PhoneOrderForm({
             <input
               type="checkbox"
               checked={taxExempt}
-              onChange={(e) => {
-                // One reason for no tax, never both: the record would carry
-                // two contradictory stories and print only one.
-                setTaxExempt(e.target.checked);
-                if (e.target.checked) setThirdParty(false);
-              }}
+              onChange={(e) => setNoTaxWhy(e.target.checked ? "exempt" : "")}
               style={radio}
             />
             Tax exempt (no sales tax)
@@ -3146,10 +3147,7 @@ function PhoneOrderForm({
             <input
               type="checkbox"
               checked={thirdParty}
-              onChange={(e) => {
-                setThirdParty(e.target.checked);
-                if (e.target.checked) setTaxExempt(false);
-              }}
+              onChange={(e) => setNoTaxWhy(e.target.checked ? "third" : "")}
               style={radio}
             />
             Third-party order (Tribute): they bill the tax, none here

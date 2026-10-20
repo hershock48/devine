@@ -495,12 +495,14 @@ export type OrderContact = {
   street: string;
   town: string;
   zip: string;
-  /** The account and tax-exempt settings of this order, so a returning
-      account customer's next write-up starts with them ticked and the
-      exemption number filled (Kevin, 2026-10-14). */
+  /** The account, tax-exempt and third-party settings of this order, so
+      a returning account customer's next write-up starts with them
+      ticked and the exemption number filled (Kevin, 2026-10-14; the
+      third-party box 2026-10-20, so Tribute's next order is not taxed). */
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
+  thirdParty?: boolean;
 };
 
 /**
@@ -806,6 +808,7 @@ const memoryStore: Store = {
         account: o.account === true,
         taxExempt: o.taxExempt === true,
         taxId: o.taxId ?? "",
+        thirdParty: o.thirdParty === true,
         street: o.street,
         town: o.town,
         zip: o.zip,
@@ -1204,7 +1207,7 @@ const postgresStore: Store = {
               COALESCE(data->>'company', '') AS company,
               COALESCE(data->>'business', '') AS business,
               COALESCE(data->>'recipientPhone', '') AS recipient_phone,
-              COALESCE(data->>'account', 'false') AS account, COALESCE(data->>'taxExempt', 'false') AS tax_exempt, COALESCE(data->>'taxId', '') AS tax_id,
+              COALESCE(data->>'account', 'false') AS account, COALESCE(data->>'taxExempt', 'false') AS tax_exempt, COALESCE(data->>'taxId', '') AS tax_id, COALESCE(data->>'thirdParty', 'false') AS third_party,
               data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, created_at
        FROM workroom_orders WHERE status <> 'canceled' AND COALESCE(data->>'quick', 'false') <> 'true' ORDER BY created_at DESC LIMIT 5000`,
     );
@@ -1221,6 +1224,7 @@ const postgresStore: Store = {
       account: row.account === "true",
       taxExempt: row.tax_exempt === "true",
       taxId: (row.tax_id as string) ?? "",
+      thirdParty: row.third_party === "true",
       street: (row.street as string) ?? "",
       town: (row.town as string) ?? "",
       zip: (row.zip as string) ?? "",
