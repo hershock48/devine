@@ -173,7 +173,12 @@ export const zipFeeToAppend = (o: { fulfillment: string; zip: string; lines: { n
     the Accounts tab and the dashboard each had their own, and two of
     them disagreed on the screen). */
 export const owedNowCents = (o: { subtotal: number; fulfillment: string; zip: string; lines: { name: string }[]; payment?: (Paid & { method?: string }) | null; topUps?: Paid[]; refunds?: { cents: number }[] }): number =>
-  Math.max(0, balanceCents(o)) + (o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100));
+  Math.max(0, balanceCents(o)) + zipFeeCentsToAppend(o);
+/** The same fee in cents, and nothing once the order is paid (the pay
+    route appended it then, or there was none): what the pay pane quotes
+    as the delivery to add, and what owedNowCents adds. */
+export const zipFeeCentsToAppend = (o: { fulfillment: string; zip: string; lines: { name: string }[]; payment?: unknown }): number =>
+  o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100);
 /** The ticket as it stands once paid: the sheet fee appended as a Delivery
     line when the order never carried one, else the ticket as is. One copy
     of the arithmetic for the single and the group pay paths. */

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, refundedCents, squareMoney, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, refundedCents, squareMoney, zipFeeCentsToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -81,7 +81,6 @@ const daysSince = (ms: number) => Math.max(0, Math.floor((Date.now() - ms) / DAY
 
 /** The delivery fee the pay route will append, in cents (derive.ts holds
     the one rule). */
-const feeToAppend = (o: Order): number => Math.round((zipFeeToAppend(o) ?? 0) * 100);
 /** What is collectable now. A held order is not: nothing is promised yet
     and the pay route refuses it, the board's own reading. */
 const owedOn = (o: Order): number => (o.status === "canceled" || o.status === "hold" ? 0 : owedNowCents(o));
@@ -351,7 +350,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                     <PayControls
                       orderId={o.id}
                       subtotal={o.subtotal}
-                      deliveryCents={o.payment ? 0 : feeToAppend(o)}
+                      deliveryCents={zipFeeCentsToAppend(o)}
                       payment={o.payment}
                       balanceCents={balanceCents(o)}
                       collectedCents={collectedCents(o)}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MemoryWarning, PinGate, field, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
-import { balanceCents, consumption, HISTORY_DAYS, isDeliveryLine, isoDate, isTaxLine, lotCosting, mondayOf, netOfTax, owedNowCents, saleInstantMs, type SoldCost, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, consumption, HISTORY_DAYS, isDeliveryLine, isoDate, isTaxLine, lotCosting, mondayOf, netOfTax, owedNowCents, saleInstantMs, type SoldCost } from "@/lib/workroom/derive";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
