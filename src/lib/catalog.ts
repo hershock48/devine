@@ -1,5 +1,5 @@
 /**
- * THE CATALOG. 58 products: 57 harvested from their WooCommerce shop on 2026-08-20 and
+ * THE CATALOG. 60 products: 57 harvested from their WooCommerce shop on 2026-08-20 and
  * one (Lucy) added by hand on 2026-10-14; the harvest notes below are about the 57, and
  * cross-checked against their own Store API, so every name, price and description
  * here is theirs rather than ours.
@@ -102,15 +102,17 @@ const SUB_NOTE = ""; // substitution language lives in site.ts, shown once per p
 
 export const products: Product[] = [
   // ---- Celebration of Life ----
-  { slug: "natures-home", name: "Nature's Home", price: 95, cats: ["celebration-of-life"], img: "2026/08/IMG_0661-1-scaled.jpeg",
+  /* Off the menu (Katy, 2026-10-20: "take down Nature's Home from the
+     Sympathy category"); the workroom can still sell it by name. */
+  { slug: "natures-home", name: "Nature's Home", price: 95, cats: ["celebration-of-life"], img: "2026/08/IMG_0661-1-scaled.jpeg", offMenu: true,
     desc: "A bright garden designed in a locally made bird house planter. Blue delphinium, yellow cushion mums, red miniature carnations, orange alstroemeria and aster carry an uplifting sentiment to someone in a time of grief." },
-  { slug: "eden", name: "Eden", price: 125, cats: ["celebration-of-life"], img: "2026/07/IMG_0211-scaled.jpeg",
+  { slug: "eden", name: "Eden", price: 135, cats: ["celebration-of-life"], img: "2026/07/IMG_0211-scaled.jpeg",
     desc: "Serenity in a soft, feminine garden of snapdragons, lisianthus, stock, alstroemeria, button mums, and both full size and petite roses, gathered in a rustic wooden box." },
   { slug: "gayles-garden", name: "Gayle's Garden", price: 215, cats: ["celebration-of-life"], img: "2024/07/Gayles-Garden.jpg",
     desc: "Full and vibrant, a true garden variety, designed with a cottage garden in mind. Mixed greens, sunflowers, leucadendron, purple statice, burgundy carnations, solidago, blue delphinium, burnt orange cremones, spray roses, bells of Ireland, iris, yellow and red alstroemeria, orange mini carnations and purple daisies, finished with a bow." },
   { slug: "mary", name: "Mary", price: 95, cats: ["celebration-of-life"], img: "2024/07/Mary.jpg",
     desc: "A tender, bright arrangement of greens, mini carnations, thistle, daisies, viking and button mums surrounding a ceramic keepsake angel." },
-  { slug: "crystal-cross", name: "Crystal Cross Garden", price: 130, cats: ["celebration-of-life"], img: "2024/07/Crystal-Cross.jpg",
+  { slug: "crystal-cross", name: "Crystal Cross Garden", price: 155, cats: ["celebration-of-life"], img: "2024/07/Crystal-Cross.jpg",
     desc: "A low arrangement in a rectangular centerpiece container, adorned with a crystal cross. Roses, statice, larkspur, button mums, daisies, green hypericum, pink carnations and white buttons in soft and bold hues." },
 
   // ---- Gifts & Add Ons ----
@@ -184,6 +186,13 @@ export const products: Product[] = [
     desc: "Put the creative agency in the hands of the designer. Container and flowers are chosen for seasonality, availability and inspiration on the day. Tell us any colors or flowers you have in mind in your order notes." },
   { slug: "helene", name: "Helene", price: 115, cats: ["just-because"], img: "2026/08/IMG_0805-scaled.jpeg",
     desc: "A show stopping vased arrangement in gray ceramic, abundant with seeded eucalyptus, willow eucalyptus, plumosa fern, grasses and ninebark. Woven through the greenery: solidago, cremone mums, burgundy micro daisies, golden fennel and a mixture of hypericum berries. For someone who appreciates a natural, neutral palette." },
+  /* LORNA and DELILAH (Katy, 2026-10-20, with photos): new since the
+     harvest. The copy is written from her flower lists in the catalog's
+     own voice; the photographs went through tools/ingest-photo.mjs. */
+  { slug: "lorna", name: "Lorna", price: 85, cats: ["just-because"], img: "",
+    desc: "Autumn in a weathered wooden box. Green hydrangea, burgundy leucadendron, a Free Spirit rose, golden button mums and a bronze cremone, with snapdragons, orange waxflower, autumn leaves and seeded eucalyptus in seasonal greenery." },
+  { slug: "delilah", name: "Delilah", price: 100, cats: ["just-because"], img: "",
+    desc: "A field in late summer. Sunflowers, golden Viking poms and solidago in a clear glass vase, with plumes of dried grass, seeded eucalyptus and fern in seasonal mixed greenery." },
 
   // ---- Anniversary ----
   { slug: "hanna", name: "Hanna", price: 60, cats: ["anniversary"], img: "2026/08/IMG_0557-scaled.jpeg",
@@ -202,7 +211,7 @@ export const products: Product[] = [
   // ---- Birthday ----
   { slug: "looking-lovely", name: "Looking Lovely", price: 55, cats: ["birthday"], img: "2026/03/IMG_9491-scaled.jpeg",
     desc: "A garden of bold color. Orange daisies, purple alstroemeria, magenta mini carnations, lavender button mums, solidago and a sunflower in mixed seasonal greenery." },
-  { slug: "blooming-candle", name: "Blooming Candle", price: 70, cats: ["birthday"], img: "2024/07/IMG_8580-scaled.jpeg",
+  { slug: "blooming-candle", name: "Blooming Candle", price: 75, cats: ["birthday"], img: "2024/07/IMG_8580-scaled.jpeg",
     /* Copy from the owner's own recipe (Kevin, 2026-10-17: "the recipe is
        just off"); the harvested text named flowers that are not in it. */
     desc: "Two gifts in one. Fresh flowers arranged into the top of a scented tinned candle: Free Spirit roses, Viking poms, purple alstroemeria, carnations and bright fillers in seasonal mixed greenery." },
@@ -213,7 +222,7 @@ export const products: Product[] = [
     desc: "Sunshine in a vase. Pale yellow lisianthus, sunflowers, orange snapdragons, dahlias, orange wallflower and orange lilies, arranged tall in a clear glass vase with seasonal greenery. Warm, bright and glad to see you." },
   { slug: "clementine", name: "Clementine", price: 85, cats: ["birthday"], img: "2026/06/Screenshot-2026-06-01-105732.png",
     desc: "The warmth of summer, in double petaled gerbera daisies, snapdragons, sunset orange daisies, whimsical yellow butterfly ranunculus, purple statice and solidago, in a gray ceramic container with seasonal summer greenery." },
-  { slug: "nicole", name: "Nicole", price: 110, cats: ["birthday"], img: "2025/04/Nicole-2-1.jpg",
+  { slug: "nicole", name: "Nicole", price: 120, cats: ["birthday"], img: "2025/04/Nicole-2-1.jpg",
     desc: "The energy of a garden in full bloom, in a bubble glass vase. Blue delphinium, Free Spirit roses, orange and yellow alstroemeria, blue hydrangea, orange lily, chamomile, pink rice flower and solidago." },
 
   // ---- Plants ----

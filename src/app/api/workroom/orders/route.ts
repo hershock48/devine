@@ -152,8 +152,11 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
   // money); the phone form does not, and the route computes it.
   const account = p.account === true;
   const taxExempt = p.taxExempt === true;
+  // A third-party order (Tribute): no tax line either, the service bills
+  // its own customer for it; kept apart from exempt on the record.
+  const thirdParty = p.thirdParty === true;
   const stated = typeof p.tax === "number" && Number.isFinite(p.tax) && p.tax >= 0 ? p.tax : undefined;
-  const taxed = withTaxLine(lines, taxExempt, stated);
+  const taxed = withTaxLine(lines, taxExempt || thirdParty, stated);
   lines.splice(0, lines.length, ...taxed);
   // WHO TOOK IT (Katy, 2026-10-14): initials, two or three letters, on
   // every order written up here, so a question later knows who to ask.
@@ -170,6 +173,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
       account,
       taxExempt,
       taxId: taxExempt ? str(p.taxId, 40) : "",
+      thirdParty,
       name,
       business: str(p.business, 120),
       phone: str(p.phone, 40),
@@ -265,7 +269,7 @@ export async function POST(req: Request) {
   // The customer's own fields come from the body, never from an entry:
   // one sale is one customer, one way of paying, one receipt address.
   const shared: Record<string, unknown> = {};
-  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "batchId", "tax", "hold"]) {
+  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "thirdParty", "batchId", "tax", "hold"]) {
     if (k in p) shared[k] = p[k];
   }
   const cache: PriceCache = { stemPrices: null };

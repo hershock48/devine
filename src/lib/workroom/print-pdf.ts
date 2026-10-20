@@ -383,6 +383,10 @@ function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
     c.y -= size * 1.25;
     pen.page.drawText(`TAX EXEMPT - no sales tax${o.taxId ? ` - ID ${o.taxId}` : ""}`, { x: c.x, y: c.y, size: size - 1, font: pen.bold, color: grey });
   }
+  if (o.thirdParty && !o.taxExempt && c.fits(size)) {
+    c.y -= size * 1.25;
+    pen.page.drawText("THIRD-PARTY ORDER - no sales tax here; the ordering service bills it", { x: c.x, y: c.y, size: size - 1, font: pen.bold, color: grey });
+  }
   c.rule(0.6);
   c.row("TOTAL", money(o.subtotal), size, pen.bold);
 }

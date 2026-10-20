@@ -65,6 +65,7 @@ type Order = {
   payment?: OrderPayment | null;
   topUps?: OrderPayment[];
   refunds?: { at: number; cents: number; how?: "square" | "hand" }[];
+  account?: boolean;
 };
 type SaleLine = { slug: string | null; name: string; qty: number; eachCents: number; totalCents: number };
 type Sale = { id: string; paidAt: string; source: string; totalCents: number; createdAt: number; workroomOrderId?: string; lines: SaleLine[] };
@@ -928,17 +929,22 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
     const prev = calc(win.prevBeginMs, win.prevEndMs, false);
 
     // Owed is NOW, never windowed: money owed does not care which week it
-    // started being owed in.
-    const owed = orders.filter((o) => o.status === "done" && balanceCents(o) > 0);
+    // started being owed in. Two figures, kept apart (Katy, 2026-10-20:
+    // the Accounts tab said $1858.60 across 9 accounts while this tile
+    // said $1,040 on 10 orders, and nobody could say why): out the door
+    // and not paid, which is the board's own red section and never counts
+    // an account order; and on account, which is every billed order not
+    // yet settled whatever its status, the Accounts tab's own total.
     // What Take-card will actually charge: a delivery ticket with no
     // delivery line yet gets the zip's sheet fee appended at payment, so
-    // the tile counts it too (the pay route's rule, mirrored).
-    const owedCents = owed.reduce((sum, o) => {
-      const fee = o.payment ? 0 : zipFeeToAppend(o) ?? 0;
-      return sum + balanceCents(o) + Math.round(fee * 100);
-    }, 0);
+    // both tiles count it too (the pay route's rule, mirrored).
+    const owedOn = (o: Order) => Math.max(0, balanceCents(o)) + (o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100));
+    const owed = orders.filter((o) => o.status === "done" && !o.account && balanceCents(o) > 0);
+    const owedCents = owed.reduce((sum, o) => sum + owedOn(o), 0);
+    const onAccount = orders.filter((o) => !!o.account && o.status !== "canceled" && o.status !== "hold" && balanceCents(o) > 0);
+    const onAccountCents = onAccount.reduce((sum, o) => sum + owedOn(o), 0);
 
-    return { now, prev, owedCount: owed.length, owedCents };
+    return { now, prev, owedCount: owed.length, owedCents, onAccountCount: onAccount.length, onAccountCents };
   }, [events, recipes, orders, sales, contacts, win, sourceFilter]);
 
   if (!authed) {
@@ -1095,7 +1101,12 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
           <Tile
             label="Owed right now"
             value={wholeDollars(view.owedCents)}
-            sub={view.owedCount ? `${view.owedCount} order${view.owedCount === 1 ? "" : "s"} out the door unpaid` : "nothing outstanding"}
+            sub={view.owedCount ? `${view.owedCount} order${view.owedCount === 1 ? "" : "s"} out the door unpaid, not counting accounts` : "nothing outstanding"}
+          />
+          <Tile
+            label="On account"
+            value={wholeDollars(view.onAccountCents)}
+            sub={view.onAccountCount ? `${view.onAccountCount} billed order${view.onAccountCount === 1 ? "" : "s"} not yet paid · the Accounts tab` : "every account is settled"}
           />
         </div>
 

@@ -33,7 +33,7 @@ with the shop reachable beside it.
 | `public/pitch/devine/index.html` | The proposal. One self-contained file, no build step, hand-editable on a phone if a call goes sideways. |
 | `public/pitch/devine/og.jpg` | The proposal's link card, 1200x630, 44KB. Rendered from a real page, not assembled by hand. |
 | `src/lib/site.ts` | **Every business fact.** Hours, phone, address, delivery towns and zips, the per-zip delivery fees and the two order minimums (from her IRIS sheet, 2026-09-01), staff names and roles, policies. No card fee since 2026-10-06; the comment where `cardFeePct` used to be says why. One edit fixes any of them everywhere. |
-| `src/lib/catalog.ts` | All 58 products (57 harvested, Lucy added 2026-10-14) with their real names, prices and their own copy. Keyed on slug, never on name. `offMenu: true` (2026-10-14: Bridget, the two chocolate boxes) takes one off the site, the sitemap and the cart's add-on nudge while the workroom can still sell it; `menu` is what the site reads. The three Designer's Choice entries share the shop's chosen photograph (2026-10-16) through the image manifest. |
+| `src/lib/catalog.ts` | All 60 products (57 harvested; Lucy added 2026-10-14; Lorna and Delilah 2026-10-20) with their real names, prices and their own copy. Keyed on slug, never on name. `offMenu: true` (2026-10-14: Bridget, the two chocolate boxes; 2026-10-20: Nature's Home) takes one off the site, the sitemap and the cart's add-on nudge while the workroom can still sell it; `menu` is what the site reads. The three Designer's Choice entries share the shop's chosen photograph (2026-10-16) through the image manifest. |
 | `src/lib/image-manifest.json` | Which products have a real photograph, and its true pixel size. Generated, not hand-written. |
 | `src/components/ProductImage.tsx` | Decides photograph or generated art, per product. Nothing above it knows which. |
 | `src/lib/seo.ts` | `metadataBase`, the canonical host, and the `LocalBusiness` JSON-LD, all fed from `site.ts`. **`CANONICAL_HOST` is the pitch host today and must become their domain before the noindex comes off.** |
@@ -115,10 +115,10 @@ design, picks the shot on her phone, and it is emailed as `<slug>.jpg`. Then
 widths, updates the manifest and regenerates the product link cards. No eyeballing at
 either stage, and no code changes.
 
-**55 of 58 products have a photograph.** The three without: the classic wedding
+**57 of 60 products have a photograph.** The three without: the classic wedding
 pieces (boutonniere, wrist corsage, bridesmaid bouquet). Lucy's photo and copy arrived
-2026-10-16; the three Designer's Choice pieces, whatever she designs that day, share the
-shop's chosen photograph since the same day. Those three render a
+2026-10-16, Lorna's and Delilah's 2026-10-20; the three Designer's Choice pieces, whatever
+she designs that day, share the shop's chosen photograph since 2026-10-16. Those three render a
 generated botanical print built from the flower names in their own product copy. It is deliberately an illustration and never passes as a
 photograph.
 

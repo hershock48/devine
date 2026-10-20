@@ -168,6 +168,11 @@ export type WorkroomOrder = {
       so the exemption can be shown later. Optional: the counter may not
       have it to hand, and the sale still happens. */
   taxId?: string;
+  /** THROUGH A THIRD PARTY (Katy, 2026-10-20: Tribute's orders "do not
+      include tax because they charge that to their customers"). No tax
+      line, like exempt, but said as what it is on the card and the
+      ticket, so the real exemptions can be told apart. */
+  thirdParty?: boolean;
   /** When the counter's print helper printed it (web orders). Server-side
       so a restart or a second machine never prints it twice. */
   printedAt?: number;
