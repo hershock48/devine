@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, paidByHandOnly, paidInParts, refundedCents, squareMoney, zipFeeToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, refundedCents, squareMoney, zipFeeToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
@@ -84,8 +84,7 @@ const daysSince = (ms: number) => Math.max(0, Math.floor((Date.now() - ms) / DAY
 const feeToAppend = (o: Order): number => Math.round((zipFeeToAppend(o) ?? 0) * 100);
 /** What is collectable now. A held order is not: nothing is promised yet
     and the pay route refuses it, the board's own reading. */
-const owedOn = (o: Order): number =>
-  o.status === "canceled" || o.status === "hold" ? 0 : Math.max(0, balanceCents(o)) + (o.payment ? 0 : feeToAppend(o));
+const owedOn = (o: Order): number => (o.status === "canceled" || o.status === "hold" ? 0 : owedNowCents(o));
 const itemsOf = (o: Order) => o.lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l));
 
 function groupAccounts(orders: Order[]): Account[] {

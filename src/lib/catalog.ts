@@ -1,6 +1,7 @@
 /**
  * THE CATALOG. 60 products: 57 harvested from their WooCommerce shop on 2026-08-20 and
- * one (Lucy) added by hand on 2026-10-14; the harvest notes below are about the 57, and
+ * three added by hand from the owner's photos and flower lists (Lucy 2026-10-14; Lorna
+ * and Delilah 2026-10-20); the harvest notes below are about the 57, and
  * cross-checked against their own Store API, so every name, price and description
  * here is theirs rather than ours.
  *

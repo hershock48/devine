@@ -11,7 +11,7 @@
     { "slug": "plants", "name": "Plants" }
   ],
   "products": [
-    { "slug": "natures-home", "name": "Nature's Home", "price": 95.00, "offMenu": true, "cats": ["celebration-of-life"], "img": "2026/08/IMG_0661-1-scaled.jpeg" },
+    { "slug": "natures-home", "name": "Nature's Home", "price": 95.00, "cats": ["celebration-of-life"], "img": "2026/08/IMG_0661-1-scaled.jpeg" },
     { "slug": "eden", "name": "Eden", "price": 135.00, "cats": ["celebration-of-life"], "img": "2026/07/IMG_0211-scaled.jpeg" },
     { "slug": "gayles-garden", "name": "Gayle's Garden", "price": 215.00, "cats": ["celebration-of-life"], "img": "2024/07/Gayles-Garden.jpg" },
     { "slug": "mary", "name": "Mary", "price": 95.00, "cats": ["celebration-of-life"], "img": "2024/07/Mary.jpg" },

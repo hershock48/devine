@@ -167,6 +167,13 @@ export const netOfTax = (o: { subtotal: number; lines: { name: string; qty: numb
     board, the dashboard and the accounts tab quote by it. */
 export const zipFeeToAppend = (o: { fulfillment: string; zip: string; lines: { name: string }[] }): number | undefined =>
   o.fulfillment === "delivery" && !o.lines.some(isDeliveryLine) ? deliveryFeeFor(o.zip) : undefined;
+/** WHAT TAKE-CARD WILL CHARGE NOW, in cents: the balance, plus the sheet
+    fee the pay route appends to an unpaid delivery ticket with no
+    delivery line yet; never below zero. One copy (2026-10-20: the board,
+    the Accounts tab and the dashboard each had their own, and two of
+    them disagreed on the screen). */
+export const owedNowCents = (o: { subtotal: number; fulfillment: string; zip: string; lines: { name: string }[]; payment?: (Paid & { method?: string }) | null; topUps?: Paid[]; refunds?: { cents: number }[] }): number =>
+  Math.max(0, balanceCents(o)) + (o.payment ? 0 : Math.round((zipFeeToAppend(o) ?? 0) * 100));
 /** The ticket as it stands once paid: the sheet fee appended as a Delivery
     line when the order never carried one, else the ticket as is. One copy
     of the arithmetic for the single and the group pay paths. */
