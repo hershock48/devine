@@ -413,18 +413,24 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
             <span style={{ fontSize: 15 }}>
               <strong>{money(owedAll / 100)}</strong> owed across {owingAll} account{owingAll === 1 ? "" : "s"} · {accounts.length} on file
             </span>
-            {owing.length > 0 && (
+            {owingAll > 0 && (
               <button
                 type="button"
                 className="btn"
                 disabled={!!bulk?.busy}
                 onClick={async () => {
                   // Every account that owes, not the find box's slice: a
-                  // leftover search must not quietly shorten the month-end run.
+                  // leftover search must not quietly shorten the month-end
+                  // run (nor hide the button; owingAll is the unfiltered count).
                   const targets = accounts.filter((a) => a.owedCents > 0);
-                  const withEmail = targets.filter((a) => a.email);
+                  const hasEmail = (a: Account) => /^\S+@\S+\.\S+$/.test(a.email.trim());
+                  const withEmail = targets.filter(hasEmail);
+                  if (withEmail.length === 0) {
+                    setBulk({ busy: false, done: 0, total: 0, noEmail: targets.map((a) => a.business || a.name), failed: [] });
+                    return;
+                  }
                   if (!window.confirm(`Email a statement to ${withEmail.length} account${withEmail.length === 1 ? "" : "s"} that owe? Each one lists its unpaid orders and the balance.`)) return;
-                  setBulk({ busy: true, done: 0, total: withEmail.length, noEmail: targets.filter((a) => !a.email).map((a) => a.business || a.name), failed: [] });
+                  setBulk({ busy: true, done: 0, total: withEmail.length, noEmail: targets.filter((a) => !hasEmail(a)).map((a) => a.business || a.name), failed: [] });
                   for (const a of withEmail) {
                     const ok = await emailStatement(a);
                     setBulk((b) => b && { ...b, done: b.done + 1, failed: ok ? b.failed : [...b.failed, a.business || a.name] });
@@ -438,7 +444,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
           </div>
           {bulk && !bulk.busy && (
             <p role="status" style={{ margin: "-8px 0 16px", fontSize: 14.5 }}>
-              Statements sent to {bulk.total - bulk.failed.length} of {bulk.total} account{bulk.total === 1 ? "" : "s"}.
+              {bulk.total > 0 ? <>Statements sent to {bulk.total - bulk.failed.length} of {bulk.total} account{bulk.total === 1 ? "" : "s"}.</> : <>No statement could be emailed.</>}
               {bulk.failed.length ? <> Did not send: {bulk.failed.join(", ")}.</> : null}
               {bulk.noEmail.length ? <> No email on file (copy the statement instead): {bulk.noEmail.join(", ")}.</> : null}
             </p>

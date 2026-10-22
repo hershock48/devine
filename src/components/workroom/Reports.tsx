@@ -16,7 +16,7 @@ import {
   refundedCents,
   saleInstantMs,
 } from "@/lib/workroom/derive";
-import { MemoryWarning, PinGate, money, textButton, todayISO } from "@/components/workroom/ui";
+import { MemoryWarning, PinGate, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
 
 /**
  * REPORTS (Katy, 2026-10-22: "billing and end of day / end of month and
@@ -61,6 +61,7 @@ type Order = {
   fulfillment: "delivery" | "pickup";
   name: string;
   business?: string;
+  phone: string;
   zip: string;
   date: string;
   lines: Line[];
@@ -102,7 +103,7 @@ const dayAt = (iso: string) => { const [y, m, d] = iso.split("-").map(Number); r
 /** Only a well-formed anchor is ever set: desktop Firefox renders the
     month and date inputs as plain text boxes, and "Oct 2026" must not
     reach windowFor. */
-const isDay = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(dayAt(v).getTime());
+const isDay = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && isoDate(dayAt(v)) === v;
 const isMonth = (v: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
 const monthOf = (iso: string) => iso.slice(0, 7);
 const shiftDay = (iso: string, by: number) => {
@@ -119,9 +120,13 @@ const dateInWin = (iso: string, w: Window) => (w.days.length === 0 ? false : w.d
 
 const payments = (o: Order): Payment[] => [...(o.payment ? [o.payment] : []), ...(o.topUps ?? [])];
 const methodWord: Record<string, string> = { web: "Card, on the website", card: "Card, at the board", cash: "Cash", register: "Rung on the register", other: "By hand (check, transfer, marked paid)" };
-/** The row a payment lands on: a website order's card is its own line,
-    since the counter's terminal never saw it. */
-const methodKey = (o: Order, p: Payment) => (p.method === "card" && o.source === "web" ? "web" : p.method);
+/** The row a payment lands on. A website order's checkout card is its
+    own line, since the counter's terminal never saw it: that is the
+    first payment, written in the same request as the order (api/order),
+    so it sits within seconds of createdAt. A card taken at the board
+    later on a web order (checkout cards off, or a top-up) is the board's. */
+const methodKey = (o: Order, p: Payment) =>
+  p.method === "card" && o.source === "web" && p === o.payment && Math.abs(p.at - o.createdAt) < 120_000 ? "web" : p.method;
 
 type Sheet = ReturnType<typeof compute>;
 
@@ -161,11 +166,19 @@ function compute(orders: Order[], sales: Sale[], w: Window) {
     // mark by hand, and cash out of the drawer.
     if (o.payment?.refundedAt && inWin(o.payment.refundedAt, w)) {
       refundCount += 1;
-      const cents = refundableCents(o);
-      if (o.payment.method === "cash" || o.payment.method === "other") {
-        refundHand += cents;
-        if (o.payment.method === "cash") refundCash += cents;
-      } else refundSquare += cents;
+      // Each payment that made the order up goes back its own way ($40
+      // cash then $60 card: $40 by hand from the drawer, $60 through
+      // Square), scaled to what was still refundable if part had gone
+      // back before.
+      const gross = grossPaidCents(o);
+      const scale = gross > 0 ? refundableCents(o) / gross : 0;
+      for (const p of payments(o)) {
+        const cents = Math.round(p.totalCents * scale);
+        if (p.method === "cash" || p.method === "other") {
+          refundHand += cents;
+          if (p.method === "cash") refundCash += cents;
+        } else refundSquare += cents;
+      }
     }
   }
   const cashIn = (byMethod.get("cash")?.cents ?? 0) + walkInCash;
@@ -209,23 +222,35 @@ function compute(orders: Order[], sales: Sale[], w: Window) {
   const openAccount = accountOrders.filter((o) => o.status !== "canceled" && balanceCents(o) > 0);
   const owedNow = openAccount.reduce((s, o) => s + owedNowCents(o), 0);
   const today = todayISO();
-  const ageOf = (iso: string) => Math.max(0, Math.round((Date.parse(today) - Date.parse(iso)) / 86_400_000));
+  const ageOf = (iso: string) => {
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? Math.max(0, Math.round((Date.parse(today) - ms) / 86_400_000)) : 0;
+  };
   const aging = [0, 0, 0, 0];
   for (const o of openAccount) {
     const a = ageOf(o.date);
     aging[a <= 30 ? 0 : a <= 60 ? 1 : a <= 90 ? 2 : 3] += owedNowCents(o);
   }
-  const customers = new Set(openAccount.map((o) => (o.business || o.name).trim().toLowerCase())).size;
+  // The Accounts tab's own grouping (groupAccounts): the business, else
+  // the phone, else the name, so "across N accounts" is its N.
+  const accountKey = (o: Order) => (o.business?.trim() ? `biz:${o.business.trim().toLowerCase()}` : phoneKey(o.phone) ? `ph:${phoneKey(o.phone)}` : `name:${o.name.trim().toLowerCase()}`);
+  const customers = new Set(openAccount.map(accountKey)).size;
 
   /* THE MONTH'S DETAIL: by day, by category, best sellers. */
-  const perDay = w.days.map((iso) => {
-    const dw = windowFor("day", iso);
-    let taken = 0, count = 0;
-    for (const o of live) for (const p of payments(o)) if (inWin(p.at, dw)) { taken += p.totalCents; count += 1; }
-    for (const s of sales) if (!s.workroomOrderId && inWin(saleInstantMs(s.paidAt, s.createdAt), dw)) { taken += s.totalCents; count += 1; }
-    const writtenDay = live.filter((o) => inWin(o.createdAt, dw)).length;
-    return { iso, taken, count, written: writtenDay };
-  });
+  const dayOf = new Map<string, { taken: number; count: number; written: number }>();
+  const bump = (ms: number, f: (d: { taken: number; count: number; written: number }) => void) => {
+    if (!inWin(ms, w)) return;
+    const k = isoDate(new Date(ms));
+    const d = dayOf.get(k) ?? { taken: 0, count: 0, written: 0 };
+    f(d);
+    dayOf.set(k, d);
+  };
+  for (const o of live) {
+    bump(o.createdAt, (d) => { d.written += 1; });
+    for (const p of payments(o)) bump(p.at, (d) => { d.taken += p.totalCents; d.count += 1; });
+  }
+  for (const s of sales) if (!s.workroomOrderId) bump(saleInstantMs(s.paidAt, s.createdAt), (d) => { d.taken += s.totalCents; d.count += 1; });
+  const perDay = w.days.map((iso) => ({ iso, ...(dayOf.get(iso) ?? { taken: 0, count: 0, written: 0 }) }));
   const byCategory = new Map<string, number>();
   const byProduct = new Map<string, { name: string; qty: number; cents: number }>();
   for (const o of dated) {
@@ -435,7 +460,7 @@ function SheetView({ view, win, s }: { view: View; win: Window; s: Sheet }) {
   const stillOpen = dated.filter((o) => o.status !== "done");
   const taxRows = (t: Sheet["taxPaid"]): [string, string, string?][] => [
     ["Taxable sales (items)", c$(t.taxable)],
-    ["Sales tax collected (6%)", c$(t.tax)],
+    [`Sales tax collected (${Math.round(site.taxRate * 100)}%)`, c$(t.tax)],
     ["Tax-exempt sales (items)", c$(t.exempt), "schools, churches, certificate holders"],
     ["Third-party sales (items)", c$(t.third), "Tribute and the like bill the tax themselves"],
     ["Delivery charges (not taxed)", c$(t.delivery)],
