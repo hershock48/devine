@@ -21,6 +21,8 @@ import { site } from "@/lib/site";
 const TABS = [
   { href: "/workroom", label: "Orders" },
   { href: "/workroom/dashboard", label: "Dashboard" },
+  // The end-of-day and end-of-month sheets (Katy, 2026-10-22).
+  { href: "/workroom/reports", label: "Reports" },
   // Stems and Inventory merged 2026-09-01 (one job, one tab); the header
   // was filling up and the two screens shared every ledger. Renamed
   // Inventory the same day: the page holds the stem library, the cooler,
