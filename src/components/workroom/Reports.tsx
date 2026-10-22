@@ -8,6 +8,7 @@ import {
   balanceCents,
   grossPaidCents,
   isDeliveryLine,
+  isoDate,
   isTaxLine,
   isUntaxedLine,
   owedNowCents,
@@ -31,8 +32,12 @@ import { MemoryWarning, PinGate, money, textButton, todayISO } from "@/component
  *   THE MONTH SHEET, for the books and the sales-tax return: the same
  *   money, by day, the tax on both bases the state accepts (orders paid
  *   in the month, and orders written in the month), sales by category
- *   and the best sellers, and what the house accounts owe by age. The
- *   owner's PIN, like the dashboard: a month's takings are hers.
+ *   and the best sellers, and what the house accounts owe by age. Behind
+ *   the owner's PIN as a screen gate: a month's takings are hers to
+ *   read. (The figures derive from ledgers every staff sign-in can
+ *   already fetch, so unlike the dashboard's summary route there is no
+ *   server-side tier here; the gate keeps the sheet off a staff screen,
+ *   it does not hide the data.)
  *
  * EVERY FIGURE IS DERIVED from two ledgers the board already keeps: the
  * orders (with their payments, top-ups and refunds) and the Square rings
@@ -76,6 +81,7 @@ type Window = { beginMs: number; endMs: number; label: string; days: string[] };
 
 /** The local window for a day (ISO date) or a month ("YYYY-MM"). */
 function windowFor(view: View, anchor: string): Window {
+  if (view === "day" ? !isDay(anchor) : !isMonth(anchor)) anchor = view === "day" ? todayISO() : monthOf(todayISO());
   if (view === "day") {
     const [y, m, d] = anchor.split("-").map(Number);
     const begin = new Date(y, m - 1, d);
@@ -89,7 +95,15 @@ function windowFor(view: View, anchor: string): Window {
   for (let d = new Date(begin); d < end; d.setDate(d.getDate() + 1)) days.push(isoOf(d));
   return { beginMs: begin.getTime(), endMs: end.getTime(), label: begin.toLocaleDateString("en-US", { month: "long", year: "numeric" }), days };
 }
-const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const isoOf = isoDate;
+/** A local Date at noon on an ISO day, for labels (never UTC midnight,
+    which is the evening before in Marshall). */
+const dayAt = (iso: string) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d, 12); };
+/** Only a well-formed anchor is ever set: desktop Firefox renders the
+    month and date inputs as plain text boxes, and "Oct 2026" must not
+    reach windowFor. */
+const isDay = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(dayAt(v).getTime());
+const isMonth = (v: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
 const monthOf = (iso: string) => iso.slice(0, 7);
 const shiftDay = (iso: string, by: number) => {
   const [y, m, d] = iso.split("-").map(Number);
@@ -101,10 +115,13 @@ const shiftMonth = (ym: string, by: number) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 const inWin = (ms: number, w: Window) => ms >= w.beginMs && ms < w.endMs;
-const dateInWin = (iso: string, w: Window) => w.days.length === 1 ? iso === w.days[0] : iso.slice(0, 7) === w.days[0].slice(0, 7);
+const dateInWin = (iso: string, w: Window) => (w.days.length === 0 ? false : w.days.length === 1 ? iso === w.days[0] : iso.slice(0, 7) === w.days[0].slice(0, 7));
 
 const payments = (o: Order): Payment[] => [...(o.payment ? [o.payment] : []), ...(o.topUps ?? [])];
-const methodWord: Record<string, string> = { card: "Card, at the board", cash: "Cash", register: "Rung on the register", other: "By hand (check, transfer, marked paid)" };
+const methodWord: Record<string, string> = { web: "Card, on the website", card: "Card, at the board", cash: "Cash", register: "Rung on the register", other: "By hand (check, transfer, marked paid)" };
+/** The row a payment lands on: a website order's card is its own line,
+    since the counter's terminal never saw it. */
+const methodKey = (o: Order, p: Payment) => (p.method === "card" && o.source === "web" ? "web" : p.method);
 
 type Sheet = ReturnType<typeof compute>;
 
@@ -119,7 +136,7 @@ function compute(orders: Order[], sales: Sale[], w: Window) {
     const cur = byMethod.get(k) ?? { cents: 0, count: 0, feeCents: 0 };
     byMethod.set(k, { cents: cur.cents + cents, count: cur.count + 1, feeCents: cur.feeCents + fee });
   };
-  for (const o of live) for (const p of payments(o)) if (inWin(p.at, w)) add(p.method, p.totalCents, p.feeCents);
+  for (const o of live) for (const p of payments(o)) if (inWin(p.at, w)) add(methodKey(o, p), p.totalCents, p.feeCents);
   let walkInCard = 0, walkInCash = 0, walkIns = 0;
   for (const s of sales) {
     if (s.workroomOrderId) continue;
@@ -133,13 +150,26 @@ function compute(orders: Order[], sales: Sale[], w: Window) {
 
   /* MONEY OUT: part refunds (how they went back), and whole refunds of
      canceled orders marked in the window. */
-  let refundSquare = 0, refundHand = 0, refundCount = 0;
+  let refundSquare = 0, refundHand = 0, refundCash = 0, refundCount = 0;
   for (const o of orders) {
-    for (const r of o.refunds ?? []) if (inWin(r.at, w)) { refundCount += 1; if (r.how === "hand") refundHand += r.cents; else refundSquare += r.cents; }
-    if (o.payment?.refundedAt && inWin(o.payment.refundedAt, w)) { refundCount += 1; refundSquare += refundableCents(o); }
+    // A part refund says how it went back; by hand is out of the drawer
+    // (cash or a check; the drawer side is counted as cash, the only
+    // place it can have come from on the day).
+    for (const r of o.refunds ?? []) if (inWin(r.at, w)) { refundCount += 1; if (r.how === "hand") { refundHand += r.cents; refundCash += r.cents; } else refundSquare += r.cents; }
+    // A whole refund (a canceled order marked refunded) goes back the way
+    // it came: a card or register ring through Square; cash or a by-hand
+    // mark by hand, and cash out of the drawer.
+    if (o.payment?.refundedAt && inWin(o.payment.refundedAt, w)) {
+      refundCount += 1;
+      const cents = refundableCents(o);
+      if (o.payment.method === "cash" || o.payment.method === "other") {
+        refundHand += cents;
+        if (o.payment.method === "cash") refundCash += cents;
+      } else refundSquare += cents;
+    }
   }
   const cashIn = (byMethod.get("cash")?.cents ?? 0) + walkInCash;
-  const cashToCount = cashIn - refundHand;
+  const cashToCount = cashIn - refundCash;
 
   /* ORDERS: written in the window, and the window's work by date. */
   const written = live.filter((o) => inWin(o.createdAt, w));
@@ -174,7 +204,7 @@ function compute(orders: Order[], sales: Sale[], w: Window) {
      in the window (payments on account orders), owed now, and by age of
      the order's date: the invoice date a statement would carry. */
   const accountOrders = live.filter((o) => o.account);
-  const billed = accountOrders.filter((o) => inWin(o.createdAt, w)).reduce((s, o) => s + Math.round(o.subtotal * 100), 0);
+  const billed = accountOrders.filter((o) => o.status !== "canceled" && inWin(o.createdAt, w)).reduce((s, o) => s + Math.round(o.subtotal * 100), 0);
   const accountPaid = accountOrders.reduce((s, o) => s + payments(o).filter((p) => inWin(p.at, w)).reduce((t, p) => t + p.totalCents, 0), 0);
   const openAccount = accountOrders.filter((o) => o.status !== "canceled" && balanceCents(o) > 0);
   const owedNow = openAccount.reduce((s, o) => s + owedNowCents(o), 0);
@@ -215,7 +245,7 @@ function compute(orders: Order[], sales: Sale[], w: Window) {
 
   return {
     byMethod, walkInCard, walkInCash, walkIns, takenCents, cardFeeCents,
-    refundSquare, refundHand, refundCount, cashIn, cashToCount,
+    refundSquare, refundHand, refundCash, refundCount, cashIn, cashToCount,
     written, dated, quick, canceled,
     taxPaid, taxWritten,
     billed, accountPaid, owedNow, aging, customers, openAccount: openAccount.length,
@@ -243,20 +273,18 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
 
   const pull = useCallback(async () => {
     try {
-      const [o, s] = await Promise.all([
-        fetch(`/api/workroom/orders?days=${HISTORY_DAYS}`, { cache: "no-store" }),
-        fetch(`/api/workroom/stems?days=${HISTORY_DAYS}`, { cache: "no-store" }),
-      ]);
-      if (o.status === 401 || s.status === 401) {
+      // One request: the stems route carries the orders and the stored
+      // Square rings together (the dashboard reads it the same way).
+      const s = await fetch(`/api/workroom/stems?days=${HISTORY_DAYS}`, { cache: "no-store" });
+      if (s.status === 401) {
         setAuthed(false);
         return;
       }
-      if (!o.ok || !s.ok) throw new Error("The figures did not load.");
-      const od = await o.json();
+      if (!s.ok) throw new Error("The figures did not load.");
       const sd = await s.json();
-      setOrders(od.orders ?? []);
+      setOrders(sd.orders ?? []);
       setSales(sd.squareSales ?? []);
-      setBackend(od.backend ?? sd.backend ?? null);
+      setBackend(sd.backend ?? null);
       setLoaded(true);
       setError("");
     } catch (err) {
@@ -308,14 +336,14 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
         {view === "day" ? (
           <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
             <button type="button" onClick={() => setDay((d) => shiftDay(d, -1))} style={{ ...textButton, fontSize: 14 }} aria-label="The day before">‹</button>
-            <input type="date" value={day} max={todayISO()} onChange={(e) => e.target.value && setDay(e.target.value)} aria-label="Day" style={{ padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 2, font: "inherit", fontSize: 14, background: "var(--paper)" }} />
+            <input type="date" value={day} max={todayISO()} onChange={(e) => isDay(e.target.value) && setDay(e.target.value)} aria-label="Day" style={{ padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 2, font: "inherit", fontSize: 14, background: "var(--paper)" }} />
             <button type="button" disabled={day >= todayISO()} onClick={() => setDay((d) => shiftDay(d, 1))} style={{ ...textButton, fontSize: 14 }} aria-label="The day after">›</button>
             {day !== todayISO() && <button type="button" onClick={() => setDay(todayISO())} style={{ ...textButton, fontSize: 13.5 }}>Today</button>}
           </span>
         ) : (
           <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
             <button type="button" onClick={() => setMonth((m) => shiftMonth(m, -1))} style={{ ...textButton, fontSize: 14 }} aria-label="The month before">‹</button>
-            <input type="month" value={month} max={monthOf(todayISO())} onChange={(e) => e.target.value && setMonth(e.target.value)} aria-label="Month" style={{ padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 2, font: "inherit", fontSize: 14, background: "var(--paper)" }} />
+            <input type="month" value={month} max={monthOf(todayISO())} onChange={(e) => isMonth(e.target.value) && setMonth(e.target.value)} aria-label="Month" style={{ padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 2, font: "inherit", fontSize: 14, background: "var(--paper)" }} />
             <button type="button" disabled={month >= monthOf(todayISO())} onClick={() => setMonth((m) => shiftMonth(m, 1))} style={{ ...textButton, fontSize: 14 }} aria-label="The month after">›</button>
           </span>
         )}
@@ -329,7 +357,7 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
       {monthLocked ? (
         <>
           <p className="lede" style={{ margin: "4px 0 10px" }}>
-            A month&rsquo;s takings are the owner&rsquo;s, like the dashboard: this sheet asks for the owner&rsquo;s PIN. The end-of-day sheet is open to everyone.
+            A month&rsquo;s takings are the owner&rsquo;s to read: this sheet asks for the owner&rsquo;s PIN. The end-of-day sheet is open to everyone.
           </p>
           <PinGate
             onAuthed={(info) => {
@@ -392,11 +420,11 @@ function Block({ title, children, note }: { title: string; children: React.React
 }
 
 function SheetView({ view, win, s }: { view: View; win: Window; s: Sheet }) {
-  const methodRows: [string, string, string?][] = ["card", "cash", "register", "other"]
+  const methodRows: [string, string, string?][] = ["web", "card", "cash", "register", "other"]
     .filter((m) => s.byMethod.has(m))
     .map((m) => {
       const x = s.byMethod.get(m)!;
-      return [methodWord[m] ?? m, c$(x.cents), `${x.count} payment${x.count === 1 ? "" : "s"}${m === "card" && x.feeCents > 0 ? ` · includes ${c$(x.feeCents)} in card fees the customers paid` : ""}`];
+      return [methodWord[m] ?? m, c$(x.cents), `${x.count} payment${x.count === 1 ? "" : "s"}${(m === "card" || m === "web") && x.feeCents > 0 ? ` · includes ${c$(x.feeCents)} in card fees the customers paid` : ""}`];
     });
   if (s.walkInCard > 0 || s.walkInCash > 0) {
     methodRows.push(["Walk-ins rung straight on the register", c$(s.walkInCard + s.walkInCash), `${s.walkIns} ring${s.walkIns === 1 ? "" : "s"} · ${c$(s.walkInCash)} cash, ${c$(s.walkInCard)} card`]);
@@ -430,12 +458,12 @@ function SheetView({ view, win, s }: { view: View; win: Window; s: Sheet }) {
 
         <Block
           title="Cash to count"
-          note="What the drawer should hold from this window's business, before the float. Cash given back by hand (a part refund) is taken off; anything paid out of the drawer for other reasons is not known here."
+          note="What the drawer should hold from this window's business, before the float. Cash given back (a part refund by hand, or a canceled cash order refunded) is taken off; anything paid out of the drawer for other reasons is not known here."
         >
           <Rows
             rows={[
               ["Cash taken", c$(s.cashIn)],
-              ["Cash given back by hand", s.refundHand > 0 ? `− ${c$(s.refundHand)}` : c$(0)],
+              ["Cash given back", s.refundCash > 0 ? `− ${c$(s.refundCash)}` : c$(0)],
             ]}
             total={["Cash to count", c$(s.cashToCount)]}
           />
@@ -514,7 +542,7 @@ function SheetView({ view, win, s }: { view: View; win: Window; s: Sheet }) {
               <tbody>
                 {s.perDay.filter((d) => d.iso <= todayISO()).map((d) => (
                   <tr key={d.iso}>
-                    <td style={td}>{new Date(Date.parse(d.iso) + 12 * 3600_000).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</td>
+                    <td style={td}>{dayAt(d.iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</td>
                     <td style={tdR}>{d.written}</td>
                     <td style={tdR}>{d.count}</td>
                     <td style={tdR}>{c$(d.taken)}</td>

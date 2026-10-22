@@ -419,7 +419,9 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                 className="btn"
                 disabled={!!bulk?.busy}
                 onClick={async () => {
-                  const targets = owing.filter((a) => a.owedCents > 0);
+                  // Every account that owes, not the find box's slice: a
+                  // leftover search must not quietly shorten the month-end run.
+                  const targets = accounts.filter((a) => a.owedCents > 0);
                   const withEmail = targets.filter((a) => a.email);
                   if (!window.confirm(`Email a statement to ${withEmail.length} account${withEmail.length === 1 ? "" : "s"} that owe? Each one lists its unpaid orders and the balance.`)) return;
                   setBulk({ busy: true, done: 0, total: withEmail.length, noEmail: targets.filter((a) => !a.email).map((a) => a.business || a.name), failed: [] });
