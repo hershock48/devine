@@ -163,7 +163,8 @@ export const products: Product[] = [
   // ---- Just Because ----
   /* DESIGNER'S CHOICE PICTURE (Kevin, 2026-10-14: the generated print "looks
      like old people wallpaper"; 2026-10-16: the shop's own choice of photo,
-     a designer at a bench of cut flowers, sent by Kevin). All three slugs
+     a designer at a bench of cut flowers, sent by Kevin; 2026-10-22: a
+     larger, wider frame of the same scene). All three slugs
      carry that photograph in the image manifest (tools/ingest-photo.mjs),
      which is what the site reads; the img paths below are the old shop's
      line-art placeholder and are not used while the manifest has them. */
