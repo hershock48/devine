@@ -180,6 +180,10 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
   /** The change to hand back after cash on an account order: said here,
       because the row's pay pane leaves the page once nothing is owed. */
   const [changeNote, setChangeNote] = useState("");
+  /** EVERY STATEMENT AT ONCE (billing, 2026-10-22): the month-end run,
+      one tap, to each account that owes and has an email on file; the
+      ones with no email are named so they can be printed or called. */
+  const [bulk, setBulk] = useState<{ busy: boolean; done: number; total: number; noEmail: string[]; failed: string[] } | null>(null);
   const [error, setError] = useState("");
 
   const pull = useCallback(async () => {
@@ -228,7 +232,8 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
      2026-10-14: the mailto link opened Edge's and Outlook's pickers and
      the shop lives in Gmail). The server sends it from the shop's own
      mailbox, branded like the receipts, and says when it went. */
-  async function emailStatement(a: Account) {
+  /** True when the statement went out; the row shows the time or the error either way. */
+  async function emailStatement(a: Account): Promise<boolean> {
     setSent((s) => ({ ...s, [a.key]: { busy: true } }));
     try {
       const r = await fetch("/api/workroom/accounts/statement", {
@@ -239,8 +244,10 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
       const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
       if (!r.ok || !d?.ok) throw new Error(d?.error || "The statement did not send.");
       setSent((s) => ({ ...s, [a.key]: { at: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) } }));
+      return true;
     } catch (err) {
       setSent((s) => ({ ...s, [a.key]: { error: err instanceof Error ? err.message : "The statement did not send." } }));
+      return false;
     }
   }
 
@@ -406,7 +413,34 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
             <span style={{ fontSize: 15 }}>
               <strong>{money(owedAll / 100)}</strong> owed across {owingAll} account{owingAll === 1 ? "" : "s"} · {accounts.length} on file
             </span>
+            {owing.length > 0 && (
+              <button
+                type="button"
+                className="btn"
+                disabled={!!bulk?.busy}
+                onClick={async () => {
+                  const targets = owing.filter((a) => a.owedCents > 0);
+                  const withEmail = targets.filter((a) => a.email);
+                  if (!window.confirm(`Email a statement to ${withEmail.length} account${withEmail.length === 1 ? "" : "s"} that owe? Each one lists its unpaid orders and the balance.`)) return;
+                  setBulk({ busy: true, done: 0, total: withEmail.length, noEmail: targets.filter((a) => !a.email).map((a) => a.business || a.name), failed: [] });
+                  for (const a of withEmail) {
+                    const ok = await emailStatement(a);
+                    setBulk((b) => b && { ...b, done: b.done + 1, failed: ok ? b.failed : [...b.failed, a.business || a.name] });
+                  }
+                  setBulk((b) => b && { ...b, busy: false });
+                }}
+              >
+                {bulk?.busy ? `Sending ${bulk.done} of ${bulk.total}…` : "Email every statement"}
+              </button>
+            )}
           </div>
+          {bulk && !bulk.busy && (
+            <p role="status" style={{ margin: "-8px 0 16px", fontSize: 14.5 }}>
+              Statements sent to {bulk.total - bulk.failed.length} of {bulk.total} account{bulk.total === 1 ? "" : "s"}.
+              {bulk.failed.length ? <> Did not send: {bulk.failed.join(", ")}.</> : null}
+              {bulk.noEmail.length ? <> No email on file (copy the statement instead): {bulk.noEmail.join(", ")}.</> : null}
+            </p>
+          )}
 
           <h2 style={{ fontSize: 15, letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 10px" }}>
             Owing ({owing.length})
