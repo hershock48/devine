@@ -152,18 +152,41 @@ function statementText(a: Account): string {
   ].join("\n");
 }
 
+/** One statement row for one order; the same text the statement lists. */
+const rowOf = (o: Order) => ({
+  date: o.date,
+  number: o.number,
+  items: itemsOf(o).map((l) => `${l.qty} x ${l.name}`).join(", ") + (o.recipient && o.recipient !== o.name ? ` (for ${o.recipient})` : ""),
+  owed: money(owedOn(o) / 100),
+});
+
 /** The rows the server emails (statement-mail.ts), the same ones the
     text statement lists. */
 function statementRows(a: Account) {
   return a.orders
     .filter((o) => owedOn(o) > 0)
     .sort((x, y) => x.createdAt - y.createdAt)
-    .map((o) => ({
-      date: o.date,
-      number: o.number,
-      items: itemsOf(o).map((l) => `${l.qty} x ${l.name}`).join(", ") + (o.recipient && o.recipient !== o.name ? ` (for ${o.recipient})` : ""),
-      owed: money(owedOn(o) / 100),
-    }));
+    .map(rowOf);
+}
+
+/** AN INVOICE FOR ONE ORDER (Katy, 2026-10-29: "Gina Fox at Kempf's is
+    requesting an invoice just for Ward White"). A funeral home pays per
+    service, not per month, so the account's statement, which lists every
+    open order, is the wrong paper for them. Same rows, same email, one
+    order; the balance is that order's alone. */
+function invoiceText(a: Account, o: Order): string {
+  const r = rowOf(o);
+  return [
+    `${site.name}`,
+    `Invoice for ${[a.business, a.name, a.company].filter(Boolean).join(", ")}: order ${o.number}`,
+    `As of ${when(Date.now())}`,
+    "",
+    `${r.date}  ${r.number}  ${r.items}  ${r.owed}`,
+    "",
+    `Balance due: ${r.owed}`,
+    "",
+    `Questions: ${site.phone}. Thank you.`,
+  ].join("\n");
 }
 
 export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) {
@@ -248,6 +271,34 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
     } catch (err) {
       setSent((s) => ({ ...s, [a.key]: { error: err instanceof Error ? err.message : "The statement did not send." } }));
       return false;
+    }
+  }
+
+  /** One order's invoice, by the statement route with a single row. Keyed
+      in the same sent map by order id, so the row says when it went. */
+  async function emailInvoice(a: Account, o: Order): Promise<void> {
+    setSent((s) => ({ ...s, [o.id]: { busy: true } }));
+    try {
+      const r = await fetch("/api/workroom/accounts/statement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: a.email, name: a.name, business: a.business, company: a.company, rows: [rowOf(o)], balance: money(owedOn(o) / 100), kind: "invoice" }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "The invoice did not send.");
+      setSent((s) => ({ ...s, [o.id]: { at: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) } }));
+    } catch (err) {
+      setSent((s) => ({ ...s, [o.id]: { error: err instanceof Error ? err.message : "The invoice did not send." } }));
+    }
+  }
+
+  async function copyInvoice(a: Account, o: Order) {
+    try {
+      await navigator.clipboard.writeText(invoiceText(a, o));
+      setCopied(o.id);
+      setTimeout(() => setCopied((k) => (k === o.id ? null : k)), 2500);
+    } catch {
+      setError("Could not copy. Email the invoice instead, or select the order line by hand.");
     }
   }
 
@@ -349,6 +400,22 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                   <p className="muted" style={{ margin: "4px 0 0", fontSize: 13.5 }}>
                     {itemsOf(o).map((l) => `${l.qty} × ${l.name}`).join(", ")}
                   </p>
+                  {/* This order billed on its own: a funeral home pays per
+                      service and asks for that service's invoice, not the
+                      account's statement (Katy, 2026-10-29). */}
+                  {owed > 0 && (
+                    <p style={{ margin: "6px 0 0", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 14 }}>
+                      {a.email && (
+                        <button type="button" disabled={sent[o.id]?.busy} onClick={() => emailInvoice(a, o)} style={{ ...textButton, fontSize: 14 }}>
+                          {sent[o.id]?.busy ? "Sending…" : sent[o.id]?.at ? `Invoice sent ${sent[o.id].at} · send again` : `Email an invoice for this order to ${a.email}`}
+                        </button>
+                      )}
+                      <button type="button" onClick={() => copyInvoice(a, o)} style={{ ...textButton, fontSize: 14 }}>
+                        {copied === o.id ? "Invoice copied" : "Copy an invoice for this order"}
+                      </button>
+                      {sent[o.id]?.error && <span role="alert" style={{ color: "var(--rose-ink)", fontWeight: 600 }}>{sent[o.id].error}</span>}
+                    </p>
+                  )}
                   {/* The money corner while anything is owed, and also for an
                       order marked paid by hand (Katy, 2026-10-15: two "show
                       settled but haven't been paid"), so the mark can be taken

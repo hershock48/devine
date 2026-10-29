@@ -27,16 +27,21 @@ export async function sendStatement(s: {
   company: string;
   rows: StatementRow[];
   balance: string;
+  /** "invoice": ONE order, billed on its own (Katy, 2026-10-29: Gina at
+      Kempf's asked for an invoice for just the Ward White service). Same
+      email, same rows; the words say one order, not the whole account. */
+  kind?: "statement" | "invoice";
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const mail = shopMail();
   if (!mail) return { ok: false, error: "The shop's email is not set up on the server, so nothing was sent." };
+  const invoice = s.kind === "invoice" && s.rows.length === 1;
   const who = [s.business, s.name, s.company].filter(Boolean).join(", ");
   // "October 21, 2026", as the receipts say it, when the row's date is ISO.
   const day = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : d);
   const asOf = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const text = [
     `${site.name}`,
-    `Statement for ${who}`,
+    invoice ? `Invoice for ${who}: order ${s.rows[0].number}` : `Statement for ${who}`,
     `As of ${asOf}`,
     "",
     ...s.rows.map((r) => `${day(r.date)}  ${r.number}  ${r.items}  ${r.owed}`),
@@ -59,13 +64,15 @@ export async function sendStatement(s: {
       from: mail.from,
       to: s.to,
       replyTo: mail.replyTo,
-      subject: `Statement from ${site.shortName}: ${s.balance} due`,
+      subject: invoice ? `Invoice from ${site.shortName}: order ${s.rows[0].number}, ${s.balance} due` : `Statement from ${site.shortName}: ${s.balance} due`,
       text,
       html: shell({
-        title: `Statement from ${site.shortName}`,
-        heading: "Your statement.",
-        intro: `For ${esc(who)}, as of ${esc(asOf)}. These are the orders on your account that are still open.`,
-        sections: [block("Open orders", table), block("To pay by check", `Make it out to <strong>${esc(site.mailing.name)}</strong> and mail it to<br>${esc(site.mailing.street)}, ${esc(site.mailing.city)}, ${esc(site.mailing.state)} ${esc(site.mailing.zip)}`)],
+        title: `${invoice ? "Invoice" : "Statement"} from ${site.shortName}`,
+        heading: invoice ? "Your invoice." : "Your statement.",
+        intro: invoice
+          ? `For ${esc(who)}, as of ${esc(asOf)}. This invoice covers one order only.`
+          : `For ${esc(who)}, as of ${esc(asOf)}. These are the orders on your account that are still open.`,
+        sections: [block(invoice ? "The order" : "Open orders", table), block("To pay by check", `Make it out to <strong>${esc(site.mailing.name)}</strong> and mail it to<br>${esc(site.mailing.street)}, ${esc(site.mailing.city)}, ${esc(site.mailing.state)} ${esc(site.mailing.zip)}`)],
         outro: `Questions, or to settle up by card: call the shop at ${phoneLink()}. Thank you for your business.`,
         addressLine: mailTo,
       }),
