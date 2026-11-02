@@ -72,6 +72,9 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
   const [placed, setPlaced] = useState<string | null>(null);
   const [placeError, setPlaceError] = useState("");
+  /** The route refused the write-up as a second copy of an order already
+      on the board (Katy, 2026-11-02); "anyway" sends it again with force. */
+  const [placeDup, setPlaceDup] = useState<string | null>(null);
   /** Who is putting it on the board; the board requires it (Katy, 2026-10-14). */
   const [takenBy, setTakenBy] = useState("");
   const [placing, setPlacing] = useState(false);
@@ -202,7 +205,8 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
      accepted quote becomes a confirmed order the workroom can see, months
      ahead if need be (the board keeps open orders forever, by design, for
      exactly this). Priced pieces only, same rule as the print. */
-  async function placeOrder() {
+  async function placeOrder(force = false) {
+    setPlaceDup(null);
     if (!draft || !pricing || placing) return;
     setPlaceError("");
     if (!draft.eventDate) {
@@ -248,13 +252,17 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
         tax: pricing.tax,
         taxExempt: !(pricing.tax > 0),
         takenBy: takenBy.trim().toUpperCase(),
+        force,
       }),
     });
-    const d = (await r.json().catch(() => null)) as { ok?: boolean; order?: { number: string }; error?: string } | null;
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; order?: { number: string }; error?: string; duplicate?: { number: string } } | null;
     setPlacing(false);
     if (d?.ok && d.order) {
       setPlaced(d.order.number);
       set({ status: "accepted" });
+    } else if (r.status === 409 && d?.duplicate) {
+      setPlaceDup(d.duplicate.number);
+      setPlaceError(d.error || `This looks like ${d.duplicate.number}, already on the board.`);
     } else {
       setPlaceError(d?.error || "That did not reach the board. Try again, or write it up on the board directly.");
     }
@@ -614,12 +622,22 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
               ) : (
                 <>
                   <InitialsInput value={takenBy} onChange={setTakenBy} placeholder="Initials" />
-                  <button className="btn btn--solid" type="button" onClick={placeOrder} disabled={placing || pricing.total <= 0}>
+                  <button className="btn btn--solid" type="button" onClick={() => placeOrder()} disabled={placing || pricing.total <= 0}>
                     {placing ? "Sending…" : "Put it on the board"}
                   </button>
                   <span aria-live="polite" style={{ fontSize: 13.5 }}>
                     {placeError ? (
-                      <strong style={{ color: "var(--rose-ink)" }}>{placeError}</strong>
+                      <>
+                        <strong style={{ color: "var(--rose-ink)" }}>{placeError}</strong>
+                        {placeDup && (
+                          <>
+                            {" "}
+                            <button type="button" className="btn" onClick={() => placeOrder(true)} disabled={placing}>
+                              A second order for that day, put it on anyway
+                            </button>
+                          </>
+                        )}
+                      </>
                     ) : (
                       <span className="muted">For when they say yes.</span>
                     )}

@@ -130,13 +130,15 @@ async function matchWorkroomOrder(referenceId: string, note: string): Promise<st
   }
   if (referenceId) {
     const o = await store.getOrder(referenceId).catch(() => null);
-    if (o) return o.id;
+    // Never an order removed as written up twice: its number may still be
+    // on a printed ticket, and money rung against it would vanish with it.
+    if (o && !o.voided) return o.id;
   }
   // Both number shapes: website DV-MMDD-#### and phone DV-MMDD-P###.
   const dv = note.match(/DV-\d{4}-(?:P\d{3,4}|\d{4})/i)?.[0]?.toUpperCase();
   if (dv) {
     const o = await store.getOrderByNumber(dv).catch(() => null);
-    if (o) return o.id;
+    if (o && !o.voided) return o.id;
   }
   return "";
 }

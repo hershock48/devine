@@ -63,6 +63,7 @@ export async function POST(req: Request) {
   const store = getStore();
   const order = await store.getOrder(id);
   if (!order) return NextResponse.json({ error: "No such order." }, { status: 404 });
+  if (order.voided) return NextResponse.json({ error: "That order was removed as written up twice. Put it back from the dashboard before taking money on it." }, { status: 409 });
   if (order.status === "canceled") return NextResponse.json({ error: "That order is canceled." }, { status: 409 });
   if (order.status === "hold") return NextResponse.json({ error: "That order is on hold; finish it first, then take payment." }, { status: 409 });
   // PAID ONCE ALREADY: only a balance left by an edit can be taken, and
@@ -269,6 +270,7 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
   for (let i = 0; i < ids.length; i++) {
     const o = orders[i];
     if (!o) return NextResponse.json({ error: `No such order (${ids[i]}).` }, { status: 404 });
+    if (o.voided) return NextResponse.json({ error: `${o.number} was removed as written up twice; take it out of the group first.` }, { status: 409 });
     if (o.status === "canceled") return NextResponse.json({ error: `${o.number} is canceled; take it out of the group first.` }, { status: 409 });
     if (o.status === "hold") return NextResponse.json({ error: `${o.number} is on hold; finish it first.` }, { status: 409 });
     if (o.payment) {

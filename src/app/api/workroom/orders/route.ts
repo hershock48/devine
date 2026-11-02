@@ -385,6 +385,7 @@ export async function PUT(req: Request) {
   if (!p || !id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
   const existing = await getStore().getOrder(id);
   if (!existing) return NextResponse.json({ error: "No such order." }, { status: 404 });
+  if (existing.voided) return NextResponse.json({ error: "That order was removed as written up twice. Put it back from the dashboard first." }, { status: 409 });
   // EDITABLE UNTIL CANCELED (Kevin, 2026-10-14): a paid, made or
   // delivered order can still take a tax ID, a new address, a longer
   // card message or another item. The payment taken stays what it was;
@@ -457,6 +458,13 @@ export async function PATCH(req: Request) {
     const back: OrderStatus = o.canceledFrom && o.canceledFrom !== "canceled" ? o.canceledFrom : "confirmed";
     await getStore().patchOrder(id, { status: back });
     return NextResponse.json({ ok: true, status: back });
+  }
+  // A REMOVED ORDER STAYS STILL. A tab opened before someone removed it can
+  // still send its id; nothing below may move it, bill it or change its
+  // fee while it is off the books. Put it back from the dashboard first.
+  if (id) {
+    const cur = await getStore().getOrder(id);
+    if (cur?.voided) return NextResponse.json({ error: "That order was removed as written up twice. Put it back from the dashboard first." }, { status: 409 });
   }
   // ON OR OFF ACCOUNT, after the fact (Katy, 2026-10-14). Unpaid orders
   // only: a paid order is settled, and "on account" means billed instead.
