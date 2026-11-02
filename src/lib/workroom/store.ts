@@ -88,6 +88,9 @@ export type OrderPayment = {
   refundedAt?: number;
 };
 
+/** Who took an order off the books as written up twice, and when. */
+export type VoidMark = { at: number; by: string };
+
 export type WorkroomOrder = {
   id: string;
   /** The same DV- number the email ticket carries, so a phone call about
@@ -182,6 +185,15 @@ export type WorkroomOrder = {
       "Walk-in" dated today, then paid on the spot; the flag is so the
       board and the finished list can call it what it is. */
   quick?: boolean;
+  /** WRITTEN UP TWICE (Katy, 2026-11-02: "is there a way to delete a
+      duplicate order after it's put on account?"). Not a cancel: the
+      customer called nothing off, the counter typed one order twice. A
+      removed order leaves every screen (board, Accounts, statements,
+      reports, contacts) and stays in the database, listed on the owner's
+      dashboard with who removed it, where Put it back undoes it. Its
+      number stays retired. Only an unpaid order the shop wrote up can be
+      removed; a web order or one with money on it keeps the cancel path. */
+  voided?: VoidMark | null;
 };
 
 export type StemEvent = {
@@ -559,12 +571,15 @@ type Store = {
   /** By the DV number the ticket carries, for matching a register ring's
       typed note. Number collisions do not exist (date + random). */
   getOrderByNumber(number: string): Promise<WorkroomOrder | null>;
+  /** The orders taken off the books as written up twice, newest removal
+      first, for the owner's dashboard. listOrders never returns these. */
+  listVoidedOrders(limit: number): Promise<WorkroomOrder[]>;
   setOrderStatus(id: string, status: OrderStatus): Promise<void>;
   /** A small merge of named fields (status, who made it, where a cancel
       came from). The jsonb-blob decision pays off here: a new field is a
       key, not a migration. Keeps the status column in step when status is
       among the fields. */
-  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "takenBy" | "canceledFrom" | "account">>): Promise<void>;
+  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "takenBy" | "canceledFrom" | "account" | "voided">>): Promise<void>;
   /** THE PRINT CLAIM: stamp printedAt on those of these orders not yet
       stamped, and say which ones were taken. The one write that decides
       who prints: two phones, or a phone and the helper, asking for the
@@ -722,8 +737,11 @@ const memoryStore: Store = {
     // ...and so does a done order whose edit left a balance after a payment.
     const open = (o: WorkroomOrder) =>
       (o.status !== "done" && o.status !== "canceled") || (o.status === "done" && (!o.payment || balanceCents(o) !== 0));
+    // A removed order (written up twice) is off every list; getOrder and
+    // getOrderByNumber still find it, so its number stays retired and
+    // Put it back can reach it.
     return [...bag().orders.values()]
-      .filter((o) => open(o) || o.createdAt >= cutoff(days))
+      .filter((o) => !o.voided && (open(o) || o.createdAt >= cutoff(days)))
       .sort((a, b) => a.createdAt - b.createdAt);
   },
   async getOrder(id) {
@@ -731,6 +749,12 @@ const memoryStore: Store = {
   },
   async getOrderByNumber(number) {
     return [...bag().orders.values()].find((o) => o.number === number) ?? null;
+  },
+  async listVoidedOrders(limit) {
+    return [...bag().orders.values()]
+      .filter((o) => !!o.voided)
+      .sort((a, b) => (b.voided?.at ?? 0) - (a.voided?.at ?? 0))
+      .slice(0, limit);
   },
   async setOrderStatus(id, status) {
     const o = bag().orders.get(id);
@@ -794,7 +818,7 @@ const memoryStore: Store = {
     // A quick sale's "Walk-in" is nobody; it must never be offered as a
     // customer.
     return [...bag().orders.values()]
-      .filter((o) => o.status !== "canceled" && !o.quick)
+      .filter((o) => o.status !== "canceled" && !o.quick && !o.voided)
       .map((o) => ({
         name: o.name,
         phone: o.phone,
@@ -1059,14 +1083,15 @@ const postgresStore: Store = {
     const r = await pool.query(
       `SELECT data FROM (
          SELECT data, created_at FROM workroom_orders
-         WHERE status NOT IN ('done', 'canceled')
+         WHERE data->>'voided' IS NULL AND (
+            status NOT IN ('done', 'canceled')
             OR (status = 'done' AND data->>'payment' IS NULL)
             OR (status = 'done' AND data->>'payment' IS NOT NULL AND
                 ROUND((data->>'subtotal')::numeric * 100) <>
                   ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
                   + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
                   - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0))
-            OR created_at >= $1
+            OR created_at >= $1)
          ORDER BY created_at DESC LIMIT 2000
        ) t ORDER BY created_at ASC`,
       [cutoff(days)],
@@ -1082,6 +1107,17 @@ const postgresStore: Store = {
     const pool = await pgPool();
     const r = await pool.query(`SELECT data FROM workroom_orders WHERE data->>'number' = $1 LIMIT 1`, [number]);
     return r.rows[0] ? (r.rows[0].data as WorkroomOrder) : null;
+  },
+  async listVoidedOrders(limit) {
+    const pool = await pgPool();
+    // Put it back writes voided as JSON null; ->> reads that as SQL NULL,
+    // so the same test serves both this list and listOrders' exclusion.
+    const r = await pool.query(
+      `SELECT data FROM workroom_orders WHERE data->>'voided' IS NOT NULL
+       ORDER BY (data->'voided'->>'at')::bigint DESC LIMIT $1`,
+      [limit],
+    );
+    return r.rows.map((row) => row.data as WorkroomOrder);
   },
   async setOrderStatus(id, status) {
     const pool = await pgPool();
@@ -1209,7 +1245,7 @@ const postgresStore: Store = {
               COALESCE(data->>'recipientPhone', '') AS recipient_phone,
               COALESCE(data->>'account', 'false') AS account, COALESCE(data->>'taxExempt', 'false') AS tax_exempt, COALESCE(data->>'taxId', '') AS tax_id, COALESCE(data->>'thirdParty', 'false') AS third_party,
               data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, created_at
-       FROM workroom_orders WHERE status <> 'canceled' AND COALESCE(data->>'quick', 'false') <> 'true' ORDER BY created_at DESC LIMIT 5000`,
+       FROM workroom_orders WHERE status <> 'canceled' AND COALESCE(data->>'quick', 'false') <> 'true' AND data->>'voided' IS NULL ORDER BY created_at DESC LIMIT 5000`,
     );
     return r.rows.map((row) => ({
       name: (row.name as string) ?? "",

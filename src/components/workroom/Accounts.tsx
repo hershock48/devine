@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
 import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, refundedCents, squareMoney, zipFeeCentsToAppend } from "@/lib/workroom/derive";
-import { field, money, phoneKey, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { field, money, phoneKey, textButton, MemoryWarning, PinGate, RemoveDuplicate } from "@/components/workroom/ui";
 import PayControls from "@/components/workroom/PayControls";
 
 /**
@@ -292,6 +292,22 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
     }
   }
 
+  /** WRITTEN UP TWICE (Katy, 2026-11-02): the duplicate off the account
+      and every other screen, right here where she noticed it. The route
+      decides what may go (unpaid, written up by the shop) and says why
+      when it refuses; the control shows that. */
+  async function removeDuplicate(o: Order, by: string): Promise<void> {
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: o.id, void: true, by }),
+    });
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    if (!r.ok || !d?.ok) throw new Error(d?.error || "That did not remove.");
+    setChangeNote(`${o.number} is off the books as written up twice. The owner's dashboard can put it back.`);
+    await pull();
+  }
+
   async function copyInvoice(a: Account, o: Order) {
     try {
       await navigator.clipboard.writeText(invoiceText(a, o));
@@ -414,6 +430,14 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                         {copied === o.id ? "Invoice copied" : "Copy an invoice for this order"}
                       </button>
                       {sent[o.id]?.error && <span role="alert" style={{ color: "var(--rose-ink)", fontWeight: 600 }}>{sent[o.id].error}</span>}
+                    </p>
+                  )}
+                  {/* Written up twice (Katy, 2026-11-02): off the books from
+                      here. Shop-written and unpaid only; the rest is the
+                      cancel path on the board. */}
+                  {o.source === "phone" && !o.payment && !(o.topUps?.length) && (
+                    <p style={{ margin: "6px 0 0", fontSize: 14 }}>
+                      <RemoveDuplicate number={o.number} onRemove={(by) => removeDuplicate(o, by)} />
                     </p>
                   )}
                   {/* The money corner while anything is owed, and also for an

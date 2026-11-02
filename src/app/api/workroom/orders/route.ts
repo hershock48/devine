@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { deliveryFeeFor, site } from "@/lib/site";
-import { isWorkroomAuthed } from "@/lib/workroom/auth";
+import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
+import { duplicateMessage, looksLikeDuplicate } from "@/lib/workroom/duplicate";
 import { bySlug } from "@/lib/catalog";
 import { balanceCents, deliveryLineName, isDeliveryLine, isTaxLine, normalizeVariety, squareMoney, withTaxLine } from "@/lib/workroom/derive";
 import { INITIALS_ERROR } from "@/lib/workroom/initials";
@@ -27,6 +28,12 @@ export async function GET(req: Request) {
   // off the list, the store's own rule, so a year-old unpaid account
   // order is still here) and has no use for the contacts projection.
   const accountOnly = params.get("account") === "1";
+  // REMOVED ORDERS, for the owner's dashboard: the ones taken off the
+  // books as written up twice, with who did it, where Put it back lives.
+  if (params.get("voided") === "1") {
+    if (!(await isWorkroomOwner())) return NextResponse.json({ error: "The owner's PIN opens this." }, { status: 403 });
+    return NextResponse.json({ orders: await getStore().listVoidedOrders(200) });
+  }
   const [all, contacts] = await Promise.all([store.listOrders(days), accountOnly ? Promise.resolve([]) : store.listOrderContacts()]);
   const orders = accountOnly ? all.filter((o) => o.account) : all;
   // contacts spans the whole history, so "her third order this year" still
@@ -287,6 +294,24 @@ export async function POST(req: Request) {
   if (quick && parsedAll[0].lines.some((l) => !isTaxLine(l) && !(l.each > 0))) {
     return NextResponse.json({ error: "A quick sale needs a price on every item." }, { status: 400 });
   }
+  // WRITTEN UP TWICE, CAUGHT AT THE DOOR (Katy, 2026-11-02; the rule is in
+  // duplicate.ts). Same customer, same recipient, same day as an order
+  // already open: refused with the number, and the form offers to insist
+  // (force) when it really is a second order for that day. A quick sale
+  // has nobody to match. An edit (PUT) is the same order and never comes
+  // through here.
+  if (!quick && raw.force !== true) {
+    const open = await getStore().listOrders(60);
+    for (let i = 0; i < parsedAll.length; i++) {
+      const dup = looksLikeDuplicate(parsedAll[i], open);
+      if (dup) {
+        return NextResponse.json(
+          { error: duplicateMessage(dup), duplicate: { id: dup.id, number: dup.number, name: dup.name, recipient: dup.recipient, date: dup.date } },
+          { status: 409 },
+        );
+      }
+    }
+  }
   const now = Date.now();
   const ids = parsedAll.map(() => newId("wr"));
   // The group: the one the form was adding to, else the first order's own
@@ -386,8 +411,36 @@ export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as {
     id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
+    void?: unknown; unvoid?: unknown; by?: unknown;
   };
   const id = typeof p.id === "string" ? p.id : "";
+  // REMOVE A DUPLICATE (Katy, 2026-11-02: "is there a way to delete a
+  // duplicate order after it's put on account?"). Not a cancel and not a
+  // delete: the order leaves every list (store.ts hides it) and stays in
+  // the database for the owner's dashboard, which can put it back. Only
+  // an order the shop wrote up, with no money on it: a web order is the
+  // customer's, and anything paid is refunded through the cancel path,
+  // never hidden. Initials, same as writing one up.
+  if (p.void === true) {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    const by = typeof p.by === "string" ? p.by.trim().toUpperCase() : "";
+    if (!/^[A-Z]{2,3}$/.test(by)) return NextResponse.json({ error: INITIALS_ERROR }, { status: 400 });
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    if (o.voided) return NextResponse.json({ error: "Already removed." }, { status: 409 });
+    if (o.source !== "phone") return NextResponse.json({ error: "A website order is the customer's. Cancel it instead." }, { status: 409 });
+    if (o.payment || (o.topUps?.length ?? 0) > 0) return NextResponse.json({ error: "Money is on this one. Cancel it instead, and refund it from the card." }, { status: 409 });
+    await getStore().patchOrder(id, { voided: { at: Date.now(), by } });
+    return NextResponse.json({ ok: true });
+  }
+  if (p.unvoid === true) {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    if (!o.voided) return NextResponse.json({ error: "That order is not removed." }, { status: 409 });
+    await getStore().patchOrder(id, { voided: null });
+    return NextResponse.json({ ok: true });
+  }
   // UNCANCEL (Katy, 2026-10-06): a canceled order goes back to the status
   // it was canceled from, or to confirmed when that was never recorded
   // (orders canceled before this shipped). Refused once the money has been

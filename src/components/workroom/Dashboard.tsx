@@ -531,6 +531,79 @@ function IrisImport() {
 }
 
 /**
+ * REMOVED ORDERS (Katy, 2026-11-02: a duplicate of a Kempf's order was put
+ * on the account). An order taken off the books as written up twice leaves
+ * every other screen; this is where it still exists, with who removed it
+ * and when, so two numbers in one conversation with a customer can be
+ * explained, and a mistaken removal undone with Put it back. Owner tier,
+ * same as the rest of the dashboard.
+ */
+type RemovedOrder = { id: string; number: string; name: string; business?: string; recipient: string; date: string; subtotal: number; voided?: { at: number; by: string } | null };
+function RemovedOrders() {
+  const [rows, setRows] = useState<RemovedOrder[] | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    const r = await fetch("/api/workroom/orders?voided=1", { cache: "no-store" });
+    const d = (await r.json().catch(() => null)) as { orders?: RemovedOrder[]; error?: string } | null;
+    if (!r.ok) throw new Error(d?.error || "The removed orders did not load.");
+    setRows(d?.orders ?? []);
+  }, []);
+  useEffect(() => {
+    load().catch((e) => setErr(e instanceof Error ? e.message : "The removed orders did not load."));
+  }, [load]);
+  async function putBack(o: RemovedOrder) {
+    setBusy(o.id);
+    setErr("");
+    try {
+      const r = await fetch("/api/workroom/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: o.id, unvoid: true }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "That did not go back.");
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "That did not go back.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  if (rows === null && !err) return null;
+  const whenAt = (ms: number) => new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return (
+    <>
+      <SectionHead label="Removed orders" />
+      <div className="panel" style={{ padding: "14px 16px", display: "grid", gap: 10, maxWidth: 640 }}>
+        <p style={{ margin: 0, fontSize: 14.5 }}>
+          Orders taken off the books as written up twice. They are on no other screen and in no total; the number stays
+          retired. Put it back returns one to the board and its account.
+        </p>
+        {rows && rows.length === 0 && <p className="muted" style={{ margin: 0 }}>None.</p>}
+        {rows && rows.length > 0 && (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+            {rows.map((o) => (
+              <li key={o.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", fontSize: 14.5, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+                <span>
+                  <strong>{o.number}</strong> · {o.date} · {[o.business, o.name].filter(Boolean).join(", ")}
+                  {o.recipient && o.recipient !== o.name ? ` for ${o.recipient}` : ""} · {money(o.subtotal)}
+                  {o.voided ? <span className="muted"> · removed by {o.voided.by}, {whenAt(o.voided.at)}</span> : null}
+                </span>
+                <button type="button" disabled={busy === o.id} onClick={() => putBack(o)} style={{ ...textButton, fontSize: 14 }}>
+                  {busy === o.id ? "Putting it back…" : "Put it back"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {err && <p role="alert" style={{ margin: 0, fontSize: 14, color: "var(--rose-ink)" }}>{err}</p>}
+      </div>
+    </>
+  );
+}
+
+/**
  * THE LAUNCH RESET (Kevin, 2026-10-13): the test orders off the board
  * before the first real one lands. Owner tier, the word CLEAR typed, one
  * request. Orders only; everything else on the workroom stays.
@@ -1362,6 +1435,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
 
       <SquareLink />
       <IrisImport />
+      <RemovedOrders />
       <LaunchReset />
 
       {/* The provenance, off the face and in one place. */}

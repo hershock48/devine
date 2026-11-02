@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { products, type Product } from "@/lib/catalog";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
-import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate } from "@/components/workroom/ui";
+import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate, RemoveDuplicate } from "@/components/workroom/ui";
 import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeCentsToAppend } from "@/lib/workroom/derive";
 import PayControls, { CashTendered, changeFor } from "@/components/workroom/PayControls";
 
@@ -81,6 +81,9 @@ type InitialsExtra = { madeBy?: string; takenBy?: string };
 /** Editable until canceled (Kevin, 2026-10-14): paid, made or delivered,
     a ticket can still take a tax ID, an address, another item. */
 const canEdit = (o: Order) => o.status !== "canceled";
+/** May be taken off the books as written up twice (Katy, 2026-11-02):
+    the shop wrote it and no money is on it. The route holds the same rule. */
+const removable = (o: Order) => o.source === "phone" && !o.payment && !(o.topUps?.length);
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   switch (o.status) {
@@ -321,6 +324,23 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       const d = await r.json().catch(() => null);
       throw new Error(d?.error || "That did not uncancel.");
     }
+    await pull();
+  }
+
+  /** WRITTEN UP TWICE (Katy, 2026-11-02): the duplicate off every screen,
+      kept for the owner's dashboard, which can put it back. The route
+      refuses a web order or a paid one and says so; the control shows that. */
+  async function removeDuplicate(id: string, by: string) {
+    const r = await fetch("/api/workroom/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, void: true, by }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => null);
+      throw new Error(d?.error || "That did not remove.");
+    }
+    setNotice("Off the books as written up twice. The owner's dashboard lists it and can put it back.");
     await pull();
   }
 
@@ -599,24 +619,24 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
                   buckets.active.length + buckets.closed.length === 1 ? "" : "es"
                 }${deep ? "" : "; older orders still loading"}.`}
           </p>
-          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
+          <Bucket title="Open & owed" orders={buckets.active} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onRemove={removeDuplicate} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
           {buckets.closed.length > 0 && (
             <section>
               <h2 style={{ fontFamily: "var(--sans)", fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 4px" }}>
                 Finished &amp; canceled ({buckets.closed.length})
               </h2>
-              <ClosedList orders={buckets.closed} onUncancel={uncancel} onUnmark={unmarkPaid} onAccountOff={accountOff} />
+              <ClosedList orders={buckets.closed} onUncancel={uncancel} onRemove={removeDuplicate} onUnmark={unmarkPaid} onAccountOff={accountOff} />
             </section>
           )}
         </>
       ) : (
         <>
-          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
-          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
+          <Bucket title="On hold" orders={buckets.held} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onRemove={removeDuplicate} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Should have gone out" tone="late" orders={buckets.overdue} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onRemove={removeDuplicate} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Today" orders={buckets.today} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onRemove={removeDuplicate} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Coming up" orders={buckets.upcoming} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onRemove={removeDuplicate} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Out the door, not paid" tone="late" orders={buckets.owed} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onRemove={removeDuplicate} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} />
+          <Bucket title="Money to return" tone="late" orders={buckets.toRefund} contacts={contacts} batches={buckets.batches} onMove={move} onPaid={paid} onFee={setFee} onUncancel={uncancel} onRemove={removeDuplicate} onEdit={openEdit} onAddTo={openAddTo} onPartRefund={markPartRefund} onRefunded={markRefunded} />
 
           {buckets.held.length + buckets.today.length + buckets.overdue.length + buckets.upcoming.length + buckets.owed.length + buckets.toRefund.length === 0 && (
             <p className="lede" style={{ marginTop: 8 }}>
@@ -633,7 +653,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
               {showDone ? "Hide finished orders" : `Finished & canceled (${buckets.closed.length})`}
             </button>
           </p>
-          {showDone && <ClosedList orders={buckets.closed} onUncancel={uncancel} onUnmark={unmarkPaid} onAccountOff={accountOff} />}
+          {showDone && <ClosedList orders={buckets.closed} onUncancel={uncancel} onRemove={removeDuplicate} onUnmark={unmarkPaid} onAccountOff={accountOff} />}
         </>
       )}
     </>
@@ -650,11 +670,14 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
 function ClosedList({
   orders,
   onUncancel,
+  onRemove,
   onUnmark,
   onAccountOff,
 }: {
   orders: Order[];
   onUncancel?: (id: string) => Promise<void>;
+  /** Off the books as written up twice (Katy, 2026-11-02), with initials. */
+  onRemove?: (id: string, by: string) => Promise<void>;
   onUnmark?: (id: string) => Promise<void>;
   /** A delivered, unpaid order put on account by mistake goes back to
       the red section to be paid at the counter. */
@@ -722,6 +745,11 @@ function ClosedList({
                 {o.madeBy ? ` · made by ${o.madeBy}` : ""}
               </p>
               {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
+              {onRemove && removable(o) && (
+                <p style={{ margin: "8px 0 0" }}>
+                  <RemoveDuplicate number={o.number} onRemove={(by) => onRemove(o.id, by)} />
+                </p>
+              )}
               {o.payment && (
                 <p className="muted" style={{ margin: 0 }}>
                   Paid {o.payment.method === "other" ? "by hand (marked paid another way)" : `by ${o.payment.method}`}, {money(o.payment.totalCents / 100)}
@@ -780,6 +808,7 @@ function Bucket({
   onRefunded,
   onFee,
   onUncancel,
+  onRemove,
   onEdit,
   onAddTo,
   onPartRefund,
@@ -797,6 +826,8 @@ function Bucket({
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
   onUncancel?: (id: string) => Promise<void>;
+  /** Off the books as written up twice (Katy, 2026-11-02), with initials. */
+  onRemove?: (id: string, by: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
   onPartRefund?: (id: string, cents: number) => Promise<void>;
@@ -827,7 +858,7 @@ function Bucket({
           audit never saw it. */}
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(min(310px, 100%), 1fr))" }}>
         {orders.map((o) => (
-          <OrderCard key={o.id} o={o} contacts={contacts} batches={batches} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onEdit={onEdit} onAddTo={onAddTo} onPartRefund={onPartRefund} />
+          <OrderCard key={o.id} o={o} contacts={contacts} batches={batches} onMove={onMove} onPaid={onPaid} onRefunded={onRefunded} onFee={onFee} onUncancel={onUncancel} onRemove={onRemove} onEdit={onEdit} onAddTo={onAddTo} onPartRefund={onPartRefund} />
         ))}
       </div>
     </section>
@@ -1243,6 +1274,7 @@ function OrderCard({
   onRefunded,
   onFee,
   onUncancel,
+  onRemove,
   onEdit,
   onAddTo,
   onPartRefund,
@@ -1258,6 +1290,8 @@ function OrderCard({
   onRefunded?: (id: string) => void;
   onFee?: (id: string, fee: number) => Promise<void>;
   onUncancel?: (id: string) => Promise<void>;
+  /** Off the books as written up twice (Katy, 2026-11-02), with initials. */
+  onRemove?: (id: string, by: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
   onPartRefund?: (id: string, cents: number) => Promise<void>;
@@ -1681,6 +1715,11 @@ function OrderCard({
         </p>
       )}
       {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
+      {onRemove && removable(o) && (
+        <p style={{ margin: "10px 0 0" }}>
+          <RemoveDuplicate number={o.number} onRemove={(by) => onRemove(o.id, by)} />
+        </p>
+      )}
     </article>
   );
 }
@@ -2864,6 +2903,11 @@ function PhoneOrderForm({
   const patchStop = (key: number, p: Partial<Stop>) => setStops((cur) => cur.map((s) => (s.key === key ? { ...s, ...p } : s)));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"" | "board" | "hold">("");
+  /** WRITTEN UP TWICE, CAUGHT AT THE DOOR (Katy, 2026-11-02): the route
+      refused the write-up as a second copy of an order already on the
+      board. The form shows the number and asks; "anyway" sends it again
+      with force, for the real second order on the same day. */
+  const [dup, setDup] = useState<{ number: string; name: string; recipient: string; date: string; hold: boolean } | null>(null);
   /** Another order on the same call: what carries over from the last one
       typed (see carryOver), everything else blank, the cursor in it. */
   function addStop() {
@@ -2881,7 +2925,8 @@ function PhoneOrderForm({
       still open, not ready to make); otherwise it goes onto the board as
       confirmed, or an existing one keeps its place. Several orders go on
       together or not at all; the route says which one it stopped on. */
-  async function save(hold: boolean) {
+  async function save(hold: boolean, force = false) {
+    setDup(null);
     setError("");
     const many = stops.length > 1;
     for (let i = 0; i < stops.length; i++) {
@@ -2918,7 +2963,7 @@ function PhoneOrderForm({
     };
     // An edit is one order, flat, as the PUT route has always read it; a
     // new write-up is the customer once and a list, one entry per order.
-    const payload = editing ? { ...shared, ...stopPayload(stops[0], library) } : { ...shared, deliveries: stops.map((s) => stopPayload(s, library)) };
+    const payload = editing ? { ...shared, ...stopPayload(stops[0], library) } : { ...shared, force, deliveries: stops.map((s) => stopPayload(s, library)) };
     const r = await fetch("/api/workroom/orders", {
       method: editing ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
@@ -2927,6 +2972,11 @@ function PhoneOrderForm({
     const d = await r.json().catch(() => null);
     setSaving("");
     if (!r.ok) {
+      if (r.status === 409 && d?.duplicate) {
+        setDup({ ...(d.duplicate as { number: string; name: string; recipient: string; date: string }), hold });
+        setError("");
+        return;
+      }
       setError(d?.error || "That did not save. Look it over and try again.");
       // Some of a group went on before the failure: the board behind the
       // form shows them, their frames leave the form, and the rest retry
@@ -3268,6 +3318,19 @@ function PhoneOrderForm({
         )}
         <span aria-live="polite" style={{ color: "var(--rose-ink)", fontWeight: 600, fontSize: 14.5 }}>{error}</span>
       </p>
+      {dup && (
+        <p role="alert" style={{ margin: 0, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 14.5 }}>
+          <strong style={{ color: "var(--rose-ink)" }}>
+            This looks like {dup.number}, already on the board: {dup.recipient && dup.recipient !== dup.name ? `${dup.name} for ${dup.recipient}` : dup.name} on {dup.date}.
+          </strong>
+          <button type="button" className="btn" onClick={() => setDup(null)}>
+            Never mind, it is that one
+          </button>
+          <button type="button" onClick={() => save(dup.hold, true).catch(() => setSaving(""))} style={{ ...textButton, fontSize: 14 }}>
+            A second order for that day, write it up anyway
+          </button>
+        </p>
+      )}
     </form>
   );
 }

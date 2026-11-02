@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { isoDate, normalizeVariety } from "@/lib/workroom/derive";
 // The taker's-initials rule lives in lib/workroom/initials.ts (the route
 // reads it too); the input that applies it lives below.
-import { cleanInitials } from "@/lib/workroom/initials";
+import { cleanInitials, INITIALS_ERROR, isInitials } from "@/lib/workroom/initials";
 export { INITIALS_ERROR, isInitials } from "@/lib/workroom/initials";
 
 export const field: React.CSSProperties = {
@@ -377,5 +377,58 @@ export function PinGate({ onAuthed }: { onAuthed: (info?: { owner?: boolean }) =
         {error}
       </p>
     </form>
+  );
+}
+
+/**
+ * WRITTEN UP TWICE (Katy, 2026-11-02: a duplicate of a Kempf's order was
+ * put on the account, and the question was how to delete it). One link,
+ * one confirm with initials, and the order is off every screen; the
+ * owner's dashboard keeps the record and can put it back. Shared by the
+ * Accounts tab and the board card, so the two say the same thing.
+ */
+export function RemoveDuplicate({ number, onRemove }: { number: string; onRemove: (by: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [by, setBy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+        Written up twice? Remove it
+      </button>
+    );
+  }
+  return (
+    <span style={{ display: "inline-flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 14 }}>
+      <strong style={{ color: "var(--rose-ink)" }}>Remove {number} as a duplicate?</strong>
+      <InitialsInput value={by} onChange={(v) => { setBy(v); setErr(""); }} />
+      <button
+        type="button"
+        className="btn"
+        disabled={busy}
+        style={{ color: "var(--rose-ink)" }}
+        onClick={async () => {
+          if (!isInitials(by)) {
+            setErr(INITIALS_ERROR);
+            return;
+          }
+          setBusy(true);
+          setErr("");
+          try {
+            await onRemove(cleanInitials(by));
+          } catch (e) {
+            setErr(e instanceof Error ? e.message : "That did not remove.");
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Removing…" : "Yes, remove it"}
+      </button>
+      <button type="button" onClick={() => { setOpen(false); setBy(""); setErr(""); }} style={{ ...textButton, fontSize: 13.5 }}>
+        Keep it
+      </button>
+      {err && <span role="alert" style={{ color: "var(--rose-ink)", fontWeight: 600 }}>{err}</span>}
+    </span>
   );
 }
