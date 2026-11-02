@@ -336,10 +336,8 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, void: true, by }),
     });
-    if (!r.ok) {
-      const d = await r.json().catch(() => null);
-      throw new Error(d?.error || "That did not remove.");
-    }
+    const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    if (!r.ok || !d?.ok) throw new Error(d?.error || "That did not remove.");
     setNotice("Off the books as written up twice. The owner's dashboard lists it and can put it back.");
     await pull();
   }

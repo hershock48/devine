@@ -115,7 +115,7 @@ export default async function ProductPage({ params }: Params) {
               {primary && (
                 <>
                   {" / "}
-                  <a href={href(`/shop/${primary.slug}`)} style={{ color: "inherit" }}>
+                  <a href={href(primary.href ?? `/shop/${primary.slug}`)} style={{ color: "inherit" }}>
                     {primary.name}
                   </a>
                 </>
@@ -176,7 +176,7 @@ export default async function ProductPage({ params }: Params) {
                 {alsoIn.map((c, i) => (
                   <span key={c!.slug}>
                     {i > 0 && ", "}
-                    <a href={href(`/shop/${c!.slug}`)}>{c!.name}</a>
+                    <a href={href(c!.href ?? `/shop/${c!.slug}`)}>{c!.name}</a>
                   </span>
                 ))}
                 .
@@ -194,7 +194,7 @@ export default async function ProductPage({ params }: Params) {
                 More from {primary?.name}
               </p>
               {primary && (
-                <a className="btn" href={href(`/shop/${primary.slug}`)}>
+                <a className="btn" href={href(primary.href ?? `/shop/${primary.slug}`)}>
                   All {inCategory(primary.slug).length}
                 </a>
               )}

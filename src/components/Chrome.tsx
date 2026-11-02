@@ -1,6 +1,6 @@
 import { site, formatHours, addressOneLine } from "@/lib/site";
 import { NAV, FOOTER_ONLY, href } from "@/lib/nav";
-import { categories } from "@/lib/catalog";
+import { shopCategories } from "@/lib/catalog";
 import { CartLink } from "./Cart";
 import Logo from "./Logo";
 import GlazedPlate from "./GlazedPlate";
@@ -116,7 +116,7 @@ export function Footer() {
         <div>
           <h4>Shop</h4>
           <ul>
-            {categories.map((c) => (
+            {shopCategories.map((c) => (
               <li key={c.slug}>
                 <a href={href(`/shop/${c.slug}`)}>{c.name}</a>
               </li>

@@ -58,6 +58,13 @@ export function looksLikeDuplicate(candidate: DuplicateCandidate, open: Workroom
   return null;
 }
 
+/** Two entries on ONE write-up for the same recipient on the same day: the
+    same slip, caught before anything is saved. The customer is the same by
+    construction (one sale, one customer). */
+export function sameDelivery(a: DuplicateCandidate, b: DuplicateCandidate): boolean {
+  return a.date === b.date && words(a.recipient) === words(b.recipient);
+}
+
 /** The sentence the form shows, in the counter's words. */
 export function duplicateMessage(o: WorkroomOrder): string {
   const who = o.recipient && o.recipient !== o.name ? `${o.name} for ${o.recipient}` : o.name;

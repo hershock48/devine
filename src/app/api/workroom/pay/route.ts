@@ -236,6 +236,11 @@ async function recordOnce(id: string, pmt: OrderPayment): Promise<void> {
   const store = getStore();
   const fresh = await store.getOrder(id);
   if (!fresh) return;
+  // MONEY NEVER HIDES. The route refused a removed order before charging,
+  // but a Remove can land in the seconds a card takes to clear. The money
+  // is real, so the order comes back onto the books with it rather than
+  // the payment vanishing with the order.
+  if (fresh.voided) await store.patchOrder(id, { voided: null });
   const same = (q: OrderPayment | null | undefined) =>
     !!q && (pmt.squarePaymentId ? q.squarePaymentId === pmt.squarePaymentId : q.method === "other" && q.at === pmt.at);
   // The webhook can land first and write the same Square payment as a

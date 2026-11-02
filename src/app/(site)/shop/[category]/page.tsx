@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
-import { categories, catBySlug, inCategory, priceRange, money } from "@/lib/catalog";
+import { shopCategories, shopCatBySlug, inCategory, priceRange, money } from "@/lib/catalog";
 import { photoFirst } from "@/lib/order";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
@@ -9,7 +9,7 @@ import { href } from "@/lib/nav";
 type Params = { params: Promise<{ category: string }> };
 
 export function generateStaticParams() {
-  return categories.map((c) => ({ category: c.slug }));
+  return shopCategories.map((c) => ({ category: c.slug }));
 }
 
 /**
@@ -19,10 +19,11 @@ export function generateStaticParams() {
  * money.
  *
  * TITLES ARE NOT TEMPLATED FROM THE NAME. `${name} flowers` produced "Plants flowers"
- * and "Gifts & Add Ons flowers", and it produced two pairs of duplicate titles — the
- * wedding and celebration-of-life categories collided with the standalone pages of the
- * same name, which is exactly what a search engine treats as one page done twice.
- * Four categories are named by hand; the rest read correctly from the template.
+ * and "Gifts & Add Ons flowers", and it produced duplicate titles: the celebration-of-life
+ * category collided with the standalone sympathy page of the same name (as the wedding
+ * category did with the weddings page, until it left the shop on 2026-11-02), which is
+ * exactly what a search engine treats as one page done twice. Three categories are
+ * named by hand; the rest read correctly from the template.
  */
 const TITLE: Record<string, string> = {
   plants: "Plants and dish gardens",
@@ -32,7 +33,7 @@ const TITLE: Record<string, string> = {
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { category } = await params;
-  const c = catBySlug.get(category);
+  const c = shopCatBySlug.get(category);
   if (!c) return {};
   const [lo, hi] = priceRange(c.slug);
   return {
@@ -43,7 +44,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 export default async function CategoryPage({ params }: Params) {
   const { category } = await params;
-  const c = catBySlug.get(category);
+  const c = shopCatBySlug.get(category);
   if (!c) notFound();
 
   const items = inCategory(c.slug);

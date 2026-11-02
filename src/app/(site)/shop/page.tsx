@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
-import { categories, inCategory, priceRange, money } from "@/lib/catalog";
+import { shopCategories, inCategory, priceRange, money } from "@/lib/catalog";
 import { photoFirst, hasPhoto } from "@/lib/order";
 import { href } from "@/lib/nav";
 
@@ -54,7 +54,7 @@ export default function Shop() {
       <section className="section" style={{ paddingTop: 0 }}>
         <div className="wrap">
           <ul className="index">
-            {categories.map((c) => {
+            {shopCategories.map((c) => {
               const items = inCategory(c.slug);
               const [lo, hi] = priceRange(c.slug);
               return (
@@ -72,7 +72,7 @@ export default function Shop() {
         </div>
       </section>
 
-      {categories.map((c, i) => (
+      {shopCategories.map((c, i) => (
         <section className="section" key={c.slug} style={{ paddingTop: i === 0 ? 0 : undefined }}>
           <div className="wrap">
             <div className="sec-head">

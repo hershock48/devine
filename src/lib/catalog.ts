@@ -51,6 +51,12 @@ export type Category = {
   name: string;
   /** Ours, not theirs: their category pages carry no copy at all. */
   blurb: string;
+  /** NOT A SHELF IN THE SHOP: no index entry, no nav item, no sitemap row,
+      no /shop page. Still a category: its products keep a name for the
+      breadcrumb and the sales report instead of falling to "Other". */
+  hidden?: boolean;
+  /** Where its products' breadcrumb points when there is no shop page. */
+  href?: string;
 };
 
 /*
@@ -89,8 +95,10 @@ export const categories: Category[] = [
   // menu for now, 2026-10-14); put it back with them.
   { slug: "gifts-add-ons", name: "Gifts & Add Ons", blurb: "Tea and something soft to hold. Add one to any arrangement." },
   /* The Wedding category left the shop (Katy, 2026-11-02: "Get rid of Wedding
-     flower category"). The four classics keep their "wedding" tag so the
-     weddings page still lists them for ordering; nothing else reads it. */
+     flower category") but not the catalog: hidden, it keeps the four classics
+     named on their product pages and in the sales report, and the weddings
+     page still lists them for ordering. Their breadcrumb points there. */
+  { slug: "wedding", name: "Wedding", blurb: "", hidden: true, href: "/weddings" },
 ];
 
 /*
@@ -287,6 +295,10 @@ export const products: Product[] = [
 
 export const bySlug = new Map(products.map((p) => [p.slug, p]));
 export const catBySlug = new Map(categories.map((c) => [c.slug, c]));
+/** The shelves the shop shows: the index, the nav, the homepage occasions,
+    the sitemap and the /shop pages read these, never `categories`. */
+export const shopCategories: Category[] = categories.filter((c) => !c.hidden);
+export const shopCatBySlug = new Map(shopCategories.map((c) => [c.slug, c]));
 /** What the shop shows and sells online today: everything not off the menu.
     The pages, the sitemap, the cart and the counts read this; the workroom
     and past orders read `products`. */

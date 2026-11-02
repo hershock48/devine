@@ -19,6 +19,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const order = await getStore().getOrder(id);
   if (!order) return NextResponse.json({ error: "No such order." }, { status: 404 });
+  // Nothing prints for an order removed as written up twice: a ticket is
+  // how its retired number would get back onto the bench.
+  if (order.voided) return NextResponse.json({ error: "That order was removed as written up twice." }, { status: 409 });
   const asked = new URL(req.url).searchParams.get("layout");
   const layout: PrintLayout = asked === "sheet" || asked === "plain" ? asked : printLayoutFor(order);
   const pdf = await renderOrderPdf(order, layout);

@@ -1,6 +1,6 @@
 import ProductCard from "@/components/ProductCard";
 import HeroTrace from "@/components/HeroTrace";
-import { bySlug, categories, inCategory, priceRange, money, menu } from "@/lib/catalog";
+import { bySlug, shopCategories, inCategory, priceRange, money, menu } from "@/lib/catalog";
 import { site, formatHours } from "@/lib/site";
 import { currentSeasonal, heroFor } from "@/lib/seasons";
 import { photoFirst } from "@/lib/order";
@@ -136,7 +136,7 @@ export default async function Home() {
         <div className="wrap">
           <p className="kicker">What are the flowers for?</p>
           <ul className="index">
-            {categories.map((c) => {
+            {shopCategories.map((c) => {
               const items = inCategory(c.slug);
               const [min] = priceRange(c.slug);
               return (

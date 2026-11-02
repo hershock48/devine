@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { deliveryFeeFor, site } from "@/lib/site";
 import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
-import { duplicateMessage, looksLikeDuplicate } from "@/lib/workroom/duplicate";
+import { duplicateMessage, looksLikeDuplicate, sameDelivery } from "@/lib/workroom/duplicate";
 import { bySlug } from "@/lib/catalog";
 import { balanceCents, deliveryLineName, isDeliveryLine, isTaxLine, normalizeVariety, squareMoney, withTaxLine } from "@/lib/workroom/derive";
 import { INITIALS_ERROR } from "@/lib/workroom/initials";
@@ -301,6 +301,18 @@ export async function POST(req: Request) {
   // has nobody to match. An edit (PUT) is the same order and never comes
   // through here.
   if (!quick && raw.force !== true) {
+    // Two entries on this write-up for one recipient on one day first:
+    // the same slip, before the board is even asked.
+    for (let i = 1; i < parsedAll.length; i++) {
+      const j = parsedAll.slice(0, i).findIndex((e) => sameDelivery(e, parsedAll[i]));
+      if (j >= 0) {
+        const who = parsedAll[i].recipient || parsedAll[i].name;
+        return NextResponse.json(
+          { error: `Orders ${j + 1} and ${i + 1} on this write-up are both for ${who} on ${parsedAll[i].date}. If they are two different pieces for the same day, write it up anyway.`, duplicate: { id: "", number: `order ${j + 1}`, name: parsedAll[i].name, recipient: parsedAll[i].recipient, date: parsedAll[i].date } },
+          { status: 409 },
+        );
+      }
+    }
     const open = await getStore().listOrders(60);
     for (let i = 0; i < parsedAll.length; i++) {
       const dup = looksLikeDuplicate(parsedAll[i], open);
@@ -442,6 +454,14 @@ export async function PATCH(req: Request) {
     await getStore().patchOrder(id, { voided: null });
     return NextResponse.json({ ok: true });
   }
+  // A REMOVED ORDER STAYS STILL. A tab opened before someone removed it can
+  // still send its id; nothing below (uncancel included) may move it, bill
+  // it or change its fee while it is off the books. Put it back from the
+  // dashboard first.
+  if (id) {
+    const cur = await getStore().getOrder(id);
+    if (cur?.voided) return NextResponse.json({ error: "That order was removed as written up twice. Put it back from the dashboard first." }, { status: 409 });
+  }
   // UNCANCEL (Katy, 2026-10-06): a canceled order goes back to the status
   // it was canceled from, or to confirmed when that was never recorded
   // (orders canceled before this shipped). Refused once the money has been
@@ -458,13 +478,6 @@ export async function PATCH(req: Request) {
     const back: OrderStatus = o.canceledFrom && o.canceledFrom !== "canceled" ? o.canceledFrom : "confirmed";
     await getStore().patchOrder(id, { status: back });
     return NextResponse.json({ ok: true, status: back });
-  }
-  // A REMOVED ORDER STAYS STILL. A tab opened before someone removed it can
-  // still send its id; nothing below may move it, bill it or change its
-  // fee while it is off the books. Put it back from the dashboard first.
-  if (id) {
-    const cur = await getStore().getOrder(id);
-    if (cur?.voided) return NextResponse.json({ error: "That order was removed as written up twice. Put it back from the dashboard first." }, { status: 409 });
   }
   // ON OR OFF ACCOUNT, after the fact (Katy, 2026-10-14). Unpaid orders
   // only: a paid order is settled, and "on account" means billed instead.
