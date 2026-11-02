@@ -27,7 +27,6 @@ export function generateStaticParams() {
 const TITLE: Record<string, string> = {
   plants: "Plants and dish gardens",
   "gifts-add-ons": "Gifts and add ons",
-  wedding: "Wedding classics, ready to order",
   "celebration-of-life": "Sympathy arrangements, ready to order",
 };
 

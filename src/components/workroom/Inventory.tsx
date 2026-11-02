@@ -984,7 +984,7 @@ function RecipeForm({
             const setRow = (variety: string) => setParts((cur) => cur.map((x, at) => (at === i ? { ...x, variety } : x)));
             return (
               <div key={i}>
-                <div style={{ display: "grid", gap: 8, gridTemplateColumns: "2fr 90px" }}>
+                <div style={{ display: "grid", gap: 8, gridTemplateColumns: "2fr 90px auto", alignItems: "center" }}>
                   <input
                     aria-label={`Part ${i + 1} variety`}
                     list="recipe-varieties"
@@ -1001,6 +1001,18 @@ function RecipeForm({
                     onChange={(e) => setParts((cur) => cur.map((x, at) => (at === i ? { ...x, stems: e.target.value } : x)))}
                     style={field}
                   />
+                  {/* A line put in by mistake comes out (Katy, 2026-11-02: "no
+                      way to remove a line of items if I accidentally put in an
+                      extra stem"). The last line clears instead of vanishing,
+                      so the form always has a row to type in. */}
+                  <button
+                    type="button"
+                    aria-label={`Remove part ${i + 1}`}
+                    onClick={() => setParts((cur) => (cur.length > 1 ? cur.filter((_, at) => at !== i) : [{ variety: "", stems: "" }]))}
+                    style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}
+                  >
+                    Remove
+                  </button>
                 </div>
                 <VarietyGate
                   value={p.variety}

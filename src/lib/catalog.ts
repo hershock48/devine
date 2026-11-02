@@ -1,15 +1,22 @@
 /**
- * THE CATALOG. 60 products: 57 harvested from their WooCommerce shop on 2026-08-20 and
- * three added by hand from the owner's photos and flower lists (Lucy 2026-10-14; Lorna
- * and Delilah 2026-10-20); the harvest notes below are about the 57, and
- * cross-checked against their own Store API, so every name, price and description
- * here is theirs rather than ours.
+ * THE CATALOG. 64 products: 57 harvested from their WooCommerce shop on 2026-08-20 and
+ * seven added by hand from the owner's photos and flower lists (Lucy 2026-10-14; Lorna
+ * and Delilah 2026-10-20; Charlotte, Mabel, Blair and Tansy 2026-11-02); the harvest
+ * notes below are about the 57, and cross-checked against their own Store API, so
+ * every name, price and description here is theirs rather than ours.
+ *
+ * REPRICED BY THE OWNER'S EMAIL OF 2026-11-02 ("a few quickish changes"): nineteen
+ * prices, listed in the commit that made them; the Wedding category gone from the shop
+ * (its four classics still sell on the weddings page); a new Seasonal category for
+ * the autumn designs; Just Because trimmed to Looking Lovely, the three Designer's
+ * Choice prices and two new everyday designs.
  *
  * KEYED ON SLUG, NEVER ON NAME. Three separate products are all called "Designer's
  * Choice" and differ only by price. Keying on name silently collapses them.
  *
- * Their category badges sum to 66 because nine products sit in two categories at
- * once. 57 unique + 9 second placements = 66. Nothing is missing.
+ * Products may sit in more than one category (Designer's Choice in three, the plush
+ * toys in two), so category counts never add up to the product count. Nothing is
+ * missing when they differ.
  *
  * The substitution clauses are theirs, quoted once in site.ts rather than repeated
  * on 40 products the way their current site does.
@@ -70,6 +77,9 @@ export type Category = {
 */
 export const categories: Category[] = [
   { slug: "just-because", name: "Just Because", blurb: "No occasion required. The arrangements our designers reach for when someone simply deserves flowers." },
+  /* SEASONAL (Katy, 2026-11-02): the autumn and holiday designs, which used to
+     sit under Just Because, in their own section while they are in season. */
+  { slug: "seasonal", name: "Seasonal", blurb: "What the season is giving us right now, from the keepsake pumpkins to the holiday table." },
   { slug: "birthday", name: "Birthday", blurb: "Bright, generous and built to be carried into a room." },
   { slug: "anniversary", name: "Anniversary", blurb: "Roses, and the arrangements for people who would rather not send roses." },
   { slug: "celebration-of-life", name: "Celebration of Life", blurb: "Arrangements for a service, a graveside, or a kitchen table that needs softening." },
@@ -78,7 +88,9 @@ export const categories: Category[] = [
   // "chocolate from Albion" left the blurb with the chocolates (off the
   // menu for now, 2026-10-14); put it back with them.
   { slug: "gifts-add-ons", name: "Gifts & Add Ons", blurb: "Tea and something soft to hold. Add one to any arrangement." },
-  { slug: "wedding", name: "Wedding", blurb: "Our four classics, ready to order. Everything else is designed with you." },
+  /* The Wedding category left the shop (Katy, 2026-11-02: "Get rid of Wedding
+     flower category"). The four classics keep their "wedding" tag so the
+     weddings page still lists them for ordering; nothing else reads it. */
 ];
 
 /*
@@ -90,15 +102,13 @@ export const categories: Category[] = [
 const SUB_NOTE = ""; // substitution language lives in site.ts, shown once per product page
 
 /*
-  SIX PLANT PRICES DIVERGE FROM THE WOO HARVEST, deliberately. The owner's own
-  plant par sheet (research/weekly-order-and-price-lists.md, photographed
-  2026-08-31) prices several plants a few dollars below her website, and
-  Kevin's ruling that day was that the paper is the most recent pricing.
-  Repriced to the sheet: the three ceramic dish gardens (the sheet's 8"/10"/12"
-  are the site's Small/Medium/Large, confirmed by the dish sizes in their own
-  descriptions), both peace lilies, and the rustic box planter. The sheet also
-  carries a 10" Peace Lily at $85 that the website never sold; not added here
-  without her copy and a photo.
+  PLANT PRICES. First repriced from the Woo harvest to the owner's plant par
+  sheet (research/weekly-order-and-price-lists.md, photographed 2026-08-31),
+  then to her email of 2026-11-02, which is now the authority for the three
+  ceramic dish gardens, the succulent garden, both chimes, Beautiful Memory
+  and the rustic box planter. The peace lilies and the rest still stand at
+  the sheet's prices. The sheet also carries a 10" Peace Lily at $85 that the
+  website never sold; not added here without her copy and a photo.
 */
 
 export const products: Product[] = [
@@ -141,13 +151,13 @@ export const products: Product[] = [
     desc: "A rustic box holding a small houseplant, coconut body oil, a eucalyptus soap bar with an exfoliating bag, a lavender vanilla candle, a roll on calming oil, and a sachet of locally grown dried lavender. The best gift is one that asks someone to slow down." },
 
   // ---- New Baby ----
-  { slug: "honey-bee", name: "Honey Bee", price: 75, cats: ["new-baby"], img: "2026/06/IMG_0560-scaled.jpeg",
+  { slug: "honey-bee", name: "Honey Bee", price: 80, cats: ["new-baby"], img: "2026/06/IMG_0560-scaled.jpeg",
     desc: "PLACEHOLDER: their shop carries no description for this product, only the substitution clause. Ask the owner for copy." },
-  { slug: "butterfly-kisses", name: "Butterfly Kisses", price: 75, cats: ["new-baby"], img: "2026/06/IMG_9575-scaled.jpeg",
+  { slug: "butterfly-kisses", name: "Butterfly Kisses", price: 85, cats: ["new-baby"], img: "2026/06/IMG_9575-scaled.jpeg",
     desc: "Delicate pastels of lavender stock, pink larkspur, pink rose, green hydrangea, white cremone, pink alstroemeria and limonium in seasonal greenery, with a pink butterfly as a finishing touch." },
-  { slug: "bears-baby-box", name: "Bear's Baby Box", price: 110, cats: ["new-baby"], img: "2026/08/IMG_0419-scaled.jpeg",
+  { slug: "bears-baby-box", name: "Bear's Baby Box", price: 125, cats: ["new-baby"], img: "2026/08/IMG_0419-scaled.jpeg",
     desc: "Briar the brown bear alongside fresh flowers for mom and dad. Blue hydrangeas, white daisies and two toned blue delphinium in a dark wood rustic box. A keepsake and a bouquet in one." },
-  { slug: "blossom-and-blooms", name: "Blossom and Blooms", price: 110, cats: ["new-baby"], img: "2026/07/IMG_0326-scaled.jpeg",
+  { slug: "blossom-and-blooms", name: "Blossom and Blooms", price: 130, cats: ["new-baby"], img: "2026/07/IMG_0326-scaled.jpeg",
     desc: "Blossom, the softest bunny in all the land, surrounded by pink snapdragons, pink carnations, white daisies and soft fillers in a creamy white ceramic pedestal pot. A grand gesture, generously sized." },
 
   // ---- Wedding ----
@@ -170,57 +180,74 @@ export const products: Product[] = [
      line-art placeholder and are not used while the manifest has them. */
   { slug: "designers-choice", name: "Designer's Choice", price: 55, cats: ["just-because", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png",
     desc: "Put the creative agency in the hands of the designer. Container and flowers are chosen for seasonality, availability and inspiration on the day. Tell us any colors or flowers you have in mind in your order notes." },
-  { slug: "maeve", name: "Maeve", price: 65, cats: ["just-because"], img: "2026/08/IMG_0759-scaled.jpeg",
+  { slug: "maeve", name: "Maeve", price: 65, cats: ["seasonal"], img: "2026/08/IMG_0759-scaled.jpeg",
     desc: "In a green ceramic keepsake pumpkin, full of mixed greenery with peach spray roses, burgundy cushion mums, red leucadendron, red strawflower, peach hypericum, bunny tails and solidago. A collection of complementing autumn tones." },
-  { slug: "gwendolyn", name: "Gwendolyn", price: 65, cats: ["just-because"], img: "2026/08/IMG_0690-scaled.jpeg",
+  { slug: "gwendolyn", name: "Gwendolyn", price: 65, cats: ["seasonal"], img: "2026/08/IMG_0690-scaled.jpeg",
     desc: "A play on traditional autumn color in a keepsake orange ceramic pumpkin. A deep toned dahlia, orange spray roses, red alstroemeria, champagne cushion mums, burgundy hypericum berries and bright yellow solidago." },
-  { slug: "harper-2", name: "Harper", price: 65, cats: ["just-because"], img: "2026/08/IMG_0714-scaled.jpeg",
+  { slug: "harper-2", name: "Harper", price: 65, cats: ["seasonal"], img: "2026/08/IMG_0714-scaled.jpeg",
     desc: "A feminine take on autumn. Mauves, pinks and apricot tones in spray roses, stock, thistle, cushion mums and solidago. The stock fills a room with scent as well as color." },
   { slug: "designers-choice-3", name: "Designer's Choice", price: 75, cats: ["just-because", "anniversary", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png",
     desc: "Put the creative agency in the hands of the designer. Container and flowers are chosen for seasonality, availability and inspiration on the day. Tell us any colors or flowers you have in mind in your order notes." },
-  { slug: "della", name: "Della", price: 79, cats: ["just-because"], img: "2026/08/IMG_0688-scaled.jpeg",
+  { slug: "della", name: "Della", price: 79, cats: ["seasonal"], img: "2026/08/IMG_0688-scaled.jpeg",
     desc: "Vibrant fall color in a concrete container. Red hypericum berries, orange alstroemeria, craspedia balls, solidago, a large sunflower and a live succulent that can be planted and keep growing, nestled in mixed seasonal greenery." },
-  { slug: "ginger", name: "Ginger", price: 85, cats: ["just-because"], img: "2026/08/IMG_0741-scaled.jpeg",
+  { slug: "ginger", name: "Ginger", price: 90, cats: ["seasonal"], img: "2026/08/IMG_0741-scaled.jpeg",
     desc: "A stunning collection of purples and oranges. Deep toned hydrangeas, orange daisies, butterscotch cremones, dark purple button mums, Free Spirit roses, orange carnations, solidago and garden fresh calendula in a clear bowl vase." },
   { slug: "bridget", name: "Bridget", price: 85, cats: ["just-because"], img: "2026/08/IMG_0676-scaled.jpeg", offMenu: true,
     desc: "The more neutral, natural side of autumn, in a gray ceramic container. White Japanese anemones, peachy orange hypericum berries, pale yellow lisianthus, chocolate Queen Anne's lace, burgundy carnations, autumn leaves, and slices of tree trunk and twig." },
   { slug: "designers-choice-2", name: "Designer's Choice", price: 100, cats: ["just-because", "anniversary", "birthday"], img: "2025/05/Black-And-White-Flower-A4-Page-Border-1-e1753476113498.png",
     desc: "Put the creative agency in the hands of the designer. Container and flowers are chosen for seasonality, availability and inspiration on the day. Tell us any colors or flowers you have in mind in your order notes." },
-  { slug: "helene", name: "Helene", price: 115, cats: ["just-because"], img: "2026/08/IMG_0805-scaled.jpeg",
+  { slug: "helene", name: "Helene", price: 115, cats: ["seasonal"], img: "2026/08/IMG_0805-scaled.jpeg",
     desc: "A show stopping vased arrangement in gray ceramic, abundant with seeded eucalyptus, willow eucalyptus, plumosa fern, grasses and ninebark. Woven through the greenery: solidago, cremone mums, burgundy micro daisies, golden fennel and a mixture of hypericum berries. For someone who appreciates a natural, neutral palette." },
   /* LORNA and DELILAH (Katy, 2026-10-20, with photos): new since the
      harvest. The copy is written from her flower lists in the catalog's
      own voice; the photographs went through tools/ingest-photo.mjs. */
-  { slug: "lorna", name: "Lorna", price: 85, cats: ["just-because"], img: "",
+  { slug: "lorna", name: "Lorna", price: 85, cats: ["seasonal"], img: "",
     desc: "Autumn in a weathered wooden box. Green hydrangea, burgundy leucadendron, a Free Spirit rose, golden button mums and a bronze cremone, with snapdragons, orange waxflower, autumn leaves and seeded eucalyptus in seasonal greenery." },
-  { slug: "delilah", name: "Delilah", price: 100, cats: ["just-because"], img: "",
+  { slug: "delilah", name: "Delilah", price: 100, cats: ["seasonal"], img: "",
     desc: "A field in late summer. Sunflowers, golden Viking poms and solidago in a clear glass vase, with plumes of dried grass, seeded eucalyptus and fern in seasonal mixed greenery." },
+  /* CHARLOTTE and MABEL (Katy, 2026-11-02, with photos in her email): the two
+     holiday table arrangements. Her words: Charlotte is "very high end and
+     stately", Mabel "smaller, more homey". The copy is written from her
+     flower lists in the catalog's own voice; the photographs go through
+     tools/ingest-photo.mjs as charlotte.jpg and mabel.jpg. */
+  { slug: "charlotte", name: "Charlotte", price: 110, cats: ["seasonal"], img: "",
+    desc: "Stately, for the holiday table. Double petaled gerbera daisies, lilies and orange daisies with hypericum berries and fresh local apples, arranged full and formal in seasonal greenery." },
+  { slug: "mabel", name: "Mabel", price: 55, cats: ["seasonal"], img: "",
+    desc: "The homey one, for the holiday table. Real miniature pumpkins with sunflowers, Viking poms, purple button mums and orange daisies in seasonal greenery. Smaller, and glad to be there." },
 
   // ---- Anniversary ----
-  { slug: "hanna", name: "Hanna", price: 60, cats: ["anniversary"], img: "2026/08/IMG_0557-scaled.jpeg",
+  { slug: "hanna", name: "Hanna", price: 65, cats: ["anniversary"], img: "2026/08/IMG_0557-scaled.jpeg",
     desc: "Delicately sweet. A clear regency vase with mixed greenery, petite peach spray roses and baby's breath. The right size for a kitchen counter or a work desk, as an everyday reminder." },
-  { slug: "dozen-roses", name: "Classic Red Dozen", price: 126.95, cats: ["anniversary"], img: "2026/01/IMG_0513-scaled.jpeg",
+  { slug: "dozen-roses", name: "Classic Red Dozen", price: 149, cats: ["anniversary"], img: "2026/01/IMG_0513-scaled.jpeg",
     desc: "The classic way to say I love you. Twelve long stemmed red roses in a large clear vase, filled abundantly with greens and filler accents, finished with a satin bow." },
-  { slug: "serena", name: "Serena", price: 100, cats: ["anniversary"], img: "2026/08/IMG_0754-scaled.jpeg",
+  { slug: "serena", name: "Serena", price: 110, cats: ["anniversary"], img: "2026/08/IMG_0754-scaled.jpeg",
     desc: "A romantic display of neutral tones. White lilies, hydrangeas, mums, alstroemeria, snapdragons and classic white roses in mixed seasonal greenery, intertwined with white waxflower in a clear tapered vase." },
   { slug: "roxanne", name: "Roxanne", price: 100, cats: ["anniversary"], img: "2026/07/IMG_0349-scaled.jpeg",
     desc: "Love and desire, in classic red roses, vibrant red alstroemeria, delicate pink scabiosa, white veronica, white stock and pink limonium." },
-  { slug: "mixed-dozen-of-roses", name: "Mixed Dozen Roses", price: 126.95, cats: ["anniversary"], img: "2026/08/IMG_0416-scaled.jpeg",
+  { slug: "mixed-dozen-of-roses", name: "Mixed Dozen Roses", price: 149, cats: ["anniversary"], img: "2026/08/IMG_0416-scaled.jpeg",
     desc: "A twist on the classic dozen. Twelve long stemmed roses in pink and red, abundantly designed in a large clear urn with mixed greenery and filler." },
-  { slug: "eliza", name: "Eliza", price: 135, cats: ["anniversary"], img: "2026/08/IMG_0478-scaled.jpeg",
+  { slug: "eliza", name: "Eliza", price: 160, cats: ["anniversary"], img: "2026/08/IMG_0478-scaled.jpeg",
     desc: "An elaborate display of feminine tones. Pink lilies, deep purple roses, purple stock and snapdragons, alstroemeria, butterfly ranunculus, button mums and carnations in a bed of mixed greenery." },
 
   // ---- Birthday ----
-  { slug: "looking-lovely", name: "Looking Lovely", price: 55, cats: ["birthday"], img: "2026/03/IMG_9491-scaled.jpeg",
+  { slug: "looking-lovely", name: "Looking Lovely", price: 55, cats: ["just-because", "birthday"], img: "2026/03/IMG_9491-scaled.jpeg",
     desc: "A garden of bold color. Orange daisies, purple alstroemeria, magenta mini carnations, lavender button mums, solidago and a sunflower in mixed seasonal greenery." },
-  { slug: "blooming-candle", name: "Blooming Candle", price: 75, cats: ["birthday"], img: "2024/07/IMG_8580-scaled.jpeg",
+  /* BLAIR and TANSY (Katy, 2026-11-02): the two new everyday designs for Just
+     Because, "desk, smaller kitchen or end table size" in her words. Copy
+     from her flower lists in the catalog's own voice; no photographs yet, so
+     they sit on the /photos list until hers arrive. */
+  { slug: "blair", name: "Blair", price: 65, cats: ["just-because"], img: "",
+    desc: "Desk, kitchen counter or end table size. A pink rose and green hydrangea with pink and yellow alstroemeria, purple and white daisies and lavender stock in seasonal greenery." },
+  { slug: "tansy", name: "Tansy", price: 65, cats: ["just-because"], img: "",
+    desc: "Desk, kitchen counter or end table size. Pink lisianthus, peach carnations and orange alstroemeria with miniature magenta carnations, orange daisies and waxflower in seasonal greenery." },
+  { slug: "blooming-candle", name: "Blooming Candle", price: 80, cats: ["birthday"], img: "2024/07/IMG_8580-scaled.jpeg",
     /* Copy from the owner's own recipe (Kevin, 2026-10-17: "the recipe is
        just off"); the harvested text named flowers that are not in it. */
     desc: "Two gifts in one. Fresh flowers arranged into the top of a scented tinned candle: Free Spirit roses, Viking poms, purple alstroemeria, carnations and bright fillers in seasonal mixed greenery." },
   /* LUCY (Kevin, 2026-10-14: "Add Lucy to b-day", $105; photo and the
      flower list on 2026-10-16, the copy written from that list in the
      catalog's own voice). */
-  { slug: "lucy", name: "Lucy", price: 105, cats: ["birthday"], img: "",
+  { slug: "lucy", name: "Lucy", price: 115, cats: ["birthday"], img: "",
     desc: "Sunshine in a vase. Pale yellow lisianthus, sunflowers, orange snapdragons, dahlias, orange wallflower and orange lilies, arranged tall in a clear glass vase with seasonal greenery. Warm, bright and glad to see you." },
   { slug: "clementine", name: "Clementine", price: 85, cats: ["birthday"], img: "2026/06/Screenshot-2026-06-01-105732.png",
     desc: "The warmth of summer, in double petaled gerbera daisies, snapdragons, sunset orange daisies, whimsical yellow butterfly ranunculus, purple statice and solidago, in a gray ceramic container with seasonal summer greenery." },
@@ -230,29 +257,29 @@ export const products: Product[] = [
   // ---- Plants ----
   { slug: "6-peace-lily", name: "6″ Peace Lily", price: 46.95, cats: ["plants"], img: "2024/08/6-inch-Peace-Lily.jpg",
     desc: "The peace lily, Spathiphyllum, blooms with stunning white flowers and is a symbol of calm and balance. Delivered in a woven basket or a tin container with a white satin bow. Prefers moist soil and low light." },
-  { slug: "small-ceramic-dish-garden", name: "Small Ceramic Dish Garden", price: 48.95, cats: ["plants"], img: "2026/02/IMG_0028-scaled.jpeg",
+  { slug: "small-ceramic-dish-garden", name: "Small Ceramic Dish Garden", price: 52, cats: ["plants"], img: "2026/02/IMG_0028-scaled.jpeg",
     desc: "A collection of plants grown together in an 8″ ceramic dish. Plants and dish may vary. Keep the soil moist, in bright diffused light." },
-  { slug: "small-chime-stand", name: "30″ Wind Chime", price: 50.95, cats: ["plants"], img: "2024/07/Untitled-design-2.png",
+  { slug: "small-chime-stand", name: "30″ Wind Chime", price: 55, cats: ["plants"], img: "2024/07/Untitled-design-2.png",
     desc: "A full, classically beautiful sound, in three colors. If no color preference is noted on the order, black will be sent." },
   { slug: "terra-bowel", name: "Terra Bowl", price: 52.95, cats: ["plants"], img: "2024/06/Terra-Bowel.jpg",
     desc: "An earthy, vibrant collection of mixed green house plants grown in a 10″ terra dish. Plants may vary." },
-  { slug: "beautiful-memory", name: "Beautiful Memory", price: 59.95, cats: ["plants"], img: "2024/09/IMG_0031-scaled.jpeg",
+  { slug: "beautiful-memory", name: "Beautiful Memory", price: 65, cats: ["plants"], img: "2024/09/IMG_0031-scaled.jpeg",
     desc: "An 8″ ceramic dish garden of mixed green house plants with three bright butterflies. Keep the soil moist, in bright diffused light." },
   { slug: "peaceful-garden-2", name: "Peaceful Garden", price: 59.95, cats: ["plants"], img: "2024/07/IMG_0077-scaled.jpeg",
     desc: "Mixed house plants grown together in a ceramic dish, with a white ceramic dove among the greenery. Plants and dish may vary." },
-  { slug: "succulent-garden", name: "Succulent Garden", price: 59.95, cats: ["plants"], img: "2024/06/Succulent-Garden.jpg",
+  { slug: "succulent-garden", name: "Succulent Garden", price: 62, cats: ["plants"], img: "2024/06/Succulent-Garden.jpg",
     desc: "A ceramic bowl abundantly filled with mixed succulents. The soil prefers to stay relatively dry, with occasional watering, in bright diffused light." },
-  { slug: "cylinder-wind-chime", name: "Cylinder Wind Chime", price: 61, cats: ["plants"], img: "2024/07/Untitled-design-1.png",
+  { slug: "cylinder-wind-chime", name: "Cylinder Wind Chime", price: 65, cats: ["plants"], img: "2024/07/Untitled-design-1.png",
     desc: "A single cylinder chime with a deep tone. For a garden, or the corner of a house, calling in the memory of someone or simply bringing awareness to the breeze. Five colors. If no preference is noted, black will be sent." },
   { slug: "8-peace-lily", name: "8″ Peace Lily", price: 65.95, cats: ["plants"], img: "2024/07/8-inch-Peace-Lily.jpg",
     desc: "The peace lily, Spathiphyllum, blooms with stunning white flowers and is a symbol of calm and balance. Delivered in a woven basket or a tin container with a white satin bow. Prefers moist soil and low light." },
-  { slug: "rustic-box-planter", name: "Rustic Box Planter", price: 65.95, cats: ["plants"], img: "2024/07/Rustic-Box-.jpg",
+  { slug: "rustic-box-planter", name: "Rustic Box Planter", price: 75, cats: ["plants"], img: "2024/07/Rustic-Box-.jpg",
     desc: "Mixed house plants grown together in a rustic box planter. Plants and planter may vary." },
-  { slug: "medium-ceramic-dish-garden", name: "Medium Ceramic Dish Garden", price: 68.95, cats: ["plants"], img: "2024/07/Medium-Ceramic-Dish-Garden-.jpg",
+  { slug: "medium-ceramic-dish-garden", name: "Medium Ceramic Dish Garden", price: 75, cats: ["plants"], img: "2024/07/Medium-Ceramic-Dish-Garden-.jpg",
     desc: "A collection of plants grown together in a 10″ ceramic dish. Plants and dish may vary. Keep the soil moist, in bright diffused light." },
   { slug: "wing-and-a-prayer", name: "A Wing and A Prayer Dish Garden", price: 79.95, cats: ["plants"], img: "2024/07/IMG_0072-scaled.jpeg",
     desc: "An assortment of house plants in a basket, accented with a ceramic angel keepsake and a white satin bow. Keep the soil moist, in bright diffused light." },
-  { slug: "large-ceramic-dish-garden", name: "Large Ceramic Dish Garden", price: 90.95, cats: ["plants"], img: "2024/07/Large-Dish-Garden.jpg",
+  { slug: "large-ceramic-dish-garden", name: "Large Ceramic Dish Garden", price: 105, cats: ["plants"], img: "2024/07/Large-Dish-Garden.jpg",
     desc: "A collection of plants grown together in a 12″ ceramic dish. Plants and dish may vary. Keep the soil moist, in bright diffused light." },
 ];
 

@@ -41,7 +41,9 @@ export const TIERS: Tier[] = [
   { key: "baby", label: "Then: New Baby, and the three by the register", cats: ["new-baby"] },
   { key: "gifts", label: "When you can: the rest of the gifts", cats: ["gifts-add-ons"] },
   { key: "wedding", label: "And the wedding classics", cats: ["wedding"] },
-  { key: "rest", label: "Everything else", cats: ["just-because", "plants"] },
+  // Seasonal (2026-11-02) rides with the everyday designs: a category a
+  // tier does not name would silently never be asked for.
+  { key: "rest", label: "Everything else", cats: ["seasonal", "just-because", "plants"] },
 ];
 
 export function neededPhotos(): { tier: Tier; items: NeededPhoto[] }[] {
