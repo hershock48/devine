@@ -38,10 +38,12 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     name and price is enough to make each unique and is honest — it is the one
     thing that actually differs between them.
   */
-  const sharesDesc = menu.some((o) => o.slug !== p.slug && o.desc === p.desc);
+  const sharesDesc = !!p.desc && menu.some((o) => o.slug !== p.slug && o.desc === p.desc);
 
   const stem = `${p.name}, ${money(p.price)}.`;
-  const body = p.desc.startsWith("PLACEHOLDER")
+  // No description at all (a design the owner added on the Products tab and
+  // has not written up yet) reads the same way as the harvest's placeholder.
+  const body = !p.desc || p.desc.startsWith("PLACEHOLDER")
     ? `${cat ? `${cat.name} ` : ""}designed at DeVine's Flowers & Botanicals in Marshall, Michigan, and delivered across ${site.region}.`
     : sharesDesc
       ? p.desc
@@ -157,9 +159,9 @@ export default async function ProductPage({ params }: Params) {
                 product, only the substitution clause. This copy needs writing with the owner
                 before launch.
               </div>
-            ) : (
+            ) : p.desc ? (
               <p style={{ fontSize: 18, lineHeight: 1.7 }}>{p.desc}</p>
-            )}
+            ) : null}
 
             <div className="notes" style={{ gridTemplateColumns: "1fr" }}>
               <div>

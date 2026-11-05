@@ -62,6 +62,10 @@ export type Category = {
   hidden?: boolean;
   /** Where its products' breadcrumb points when there is no shop page. */
   href?: string;
+  /** REMOVED ON THE PRODUCTS TAB. The row stays so the seed does not put a
+      shelf from lib/catalog.ts back the next time it reads; the live
+      catalog leaves it out entirely. Editing it on the tab revives it. */
+  removed?: boolean;
 };
 
 /*

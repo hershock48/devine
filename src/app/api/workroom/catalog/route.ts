@@ -137,6 +137,8 @@ export async function PUT(req: Request) {
   const category: Category = existing
     ? { ...existing.category }
     : { slug: slugFor(name, new Set(rows.map((r) => r.category.slug))), name, blurb: "" };
+  // Editing a removed shelf by its slug revives it.
+  delete category.removed;
   if (name) category.name = name;
   if (p.blurb !== undefined) category.blurb = str(p.blurb, 240);
   if (p.hidden !== undefined) {
@@ -158,7 +160,12 @@ export async function DELETE(req: Request) {
   if (!cat.catBySlug.has(slug)) return bad("No such shelf.", 404);
   const still = cat.products.filter((x) => x.cats.includes(slug));
   if (still.length) return bad(`${still.length} design${still.length === 1 ? " is" : "s are"} on that shelf. Move them first, or hide the shelf instead.`, 409);
-  await getStore().deleteCatalogCategory(slug);
+  // A TOMBSTONE, NOT A DELETE: a shelf the seed file knows would otherwise
+  // be put back on the next read. The row stays, marked removed, and the
+  // live catalog leaves it out.
+  const store = getStore();
+  const row = (await store.listCatalogCategories()).find((r) => r.category.slug === slug);
+  await store.upsertCatalogCategory({ ...(row?.category ?? cat.catBySlug.get(slug)!), hidden: true, removed: true }, row?.position ?? 0);
   forgetCatalog();
   return NextResponse.json({ ok: true });
 }

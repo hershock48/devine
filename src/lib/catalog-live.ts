@@ -41,7 +41,10 @@ const g = globalThis as typeof globalThis & { __devineCatalog?: Cached | null };
 
 const seedIndex = new Map(seedProducts.map((p, i) => [p.slug, i]));
 
-function build(products: Product[], categories: Category[]): LiveCatalog {
+function build(products: Product[], allCategories: Category[]): LiveCatalog {
+  // A shelf removed on the Products tab keeps its row (so the seed cannot
+  // bring it back) and is out of the catalog here.
+  const categories = allCategories.filter((c) => !c.removed);
   // Seed order first (the file's merchandising order), then anything the
   // owner added, by name; the shop sorts shelves by price anyway.
   const sorted = [...products].sort((a, b) => {
@@ -80,11 +83,11 @@ export async function getCatalog(): Promise<LiveCatalog> {
   // the first read ever); a category likewise, appended after hers.
   const have = new Set(rows.map((p) => p.slug));
   const missing = seedProducts.filter((p) => !have.has(p.slug));
-  for (const p of missing) await store.upsertCatalogProduct(p);
+  await store.seedCatalogProducts(missing);
   const haveCat = new Set(catRows.map((r) => r.category.slug));
   let position = catRows.length ? Math.max(...catRows.map((r) => r.position)) + 1 : 0;
-  const missingCats = seedCategories.filter((c) => !haveCat.has(c.slug));
-  for (const c of missingCats) await store.upsertCatalogCategory(c, position++);
+  const missingCats = seedCategories.filter((c) => !haveCat.has(c.slug)).map((category) => ({ category, position: position++ }));
+  await store.seedCatalogCategories(missingCats);
   if (missing.length || missingCats.length) {
     [rows, catRows] = await Promise.all([store.listCatalogProducts(), store.listCatalogCategories()]);
   }

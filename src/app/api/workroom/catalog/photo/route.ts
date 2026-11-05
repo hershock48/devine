@@ -36,7 +36,10 @@ export async function POST(req: Request) {
   await store.putCatalogPhoto(`${slug}/sm`, shapes.sm.bytes, shapes.sm.w, shapes.sm.h);
   await store.putCatalogPhoto(`${slug}/og`, shapes.og.bytes, shapes.og.w, shapes.og.h);
   const photo = { v: Date.now(), w: shapes.full.w, h: shapes.full.h };
-  await store.upsertCatalogProduct({ ...product, photo });
+  // Stamp the photo onto the row AS IT IS NOW, not the copy read before the
+  // resizing: a price or description saved in those seconds must survive.
+  const current = (await store.listCatalogProducts()).find((x) => x.slug === slug) ?? product;
+  await store.upsertCatalogProduct({ ...current, photo });
   forgetCatalog();
   return NextResponse.json({ ok: true, photo });
 }

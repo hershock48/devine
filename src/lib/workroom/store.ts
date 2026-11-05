@@ -665,8 +665,13 @@ type Store = {
       by slug with a position, photographs by "<slug>/<variant>". */
   listCatalogProducts(): Promise<Product[]>;
   upsertCatalogProduct(p: Product): Promise<void>;
+  /** The seed: insert what is missing, never touch a row that exists.
+      One statement for the lot, so the first page view after a deploy
+      is one round trip and not sixty-four. */
+  seedCatalogProducts(list: Product[]): Promise<void>;
   listCatalogCategories(): Promise<{ category: Category; position: number }[]>;
   upsertCatalogCategory(c: Category, position: number): Promise<void>;
+  seedCatalogCategories(list: { category: Category; position: number }[]): Promise<void>;
   deleteCatalogCategory(slug: string): Promise<void>;
   putCatalogPhoto(key: string, bytes: Buffer, w: number, h: number): Promise<void>;
   getCatalogPhoto(key: string): Promise<{ bytes: Buffer; w: number; h: number; updatedAt: number } | null>;
@@ -983,11 +988,19 @@ const memoryStore: Store = {
   async upsertCatalogProduct(p) {
     bag().catalogProducts.set(p.slug, p);
   },
+  async seedCatalogProducts(list) {
+    const m = bag().catalogProducts;
+    for (const p of list) if (!m.has(p.slug)) m.set(p.slug, p);
+  },
   async listCatalogCategories() {
     return [...bag().catalogCategories.values()].sort((a, b) => a.position - b.position);
   },
   async upsertCatalogCategory(c, position) {
     bag().catalogCategories.set(c.slug, { category: c, position });
+  },
+  async seedCatalogCategories(list) {
+    const m = bag().catalogCategories;
+    for (const r of list) if (!m.has(r.category.slug)) m.set(r.category.slug, r);
   },
   async deleteCatalogCategory(slug) {
     bag().catalogCategories.delete(slug);
@@ -1568,6 +1581,27 @@ const postgresStore: Store = {
       `INSERT INTO catalog_products (slug, updated_at, data) VALUES ($1, $2, $3)
        ON CONFLICT (slug) DO UPDATE SET updated_at = EXCLUDED.updated_at, data = EXCLUDED.data`,
       [p.slug, Date.now(), JSON.stringify(p)],
+    );
+  },
+  async seedCatalogProducts(list) {
+    if (list.length === 0) return;
+    const pool = await pgPool();
+    const now = Date.now();
+    await pool.query(
+      `INSERT INTO catalog_products (slug, updated_at, data)
+       SELECT s, $2::bigint, d::jsonb FROM unnest($1::text[], $3::text[]) AS t(s, d)
+       ON CONFLICT (slug) DO NOTHING`,
+      [list.map((p) => p.slug), now, list.map((p) => JSON.stringify(p))],
+    );
+  },
+  async seedCatalogCategories(list) {
+    if (list.length === 0) return;
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO catalog_categories (slug, position, data)
+       SELECT s, pos, d::jsonb FROM unnest($1::text[], $2::int[], $3::text[]) AS t(s, pos, d)
+       ON CONFLICT (slug) DO NOTHING`,
+      [list.map((r) => r.category.slug), list.map((r) => r.position), list.map((r) => JSON.stringify(r.category))],
     );
   },
   async listCatalogCategories() {
