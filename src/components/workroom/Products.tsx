@@ -47,9 +47,15 @@ const draftOf = (p?: Product): Draft => ({
 const asNumber = (s: string): number => Number(s.replace(/[$,\s]/g, ""));
 
 async function call(method: string, body: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> | null }> {
-  const r = await fetch("/api/workroom/catalog", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = (await r.json().catch(() => null)) as Record<string, unknown> | null;
-  return { ok: r.ok && data?.ok !== false, status: r.status, data };
+  // A dropped connection is an answer too (status 0), not a thrown promise
+  // that leaves a button on "Saving…" for good.
+  try {
+    const r = await fetch("/api/workroom/catalog", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+    return { ok: r.ok && data?.ok !== false, status: r.status, data };
+  } catch {
+    return { ok: false, status: 0, data: { error: "The connection dropped. Check the wifi and try again." } };
+  }
 }
 
 export default function Products({ initialAuthed, initialOwner }: { initialAuthed: boolean; initialOwner: boolean }) {
@@ -427,6 +433,12 @@ function DesignForm({
   const set = (patch: Partial<Draft>) => setD((cur) => ({ ...cur, ...patch }));
   const toggleCat = (slug: string) => set({ cats: d.cats.includes(slug) ? d.cats.filter((c) => c !== slug) : [...d.cats, slug] });
 
+  /** WHAT IS SAVED, so the next save sends only what she changed since: a
+      price edit must not rewrite the description (a blank draft would wipe
+      the harvest's placeholder), and a form left open on one device must
+      not put its old copy of a field over a newer one from another. */
+  const [saved, setSaved] = useState<Draft>(() => draftOf(existing));
+
   /** THE PHOTO IS DOWNSCALED HERE, IN HER BROWSER, before it travels: a
       phone's original is 4 to 8MB and the platform turns away any request
       over 4.5MB before our route runs. Same step the photo drop page uses
@@ -434,26 +446,31 @@ function DesignForm({
   async function upload(slug: string): Promise<boolean> {
     if (!file) return true;
     setUploading(true);
-    let blob: Blob = file;
-    const jpeg = await toJpegDataUrl(file);
-    if (!("failed" in jpeg)) {
-      blob = await (await fetch(jpeg.dataUrl)).blob();
-    } else if (file.size > 4 * 1024 * 1024) {
+    try {
+      let blob: Blob = file;
+      const jpeg = await toJpegDataUrl(file).catch(() => ({ failed: true as const }));
+      if (!("failed" in jpeg)) {
+        blob = await (await fetch(jpeg.dataUrl)).blob();
+      } else if (file.size > 4 * 1024 * 1024) {
+        onError("That photo could not be resized on this device and is too big to send as it is. A normal camera photo (JPEG) works.");
+        return false;
+      }
+      const fd = new FormData();
+      fd.set("slug", slug);
+      fd.set("file", blob, "photo.jpg");
+      const r = await fetch("/api/workroom/catalog/photo", { method: "POST", body: fd });
+      const data = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!r.ok || !data?.ok) {
+        onError(data?.error || "The photo did not upload. The design itself is saved; pick the photo again and press Save.");
+        return false;
+      }
+      return true;
+    } catch {
+      onError("The photo did not upload (the connection dropped). The design itself is saved; press Save to try the photo again.");
+      return false;
+    } finally {
       setUploading(false);
-      onError("That photo could not be resized on this device and is too big to send as it is. A normal camera photo (JPEG) works.");
-      return false;
     }
-    const fd = new FormData();
-    fd.set("slug", slug);
-    fd.set("file", blob, "photo.jpg");
-    const r = await fetch("/api/workroom/catalog/photo", { method: "POST", body: fd }).catch(() => null);
-    const data = r ? ((await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null) : null;
-    setUploading(false);
-    if (!r || !r.ok || !data?.ok) {
-      onError(data?.error || "The photo did not upload. The design itself is saved; pick the photo again and press Save.");
-      return false;
-    }
-    return true;
   }
 
   async function save() {
@@ -463,20 +480,54 @@ function DesignForm({
     if (!Number.isFinite(price) || price <= 0) return onError("The price did not read as a number above zero.");
     const was = d.was.trim() ? asNumber(d.was) : null;
     if (was !== null && (!Number.isFinite(was) || was <= price)) return onError("The was-price has to be more than the price; that is what makes it a sale. Clear it for no sale.");
+    // The shelves in the order they were, new ones after: the first shelf
+    // is the design's home (its breadcrumb, its "more from"), and a tick
+    // taken off and put back must not quietly move it.
+    const cats = [...saved.cats.filter((c) => d.cats.includes(c)), ...d.cats.filter((c) => !saved.cats.includes(c))];
+    const full = { name: d.name.trim(), price, regularPrice: was, desc: d.desc.trim(), cats, offMenu: d.offMenu, noSubs: d.noSubs };
     setSaving(true);
-    const body = { name: d.name.trim(), price, regularPrice: was, desc: d.desc.trim(), cats: d.cats, offMenu: d.offMenu, noSubs: d.noSubs };
-    const r = target ? await call("PATCH", { slug: target.slug, ...body }) : await call("POST", body);
-    setSaving(false);
-    if (!r.ok) return onError(String(r.data?.error ?? "That did not save."));
-    const product = r.data?.product as Product | undefined;
-    if (!existing && product) {
-      setCreated(product);
-      onSaved?.();
+    let product: Product | undefined;
+    try {
+      if (target) {
+        // Only what changed since the last save.
+        const changes: Record<string, unknown> = {};
+        if (full.name !== saved.name.trim()) changes.name = full.name;
+        if (d.price.trim() !== saved.price.trim()) changes.price = price;
+        if (d.was.trim() !== saved.was.trim()) changes.regularPrice = was;
+        if (full.desc !== saved.desc.trim()) changes.desc = full.desc;
+        if (cats.join("|") !== saved.cats.join("|")) changes.cats = cats;
+        if (d.offMenu !== saved.offMenu) changes.offMenu = d.offMenu;
+        if (d.noSubs !== saved.noSubs) changes.noSubs = d.noSubs;
+        if (Object.keys(changes).length) {
+          const r = await call("PATCH", { slug: target.slug, ...changes });
+          if (!r.ok) return onError(String(r.data?.error ?? "That did not save."));
+          product = r.data?.product as Product | undefined;
+        }
+      } else {
+        const r = await call("POST", full);
+        if (r.ok) product = r.data?.product as Product | undefined;
+        else if (r.status === 0) {
+          // THE ANSWER WAS LOST, NOT NECESSARILY THE DESIGN. Look before
+          // minting again: a design by this name that was not there when
+          // the form opened is the one this tap just made.
+          const known = new Set(cat.products.map((x) => x.slug));
+          const now = (await fetch("/api/workroom/catalog", { cache: "no-store" }).then((x) => (x.ok ? x.json() : null)).catch(() => null)) as Catalog | null;
+          product = now?.products.find((x) => !known.has(x.slug) && x.name === full.name);
+          if (!product) return onError(String(r.data?.error ?? "That did not save."));
+        } else return onError(String(r.data?.error ?? "That did not save."));
+        if (product) {
+          setCreated(product);
+          onSaved?.();
+        }
+      }
+    } finally {
+      setSaving(false);
     }
+    setSaved({ ...d, cats });
     const slug = product?.slug ?? target?.slug;
     if (slug && !(await upload(slug))) return;
     onError("");
-    onDone(existing ? `${body.name} saved.` : `${body.name} is in the catalog${d.cats.length ? "" : " (on no shelf yet)"}.`);
+    onDone(existing ? `${full.name} saved.` : `${full.name} is in the catalog${cats.length ? "" : " (on no shelf yet)"}.`);
   }
 
   return (

@@ -389,6 +389,9 @@ export default function CartView() {
 
     const payload = {
       lines: items.map((i) => ({ slug: i.product.slug, qty: i.qty })),
+      // What this page showed, so the server can refuse a stale cart
+      // before charging (intake.ts priceOrder).
+      shownSubtotalCents: Math.round(subtotal * 100),
       name: dName, phone: dPhone, email: dEmail, fulfillment,
       recipient: delivering ? dRecipient : "",
       recipientPhone: delivering ? dRecipientPhone : "",

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
-import { getCatalog } from "@/lib/catalog-live";
+import { getCatalog, livePath } from "@/lib/catalog-live";
 import { site, formatHours } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { photoFirst } from "@/lib/order";
@@ -31,7 +31,8 @@ export const metadata: Metadata = {
  * short column, a phone number, two practical answers and the flowers.
  */
 export default async function CelebrationOfLife() {
-  const { inCategory } = await getCatalog();
+  const catalog = await getCatalog();
+  const { inCategory } = catalog;
   const arrangements = inCategory("celebration-of-life");
   const plants = photoFirst(
     inCategory("plants").filter((p) =>
@@ -110,7 +111,7 @@ export default async function CelebrationOfLife() {
             <p className="kicker" style={{ margin: 0 }}>
               Arrangements
             </p>
-            <a className="btn" href={href("/shop/celebration-of-life")}>
+            <a className="btn" href={href(livePath(catalog, "/shop/celebration-of-life"))}>
               All {arrangements.length}
             </a>
           </div>

@@ -39,7 +39,7 @@ export default async function Home() {
   // photoFirst: this grid is a sample, so her real photographs lead it. The
   // seasonal lists are built half-photographed (see lib/seasons.ts); this puts
   // that half in the front row.
-  const featured = photoFirst(season.featuredSlugs.map((s) => bySlug.get(s)!).filter(Boolean));
+  const featured = photoFirst(season.featuredSlugs.map((s) => bySlug.get(s)!).filter((p) => p && !p.offMenu));
   return (
     <>
       {/* 1. THE PHOTOGRAPH FIRST, running off the right edge of the viewport. */}

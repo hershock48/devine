@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Product } from "@/lib/catalog";
 import { useProducts } from "@/components/CatalogContext";
 import { occasions } from "@/lib/occasions";
@@ -1872,15 +1872,19 @@ const builtPriceIn = (library: StemPrice[], l: DraftLine): { each: number; unpri
 /** What one draft line costs each, by the rule the route will apply:
     built by stems from the library, else the catalog price, else what
     was typed. The warning and the items list read the same number. */
-const lineEachIn = (library: StemPrice[], products: Product[], l: DraftLine): number =>
-  l.byStems && canBuild(l) ? builtPriceIn(library, l).each : l.slug ? productBySlug(products, l.slug)?.price ?? 0 : Number(l.each) || 0;
+/** THE PRICES AN ORDER BEING EDITED WAS WRITTEN AT, by slug (the orders
+    route keeps them on the ticket; the form must quote the same). Absent
+    on a new write-up. */
+const PriceLock = createContext<Map<string, number> | undefined>(undefined);
+const lineEachIn = (library: StemPrice[], products: Product[], l: DraftLine, lock?: Map<string, number>): number =>
+  l.byStems && canBuild(l) ? builtPriceIn(library, l).each : l.slug ? lock?.get(l.slug) ?? productBySlug(products, l.slug)?.price ?? 0 : Number(l.each) || 0;
 
 /** One order's arithmetic, in the route's terms: items, the fee as shown,
     tax on the items (none when exempt), and the delivery-minimum reading.
     Display only; the route writes the ticket. */
-function stopMath(s: Stop, library: StemPrice[], products: Product[], taxExempt: boolean) {
+function stopMath(s: Stop, library: StemPrice[], products: Product[], taxExempt: boolean, lock?: Map<string, number>) {
   const delivering = s.fulfillment === "delivery";
-  const items = s.lines.reduce((sum, l) => sum + lineEachIn(library, products, l) * l.qty, 0);
+  const items = s.lines.reduce((sum, l) => sum + lineEachIn(library, products, l, lock) * l.qty, 0);
   // A by-stems piece with a flower the library does not price would be
   // summed short and could cry "under" at an order that is not; no warning
   // until every piece can be priced.
@@ -1893,7 +1897,7 @@ function stopMath(s: Stop, library: StemPrice[], products: Product[], taxExempt:
   // zip is still a delivery, and the website would have refused it too).
   const minimum = delivering && s.zip.trim().length >= 5 ? deliveryMinimumFor(s.zip.trim()) : 0;
   const underMinimum = minimum > 0 && !anyUnpriced && items > 0 && items < minimum;
-  const tax = taxFor(s.lines.map((l) => ({ name: l.custom.trim() || "item", qty: l.qty, each: lineEachIn(library, products, l) })), taxExempt);
+  const tax = taxFor(s.lines.map((l) => ({ name: l.custom.trim() || "item", qty: l.qty, each: lineEachIn(library, products, l, lock) })), taxExempt);
   const total = Math.round((items + fee + tax) * 100) / 100;
   return { delivering, items, anyUnpriced, sheetFee, deliveryFee, feeTyped, fee, minimum, underMinimum, tax, total };
 }
@@ -2328,6 +2332,7 @@ function ItemsEditor({
   aria?: (t: string) => string;
 }) {
   const products = useProducts();
+  const lock = useContext(PriceLock);
   const sortedProducts = useMemo(() => [...products].sort((a, b) => a.name.localeCompare(b.name)), [products]);
   function setLine(i: number, p: Partial<DraftLine>) {
     setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...p } : l)));
@@ -2349,6 +2354,7 @@ function ItemsEditor({
       <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
         {lines.map((l, i) => {
           const p = productBySlug(products, l.slug);
+          const lockedEach = l.slug ? lock?.get(l.slug) : undefined;
           const building = l.byStems && canBuild(l);
           const built = building ? builtPriceIn(library, l) : null;
           return (
@@ -2372,7 +2378,7 @@ function ItemsEditor({
               </select>
               {l.slug ? (
                 <span style={{ alignSelf: "center", fontSize: 14.5, flex: "1 1 auto" }} className="muted">
-                  {built ? `${money(built.each)} each, by stems` : `${p ? money(p.price) : ""} each`}
+                  {built ? `${money(built.each)} each, by stems` : `${p ? money(lockedEach ?? p.price) : ""} each${p && lockedEach !== undefined && lockedEach !== p.price ? ", the price it was written up at" : ""}`}
                 </span>
               ) : (
                 <input
@@ -3000,11 +3006,16 @@ function PhoneOrderForm({
   }
 
   const many = stops.length > 1;
-  const maths = stops.map((s) => stopMath(s, library, products, noTax));
+  const priceLock = useMemo(
+    () => (editing ? new Map(editing.lines.filter((l) => l.slug && !l.parts).map((l) => [l.slug as string, l.each])) : undefined),
+    [editing],
+  );
+  const maths = stops.map((s) => stopMath(s, library, products, noTax, priceLock));
   const sum = (pick: (m: ReturnType<typeof stopMath>) => number) => Math.round(maths.reduce((t, m) => t + pick(m), 0) * 100) / 100;
   const grand = { items: sum((m) => m.items), fee: sum((m) => m.fee), tax: sum((m) => m.tax), total: sum((m) => m.total) };
 
   return (
+    <PriceLock.Provider value={priceLock}>
     <form onSubmit={submit} className="panel" style={{ maxWidth: 640, marginBottom: 30, display: "grid", gap: 14 }}>
       {addTo && (
         <p role="status" style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--green)" }}>
@@ -3334,5 +3345,6 @@ function PhoneOrderForm({
         </p>
       )}
     </form>
+    </PriceLock.Provider>
   );
 }

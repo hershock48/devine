@@ -89,15 +89,20 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 export default async function ProductPage({ params }: Params) {
   const { slug } = await params;
-  const { bySlug, catBySlug, inCategory } = await getCatalog();
+  const { bySlug, catBySlug, shopCatBySlug, inCategory } = await getCatalog();
   const p = bySlug.get(slug);
   // Off the menu reads as gone: no page, no link anywhere to reach it.
   if (!p || p.offMenu) notFound();
 
-  const primary = catBySlug.get(p.cats[0]);
-  const alsoIn = p.cats.slice(1).map((c) => catBySlug.get(c)).filter(Boolean);
+  // ONLY SHELVES A VISITOR CAN OPEN: one the shop shows, or a hidden one
+  // with a page of its own (Wedding points at /weddings). The owner can
+  // hide any shelf now (Products tab); a breadcrumb to a hidden shelf
+  // would be a link to a 404.
+  const shelves = p.cats.map((c) => catBySlug.get(c)).filter((c): c is NonNullable<typeof c> => !!c && (shopCatBySlug.has(c.slug) || !!c.href));
+  const primary = shelves[0];
+  const alsoIn = shelves.slice(1);
   // three, because the grid is three columns: a fourth sits alone on a second row
-  const more = photoFirst(inCategory(p.cats[0]).filter((x) => x.slug !== p.slug)).slice(0, 3);
+  const more = primary ? photoFirst(inCategory(primary.slug).filter((x) => x.slug !== p.slug)).slice(0, 3) : [];
   const needsCopy = p.desc.startsWith("PLACEHOLDER");
 
   return (

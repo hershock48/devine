@@ -17,6 +17,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
-  const cat = await getCatalog();
-  return NextResponse.json({ products: cat.products, categories: cat.categories });
+  // Strict: an open board must not swap to the seed file's prices (and lose
+  // the designs she added) because the database blinked. It keeps what it
+  // has and asks again.
+  try {
+    const cat = await getCatalog({ strict: true });
+    return NextResponse.json({ products: cat.products, categories: cat.categories });
+  } catch {
+    return NextResponse.json({ error: "The catalog could not be read just now." }, { status: 503 });
+  }
 }

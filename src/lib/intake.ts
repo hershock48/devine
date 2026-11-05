@@ -1,7 +1,7 @@
 import "server-only";
 
 import { shopMail } from "@/lib/mail";
-import { money } from "@/lib/catalog";
+import { money, type Product } from "@/lib/catalog";
 import { getCatalog } from "@/lib/catalog-live";
 import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
 import { clock12, isTaxLine, refundableCents, squareMoney, taxFor, taxLineName } from "@/lib/workroom/derive";
@@ -83,7 +83,13 @@ const str = (v: unknown, max: number): string =>
  * the moment of ordering. A client-supplied total is a number a customer chose.
  */
 export async function priceOrder(raw: unknown): Promise<{ order: PricedOrder } | { error: string }> {
-  const { bySlug } = await getCatalog();
+  // THE OWNER'S PRICES OR NO ORDER: never the seed file's (catalog-live.ts).
+  let bySlug: Map<string, Product>;
+  try {
+    ({ bySlug } = await getCatalog({ strict: true }));
+  } catch {
+    return { error: "Our prices could not be read just now, so nothing was charged. Try again in a moment, or call the shop." };
+  }
   if (!raw || typeof raw !== "object") return { error: "Empty order." };
   const p = raw as Record<string, unknown>;
 
@@ -134,6 +140,15 @@ export async function priceOrder(raw: unknown): Promise<{ order: PricedOrder } |
   if (!email || !email.includes("@")) return { error: "An email address is required, for your receipt." };
 
   const subtotal = Math.round(lines.reduce((s, l) => s + l.line, 0) * 100) / 100;
+  // THE TOTAL SHE SAW IS THE TOTAL SHE PAYS. The cart prices from the
+  // catalog its page was loaded with; the owner can change a price while
+  // that page sits open (Products tab). The cart sends the subtotal it
+  // showed, and a different one here stops the order before any charge.
+  // An older cart that sends nothing is priced as before.
+  const shown = (p as { shownSubtotalCents?: unknown }).shownSubtotalCents;
+  if (typeof shown === "number" && Number.isFinite(shown) && Math.round(shown) !== Math.round(subtotal * 100)) {
+    return { error: "A price changed while this page was open, so nothing was charged. Reload the page to see today's prices, then check out again." };
+  }
   const tax = taxFor(lines);
   // THE DELIVERY MINIMUM IS A GATE, not a note (Kevin, 2026-10-13): her
   // sheet says $45 in Marshall, $55 elsewhere, before the delivery fee,

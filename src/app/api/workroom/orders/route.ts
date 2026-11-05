@@ -54,7 +54,7 @@ type ParsedBody = { fields: Omit<WorkroomOrder, "id" | "number" | "source" | "st
     order on a write-up (a ten-stop sale with by-stems pieces read the
     whole table ten times before this). */
 type PriceCache = { stemPrices: Map<string, number> | null };
-async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemPrices: null }, lock?: Map<string, number>): Promise<ParsedBody> {
+async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemPrices: null }, lock?: Map<string, { each: number; name: string }>): Promise<ParsedBody> {
   /*
     Catalog lines are re-priced from the catalog, same rule as the web checkout.
     Custom lines ("casket spray, $250") keep the typed price: the person typing
@@ -96,13 +96,21 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
     return { parts, each: cents / 100 };
   };
 
+  // THE OWNER'S PRICES OR NO TICKET: a write-up never prices from the
+  // seed file because the database blinked (catalog-live.ts, strict).
+  let catalog: Awaited<ReturnType<typeof getCatalog>>;
+  try {
+    catalog = await getCatalog({ strict: true });
+  } catch {
+    return { error: "The catalog could not be read just now, so nothing was written up. Try again in a moment." };
+  }
   const lines: WorkroomLine[] = [];
   for (const l of (Array.isArray(p.lines) ? p.lines : []).slice(0, 40)) {
     if (!l || typeof l !== "object") continue;
     const raw = l as Record<string, unknown>;
     const qty = Math.min(99, Math.max(1, Math.round(Number(raw.qty) || 1)));
     const slug = str(raw.slug, 80);
-    const product = (await getCatalog()).bySlug.get(slug);
+    const product = catalog.bySlug.get(slug);
     const built = await priceParts(raw.parts);
     if (built && "error" in built) return { error: built.error };
     // Parts were sent but none had a flower and a count: the form refuses
@@ -111,7 +119,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
       return { error: `"${str(raw.name, 120) || "An item"}" is marked by stems but has no flowers with a count. Add one, or give it a price.` };
     }
     if (product) {
-      lines.push(built ? { slug, name: product.name, qty, each: built.each, parts: built.parts } : { slug, name: product.name, qty, each: lock?.get(slug) ?? product.price });
+      lines.push(built ? { slug, name: product.name, qty, each: built.each, parts: built.parts } : { slug, name: lock?.get(slug)?.name ?? product.name, qty, each: lock?.get(slug)?.each ?? product.price });
     } else {
       const name = str(raw.name, 120) || (built ? "Custom arrangement" : "");
       const each = built ? built.each : Math.max(0, Math.round((Number(raw.each) || 0) * 100) / 100);
@@ -410,7 +418,7 @@ export async function PUT(req: Request) {
   // (Products tab), an address fix on a paid $65 order must not turn its
   // line into $70 and leave a $5 balance. A line whose design was already
   // on the order keeps its each; a design added by this edit takes today's.
-  const lock = new Map(existing.lines.filter((l) => l.slug && !l.parts).map((l) => [l.slug as string, l.each]));
+  const lock = new Map(existing.lines.filter((l) => l.slug && !l.parts).map((l) => [l.slug as string, { each: l.each, name: l.name }]));
   const parsed = await parseBody(p, undefined, lock);
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
   // Hold is for a ticket nobody has made or paid yet; anywhere else the

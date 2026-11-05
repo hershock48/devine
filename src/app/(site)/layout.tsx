@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { CartProvider } from "@/components/Cart";
 import { CatalogProvider } from "@/components/CatalogContext";
-import { getCatalog } from "@/lib/catalog-live";
+import { getCatalog, livePath } from "@/lib/catalog-live";
 import { hasAnyPhoto } from "@/lib/order";
 import { Header, Footer } from "@/components/Chrome";
 import { SeasonBand } from "@/components/Season";
@@ -113,7 +113,7 @@ export default async function DemoLayout({ children }: { children: React.ReactNo
         </a>
         <Header />
         {/* The flower holidays, as they come. Renders nothing most of the year. */}
-        <SeasonBand holiday={holiday} />
+        <SeasonBand holiday={holiday ? { ...holiday, cta: { ...holiday.cta, path: livePath(catalog, holiday.cta.path) } } : null} />
         {/*
           LocalBusiness, from lib/site.ts rather than typed out, so it cannot drift
           from what the pages print. launch.md asks for it on the homepage; it costs

@@ -352,6 +352,9 @@ export function PinGate({ onAuthed }: { onAuthed: (info?: { owner?: boolean }) =
     }
     const d = (await r.json().catch(() => null)) as { owner?: boolean } | null;
     setPin("");
+    // A locked page was served no catalog; tell the provider to fetch it
+    // now, not at its next tick (CatalogContext).
+    window.dispatchEvent(new Event("devine:signed-in"));
     onAuthed({ owner: !!d?.owner });
   }
 

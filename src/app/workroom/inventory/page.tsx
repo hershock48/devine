@@ -8,10 +8,14 @@ export const metadata: Metadata = { title: "Inventory" };
 export const dynamic = "force-dynamic";
 
 export default async function InventoryPage() {
-  const catalog = await getCatalog();
+  // Signed out, the page carries no catalog (off-menu designs and hidden
+  // shelves are not for a locked screen's source); the provider fetches it
+  // once the PIN is in.
+  const authed = await isWorkroomAuthed();
+  const catalog = authed ? await getCatalog() : null;
   return (
-    <CatalogProvider products={catalog.products} categories={catalog.categories} refreshUrl="/api/workroom/products">
-      <Inventory initialAuthed={await isWorkroomAuthed()} />
+    <CatalogProvider products={catalog?.products ?? []} categories={catalog?.categories ?? []} refreshUrl="/api/workroom/products">
+      <Inventory initialAuthed={authed} />
     </CatalogProvider>
   );
 }

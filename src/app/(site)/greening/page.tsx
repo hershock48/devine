@@ -34,7 +34,7 @@ export default async function Greening() {
           <p className="kicker">Greening</p>
           <h1>Living things, for rooms that need them.</h1>
           <p className="lede">
-            House plants, dish gardens and wind chimes, {money(lo)} to {money(hi)}. Chosen and
+            House plants, dish gardens and wind chimes{plants.length ? `, ${money(lo)} to ${money(hi)}` : ""}. Chosen and
             potted here, with care notes written in plain language.
           </p>
         </div>

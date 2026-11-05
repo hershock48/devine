@@ -1035,6 +1035,10 @@ async function pgPool(): Promise<PgPool> {
       // Neon and friends require TLS; local postgres usually has none.
       ssl: cs && /localhost|127\.0\.0\.1|sslmode=disable/.test(cs) ? undefined : { rejectUnauthorized: false },
       max: 3,
+      // A database that hangs rather than refuses: fail the connect in
+      // five seconds instead of holding the request until the platform
+      // kills it (the public shop reads the catalog through this pool).
+      connectionTimeoutMillis: 5000,
     }) as unknown as PgPool;
     /*
       A FAILED SCHEMA INIT MUST NOT BE CACHED. Storing this promise and never

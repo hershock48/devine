@@ -67,9 +67,12 @@ export async function neededPhotos(): Promise<{ tier: Tier; items: NeededPhoto[]
         : // The tier's own category order, then price, so "Birthday &
           // Anniversary" reads as birthday designs then anniversary designs
           // instead of the catalog file's section order.
-          tier.cats.flatMap((cat) =>
-            pick((p) => p.cats[0] === cat).sort((a, b) => a.price - b.price),
-          );
+          [
+            ...tier.cats.flatMap((cat) => pick((p) => p.cats[0] === cat).sort((a, b) => a.price - b.price)),
+            // The last tier also takes what no tier names: a design on a
+            // shelf the owner added (Products tab), or on no shelf at all.
+            ...(tier.key === "rest" ? pick(() => true).sort((a, b) => a.price - b.price) : []),
+          ];
     return { tier, items };
   }).filter((t) => t.items.length > 0);
 }

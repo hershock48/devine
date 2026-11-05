@@ -89,7 +89,9 @@ async function listItems(cfg: SquareConfig): Promise<SquareCatalogItem[]> {
 }
 
 export async function syncCatalogToSquare(cfg: SquareConfig): Promise<SyncReport> {
-  const { products } = await getCatalog();
+  // The owner's prices or no sync: the register must never be pushed the
+  // seed file's numbers because the database blinked.
+  const { products } = await getCatalog({ strict: true });
   const existing = await listItems(cfg);
 
   // slug -> the Square item that carries it, found by variation SKU.
