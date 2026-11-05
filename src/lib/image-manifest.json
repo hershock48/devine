@@ -19,6 +19,10 @@
   "h": 1170,
   "w": 1000
  },
+ "product/blair": {
+  "w": 1000,
+  "h": 750
+ },
  "product/blooming-candle": {
   "w": 1000,
   "h": 887
@@ -38,6 +42,10 @@
  "product/butterfly-kisses": {
   "w": 1000,
   "h": 1023
+ },
+ "product/charlotte": {
+  "w": 1000,
+  "h": 776
  },
  "product/claire-the-cat": {
   "w": 1000,
@@ -147,6 +155,10 @@
   "w": 1000,
   "h": 1005
  },
+ "product/mabel": {
+  "w": 1000,
+  "h": 920
+ },
  "product/maeve": {
   "h": 750,
   "w": 750
@@ -222,6 +234,10 @@
  "product/succulent-garden": {
   "h": 990,
   "w": 1000
+ },
+ "product/tansy": {
+  "w": 1000,
+  "h": 847
  },
  "product/terra-bowel": {
   "h": 1336,

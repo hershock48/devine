@@ -51,6 +51,10 @@
     { "slug": "helene", "name": "Helene", "price": 115.00, "cats": ["just-because"], "img": "2026/08/IMG_0805-scaled.jpeg" },
     { "slug": "lorna", "name": "Lorna", "price": 85.00, "cats": ["just-because"], "img": "" },
     { "slug": "delilah", "name": "Delilah", "price": 100.00, "cats": ["just-because"], "img": "" },
+    { "slug": "charlotte", "name": "Charlotte", "price": 110.00, "cats": ["seasonal"], "img": "" },
+    { "slug": "mabel", "name": "Mabel", "price": 55.00, "cats": ["seasonal"], "img": "" },
+    { "slug": "blair", "name": "Blair", "price": 65.00, "cats": ["just-because"], "img": "" },
+    { "slug": "tansy", "name": "Tansy", "price": 65.00, "cats": ["just-because"], "img": "" },
 
     { "slug": "hanna", "name": "Hanna", "price": 60.00, "cats": ["anniversary"], "img": "2026/08/IMG_0557-scaled.jpeg" },
     { "slug": "dozen-roses", "name": "Classic Red Dozen", "price": 75.00, "regularPrice": 126.95, "onSale": true, "cats": ["anniversary"], "img": "2026/01/IMG_0513-scaled.jpeg" },
