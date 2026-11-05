@@ -127,7 +127,7 @@ export function CartProvider({ children, products }: { children: React.ReactNode
       subtotal: Math.round(items.reduce((s, i) => s + i.product.price * i.qty, 0) * 100) / 100,
       add, setQty, remove, clear,
     };
-  }, [lines, add, setQty, remove, clear]);
+  }, [lines, bySlug, add, setQty, remove, clear]);
 
   return <CartCtx.Provider value={value}>{children}</CartCtx.Provider>;
 }

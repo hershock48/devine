@@ -54,7 +54,7 @@ function drawScaled(
  * is also the net under HEIC-on-desktop and any other decode failure: when
  * even that cannot read the file, the row says so and offers texting it.
  */
-async function toJpegDataUrl(file: File): Promise<{ dataUrl: string; thumb?: string } | { failed: true }> {
+export async function toJpegDataUrl(file: File): Promise<{ dataUrl: string; thumb?: string } | { failed: true }> {
   try {
     const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
     const out = drawScaled(bmp, bmp.width, bmp.height);

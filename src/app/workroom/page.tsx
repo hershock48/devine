@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function WorkroomPage() {
   const catalog = await getCatalog();
   return (
-    <CatalogProvider products={catalog.products} categories={catalog.categories}>
+    <CatalogProvider products={catalog.products} categories={catalog.categories} refreshUrl="/api/workroom/products">
       <Board initialAuthed={await isWorkroomAuthed()} />
     </CatalogProvider>
   );

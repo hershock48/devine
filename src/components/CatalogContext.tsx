@@ -1,20 +1,66 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Category, Product } from "@/lib/catalog";
 
 /**
  * THE LIVE CATALOG, HANDED TO CLIENT COMPONENTS (2026-11-05). The server
  * reads it (lib/catalog-live.ts) and a page wrapper puts it here; the cart,
- * the shop header, the board's item picker, the recipe editor and the
- * reports read it from here instead of importing the static file, so an
- * edit on the Products tab reaches every screen without a deploy.
+ * the board's item picker, the recipe editor and the reports read it from
+ * here instead of importing the static file, so an edit on the Products tab
+ * reaches every screen without a deploy.
+ *
+ * `refreshUrl` is for a screen that stays open all day (the board on the
+ * counter): it asks again every minute and whenever the tab comes back to
+ * the front, so a price the owner changed at ten is the price quoted at
+ * five past, not at the next reload.
  */
 type Catalog = { products: Product[]; categories: Category[] };
 const Ctx = createContext<Catalog>({ products: [], categories: [] });
 
-export function CatalogProvider({ products, categories = [], children }: { products: Product[]; categories?: Category[]; children: React.ReactNode }) {
-  const value = useMemo(() => ({ products, categories }), [products, categories]);
+const EMPTY: Category[] = [];
+
+export function CatalogProvider({
+  products,
+  categories = EMPTY,
+  refreshUrl,
+  children,
+}: {
+  products: Product[];
+  categories?: Category[];
+  refreshUrl?: string;
+  children: React.ReactNode;
+}) {
+  const [fetched, setFetched] = useState<Catalog | null>(null);
+
+  useEffect(() => {
+    if (!refreshUrl) return;
+    let dead = false;
+    const pull = async () => {
+      try {
+        const r = await fetch(refreshUrl, { cache: "no-store" });
+        if (!r.ok) return;
+        const d = (await r.json()) as Partial<Catalog>;
+        if (!dead && Array.isArray(d.products)) setFetched({ products: d.products, categories: Array.isArray(d.categories) ? d.categories : [] });
+      } catch {
+        /* offline or signed out: keep what the page was handed */
+      }
+    };
+    const timer = setInterval(pull, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") pull();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", pull);
+    return () => {
+      dead = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", pull);
+    };
+  }, [refreshUrl]);
+
+  const value = useMemo(() => fetched ?? { products, categories }, [fetched, products, categories]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

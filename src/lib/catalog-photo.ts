@@ -18,7 +18,9 @@ export type ProcessedPhoto = {
   og: { bytes: Buffer; w: number; h: number };
 };
 
-export const PHOTO_MAX_BYTES = 12 * 1024 * 1024;
+/** Under the platform's 4.5MB request cap; the tab downscales in the
+    browser first, so a real photo arrives well below this. */
+export const PHOTO_MAX_BYTES = 4 * 1024 * 1024;
 
 export async function processProductPhoto(input: Buffer): Promise<ProcessedPhoto> {
   const base = sharp(input, { failOn: "none" }).rotate().flatten({ background: "#ffffff" });

@@ -1,31 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Category, Product } from "@/lib/catalog";
 import ProductImage from "@/components/ProductImage";
-import { field, labelText, money, textButton, PinGate } from "@/components/workroom/ui";
+import { toJpegDataUrl } from "@/components/PhotoDrop";
+import { field, labelText, money, textButton, MemoryWarning, PinGate } from "@/components/workroom/ui";
 
 /**
  * THE PRODUCTS TAB (Kevin, 2026-11-05: "they have been messaging emailing me
  * a lot about, hey add this thing or edit this description or add this
  * photo... can we make some sort of admin panel thing where they can do
  * this themselves?"). The shop's catalog, owned by the owner: every design's
- * name, price, description, shelves, on or off the menu, and its photograph,
- * plus the shelves themselves. Saves go to the live catalog and the shop
- * reads them on the next page view; no deploy, no email.
+ * name, price, sale price, description, shelves, on or off the menu, and its
+ * photograph, plus the shelves themselves. Saves go to the live catalog and
+ * the shop reads them within seconds; no deploy, no email.
  *
  * Owner's PIN, like the dashboard: prices are the business.
  *
- * What stays with us: a sale price (a code edit, deliberately), and copy
- * that needs writing from a flower list. She can type a description here;
- * the catalog's voice is in the ones already written.
+ * What stays with us: copy that needs writing from a flower list. She can
+ * type a description here; the catalog's voice is in the ones already
+ * written.
  */
 
-type Catalog = { products: Product[]; categories: Category[] };
+type Catalog = { products: Product[]; categories: Category[]; backend?: string };
 
 type Draft = {
   name: string;
   price: string;
+  was: string;
   desc: string;
   cats: string[];
   offMenu: boolean;
@@ -35,11 +37,14 @@ type Draft = {
 const draftOf = (p?: Product): Draft => ({
   name: p?.name ?? "",
   price: p ? String(p.price) : "",
+  was: p?.regularPrice ? String(p.regularPrice) : "",
   desc: p?.desc.startsWith("PLACEHOLDER") ? "" : (p?.desc ?? ""),
   cats: p?.cats ?? [],
   offMenu: !!p?.offMenu,
   noSubs: !!p?.noSubs,
 });
+
+const asNumber = (s: string): number => Number(s.replace(/[$,\s]/g, ""));
 
 async function call(method: string, body: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> | null }> {
   const r = await fetch("/api/workroom/catalog", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -136,9 +141,10 @@ export default function Products({ initialAuthed, initialOwner }: { initialAuthe
     <>
       <style>{`.product-thumb img, .product-thumb svg { width: 100%; height: 100%; object-fit: cover; display: block; }`}</style>
       <h1>Products</h1>
+      <MemoryWarning backend={cat?.backend ?? null} />
       <p className="lede" style={{ maxWidth: 640 }}>
         What the shop sells, in your hands. Change a price, rewrite a description, move a design to another shelf, take
-        one off the menu, or put a photo on it from your phone. The website shows the change on its next page view.
+        one off the menu, or put a photo on it from your phone. The website shows the change within a few seconds.
       </p>
       {error && <p role="alert" style={{ color: "var(--rose-ink)", fontWeight: 600 }}>{error}</p>}
       {notice && <p role="status" style={{ color: "var(--green)", fontWeight: 600 }}>{notice}</p>}
@@ -158,6 +164,7 @@ export default function Products({ initialAuthed, initialOwner }: { initialAuthe
             {adding && (
               <DesignForm
                 cat={cat}
+                onSaved={() => load().catch(() => {})}
                 onDone={(what) => {
                   setAdding(false);
                   setNotice(what);
@@ -231,8 +238,8 @@ function Shelves({ cat, counts, onChanged, onError }: { cat: Catalog; counts: Ma
     <section>
       <h2 style={{ margin: "18px 0 6px" }}>Shelves</h2>
       <p className="muted" style={{ margin: "0 0 10px", maxWidth: 640, fontSize: 14 }}>
-        The shop&rsquo;s sections, in the order they show. A hidden shelf keeps its designs but is not shown on the site;
-        a design on no shelf can still be sold at the counter.
+        The shop&rsquo;s sections, in the order they show. A shelf appears on the site once a design is on it. A hidden
+        shelf keeps its designs but is not shown; a design on no shelf can still be sold at the counter.
       </p>
       <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
         {cat.categories.map((c, i) => (
@@ -360,11 +367,12 @@ function DesignRow({ p, cat, onChanged, onError }: { p: Product; cat: Catalog; o
         </span>
         <span style={{ flex: "1 1 220px" }}>
           <strong>{p.name}</strong> <span style={{ whiteSpace: "nowrap" }}>{money(p.price)}</span>
+          {p.regularPrice ? <span className="muted" style={{ whiteSpace: "nowrap" }}> (on sale, was {money(p.regularPrice)})</span> : null}
           <br />
           <span className="muted" style={{ fontSize: 13.5 }}>
             {p.cats.length ? p.cats.map((c) => names.get(c) ?? c).join(", ") : "on no shelf"}
             {p.offMenu ? " · off the menu" : ""}
-            {p.desc.startsWith("PLACEHOLDER") ? " · needs a description" : ""}
+            {!p.desc || p.desc.startsWith("PLACEHOLDER") ? " · needs a description" : ""}
           </span>
         </span>
         {!p.offMenu && (
@@ -391,42 +399,81 @@ function DesignRow({ p, cat, onChanged, onError }: { p: Product; cat: Catalog; o
   );
 }
 
-function DesignForm({ cat, existing, onDone, onError }: { cat: Catalog; existing?: Product; onDone: (what: string) => void; onError: (e: string) => void }) {
+function DesignForm({
+  cat,
+  existing,
+  onSaved,
+  onDone,
+  onError,
+}: {
+  cat: Catalog;
+  existing?: Product;
+  /** The design is in the catalog, though the form may still be open (a
+      photo that did not upload): refresh the list behind it. */
+  onSaved?: () => void;
+  onDone: (what: string) => void;
+  onError: (e: string) => void;
+}) {
   const [d, setD] = useState<Draft>(() => draftOf(existing));
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [file, setFile] = useState<File | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  /** A NEW DESIGN IS MINTED ONCE. If its photo then fails to upload the
+      form stays open; a second tap must save THAT design again, not mint
+      "rose-bowl-2" beside it (there is no deleting a design, only taking
+      it off the menu). */
+  const [created, setCreated] = useState<Product | null>(null);
+  const target = existing ?? created;
   const set = (patch: Partial<Draft>) => setD((cur) => ({ ...cur, ...patch }));
   const toggleCat = (slug: string) => set({ cats: d.cats.includes(slug) ? d.cats.filter((c) => c !== slug) : [...d.cats, slug] });
 
+  /** THE PHOTO IS DOWNSCALED HERE, IN HER BROWSER, before it travels: a
+      phone's original is 4 to 8MB and the platform turns away any request
+      over 4.5MB before our route runs. Same step the photo drop page uses
+      (PhotoDrop.tsx), which also bakes the camera's rotation in. */
   async function upload(slug: string): Promise<boolean> {
     if (!file) return true;
     setUploading(true);
+    let blob: Blob = file;
+    const jpeg = await toJpegDataUrl(file);
+    if (!("failed" in jpeg)) {
+      blob = await (await fetch(jpeg.dataUrl)).blob();
+    } else if (file.size > 4 * 1024 * 1024) {
+      setUploading(false);
+      onError("That photo could not be resized on this device and is too big to send as it is. A normal camera photo (JPEG) works.");
+      return false;
+    }
     const fd = new FormData();
     fd.set("slug", slug);
-    fd.set("file", file);
-    const r = await fetch("/api/workroom/catalog/photo", { method: "POST", body: fd });
-    const data = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    fd.set("file", blob, "photo.jpg");
+    const r = await fetch("/api/workroom/catalog/photo", { method: "POST", body: fd }).catch(() => null);
+    const data = r ? ((await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null) : null;
     setUploading(false);
-    if (!r.ok || !data?.ok) {
-      onError(data?.error || "The photo did not upload.");
+    if (!r || !r.ok || !data?.ok) {
+      onError(data?.error || "The photo did not upload. The design itself is saved; pick the photo again and press Save.");
       return false;
     }
     return true;
   }
 
   async function save() {
-    const price = Number(d.price.replace(/[$,\s]/g, ""));
     if (!d.name.trim()) return onError("Give the design a name.");
-    if (!Number.isFinite(price) || price < 0) return onError("The price did not read as a number.");
+    if (!d.price.trim()) return onError("Give it a price.");
+    const price = asNumber(d.price);
+    if (!Number.isFinite(price) || price <= 0) return onError("The price did not read as a number above zero.");
+    const was = d.was.trim() ? asNumber(d.was) : null;
+    if (was !== null && (!Number.isFinite(was) || was <= price)) return onError("The was-price has to be more than the price; that is what makes it a sale. Clear it for no sale.");
     setSaving(true);
-    const body = { name: d.name.trim(), price, desc: d.desc.trim(), cats: d.cats, offMenu: d.offMenu, noSubs: d.noSubs };
-    const r = existing ? await call("PATCH", { slug: existing.slug, ...body }) : await call("POST", body);
+    const body = { name: d.name.trim(), price, regularPrice: was, desc: d.desc.trim(), cats: d.cats, offMenu: d.offMenu, noSubs: d.noSubs };
+    const r = target ? await call("PATCH", { slug: target.slug, ...body }) : await call("POST", body);
     setSaving(false);
     if (!r.ok) return onError(String(r.data?.error ?? "That did not save."));
     const product = r.data?.product as Product | undefined;
-    const slug = product?.slug ?? existing?.slug;
+    if (!existing && product) {
+      setCreated(product);
+      onSaved?.();
+    }
+    const slug = product?.slug ?? target?.slug;
     if (slug && !(await upload(slug))) return;
     onError("");
     onDone(existing ? `${body.name} saved.` : `${body.name} is in the catalog${d.cats.length ? "" : " (on no shelf yet)"}.`);
@@ -434,7 +481,7 @@ function DesignForm({ cat, existing, onDone, onError }: { cat: Catalog; existing
 
   return (
     <div style={{ marginTop: 12, display: "grid", gap: 12, maxWidth: 640 }}>
-      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)" }}>
+      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)" }}>
         <label>
           <span style={labelText}>Name</span>
           <input value={d.name} onChange={(e) => set({ name: e.target.value })} style={field} maxLength={80} />
@@ -443,7 +490,15 @@ function DesignForm({ cat, existing, onDone, onError }: { cat: Catalog; existing
           <span style={labelText}>Price</span>
           <input value={d.price} onChange={(e) => set({ price: e.target.value })} inputMode="decimal" placeholder="$" style={field} />
         </label>
+        <label>
+          <span style={labelText}>Was (on sale)</span>
+          <input value={d.was} onChange={(e) => set({ was: e.target.value })} inputMode="decimal" placeholder="optional" style={field} />
+        </label>
       </div>
+      <p className="muted" style={{ margin: "-4px 0 0", fontSize: 13.5 }}>
+        To put a design on sale, set Price to the sale price and Was to the usual one; the site strikes the usual price
+        through. Clear Was when the sale ends.
+      </p>
       <label>
         <span style={labelText}>Description</span>
         <textarea value={d.desc} onChange={(e) => set({ desc: e.target.value })} rows={4} maxLength={1200} style={{ ...field, resize: "vertical" }} placeholder="What is in it, and what it is for." />
@@ -471,23 +526,21 @@ function DesignForm({ cat, existing, onDone, onError }: { cat: Catalog; existing
       <div>
         <span style={labelText}>Photo</span>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            aria-label="Photo file"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            style={{ fontSize: 14 }}
-          />
+          <input type="file" accept="image/*" aria-label="Photo file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} style={{ fontSize: 14 }} />
           <span className="muted" style={{ fontSize: 13.5 }}>
-            {existing?.photo ? "Replaces the photo on the site." : "A phone photo on a plain background is fine. It is resized here."}
+            {target?.photo ? "Replaces the photo on the site." : "A phone photo on a plain background is fine. It is resized here."}
           </span>
         </div>
       </div>
       <p style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", margin: 0 }}>
         <button type="button" className="btn btn--solid" disabled={saving || uploading} onClick={save}>
-          {uploading ? "Uploading the photo…" : saving ? "Saving…" : existing ? "Save" : "Add it"}
+          {uploading ? "Uploading the photo…" : saving ? "Saving…" : target ? "Save" : "Add it"}
         </button>
+        {created && !existing && !saving && !uploading && (
+          <span role="status" style={{ fontSize: 13.5, color: "var(--green)", fontWeight: 600 }}>
+            {created.name} is in the catalog. Save again to finish the photo.
+          </span>
+        )}
         {existing && !existing.offMenu && (
           <span className="muted" style={{ fontSize: 13.5 }}>
             Its web address stays /product/{existing.slug} whatever the name becomes.

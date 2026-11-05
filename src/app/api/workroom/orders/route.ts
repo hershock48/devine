@@ -54,7 +54,7 @@ type ParsedBody = { fields: Omit<WorkroomOrder, "id" | "number" | "source" | "st
     order on a write-up (a ten-stop sale with by-stems pieces read the
     whole table ten times before this). */
 type PriceCache = { stemPrices: Map<string, number> | null };
-async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemPrices: null }): Promise<ParsedBody> {
+async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemPrices: null }, lock?: Map<string, number>): Promise<ParsedBody> {
   /*
     Catalog lines are re-priced from the catalog, same rule as the web checkout.
     Custom lines ("casket spray, $250") keep the typed price: the person typing
@@ -111,7 +111,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
       return { error: `"${str(raw.name, 120) || "An item"}" is marked by stems but has no flowers with a count. Add one, or give it a price.` };
     }
     if (product) {
-      lines.push(built ? { slug, name: product.name, qty, each: built.each, parts: built.parts } : { slug, name: product.name, qty, each: product.price });
+      lines.push(built ? { slug, name: product.name, qty, each: built.each, parts: built.parts } : { slug, name: product.name, qty, each: lock?.get(slug) ?? product.price });
     } else {
       const name = str(raw.name, 120) || (built ? "Custom arrangement" : "");
       const each = built ? built.each : Math.max(0, Math.round((Number(raw.each) || 0) * 100) / 100);
@@ -404,7 +404,14 @@ export async function PUT(req: Request) {
   // the balance after the edit is derive.ts's to say, and the board and
   // the ticket show it. Only a canceled order is a closed book.
   if (existing.status === "canceled") return NextResponse.json({ error: "That order is canceled. Uncancel it first, or write up a new one." }, { status: 409 });
-  const parsed = await parseBody(p);
+  // THE PRICE AN ORDER WAS WRITTEN AT IS THE PRICE IT KEEPS. The form sends
+  // a catalog line as its slug and a count, and the parse prices it from
+  // the catalog; now that the owner can change a price any afternoon
+  // (Products tab), an address fix on a paid $65 order must not turn its
+  // line into $70 and leave a $5 balance. A line whose design was already
+  // on the order keeps its each; a design added by this edit takes today's.
+  const lock = new Map(existing.lines.filter((l) => l.slug && !l.parts).map((l) => [l.slug as string, l.each]));
+  const parsed = await parseBody(p, undefined, lock);
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
   // Hold is for a ticket nobody has made or paid yet; anywhere else the
   // status stays where it is.

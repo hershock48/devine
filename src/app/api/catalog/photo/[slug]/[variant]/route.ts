@@ -23,7 +23,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
     headers: {
       "Content-Type": variant === "og" ? "image/jpeg" : "image/webp",
       "Content-Length": String(photo.bytes.length),
-      "Cache-Control": "public, max-age=31536000, immutable",
+      // s-maxage so the CDN keeps it too, not only the browser: the URL
+      // carries the version, so a year is safe.
+      "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
     },
   });
 }
