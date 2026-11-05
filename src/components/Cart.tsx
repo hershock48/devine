@@ -14,7 +14,7 @@
  */
 
 import { createContext, useContext, useMemo, useState, useCallback, useEffect } from "react";
-import { bySlug, money, type Product } from "@/lib/catalog";
+import { money, type Product } from "@/lib/catalog";
 
 type Line = { slug: string; qty: number };
 type Ctx = {
@@ -32,7 +32,10 @@ const CartCtx = createContext<Ctx | null>(null);
 
 const STORE_KEY = "devines.cart.v1";
 
-export function CartProvider({ children }: { children: React.ReactNode }) {
+export function CartProvider({ children, products }: { children: React.ReactNode; products: Product[] }) {
+  // The live catalog, from the layout: a design taken off the menu on the
+  // Products tab leaves the cart on the next load, same as before.
+  const bySlug = useMemo(() => new Map(products.map((p) => [p.slug, p])), [products]);
   const [lines, setLines] = useState<Line[]>([]);
 
   /*

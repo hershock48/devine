@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
-import { shopCategories, inCategory, priceRange, money } from "@/lib/catalog";
-import { photoFirst, hasPhoto } from "@/lib/order";
+import { money } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
+import { photoFirst, hasAnyPhoto } from "@/lib/order";
 import { href } from "@/lib/nav";
 
 /**
@@ -29,7 +30,8 @@ export const metadata: Metadata = {
     "Fresh arrangements, house plants and gifts from DeVine's Flowers & Botanicals in Marshall, Michigan. Same-day local delivery whenever possible.",
 };
 
-export default function Shop() {
+export default async function Shop() {
+  const { shopCategories, inCategory, priceRange } = await getCatalog();
   return (
     <>
       <section className="page-head">
@@ -98,7 +100,7 @@ export default function Shop() {
               three-column grid leaves one card alone on a second row. And
               photographed first — lib/order.ts.
             */}
-            {inCategory(c.slug).some((p) => hasPhoto(p.slug)) ? (
+            {inCategory(c.slug).some((p) => hasAnyPhoto(p)) ? (
               <div className="grid">
                 {photoFirst(inCategory(c.slug)).slice(0, 3).map((p) => (
                   <ProductCard key={`${c.slug}-${p.slug}`} p={p} />

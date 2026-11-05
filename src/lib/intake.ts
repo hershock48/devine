@@ -1,7 +1,8 @@
 import "server-only";
 
 import { shopMail } from "@/lib/mail";
-import { bySlug, money } from "@/lib/catalog";
+import { money } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { site, addressOneLine, deliveryFeeFor, deliveryMinimumFor } from "@/lib/site";
 import { clock12, isTaxLine, refundableCents, squareMoney, taxFor, taxLineName } from "@/lib/workroom/derive";
 import { occasions as OCCASIONS } from "@/lib/occasions";
@@ -81,7 +82,8 @@ const str = (v: unknown, max: number): string =>
  * nothing else about money; every price on the ticket comes from the catalog at
  * the moment of ordering. A client-supplied total is a number a customer chose.
  */
-export function priceOrder(raw: unknown): { order: PricedOrder } | { error: string } {
+export async function priceOrder(raw: unknown): Promise<{ order: PricedOrder } | { error: string }> {
+  const { bySlug } = await getCatalog();
   if (!raw || typeof raw !== "object") return { error: "Empty order." };
   const p = raw as Record<string, unknown>;
 

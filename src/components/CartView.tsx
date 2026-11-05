@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/components/Cart";
 import ProductImage from "@/components/ProductImage";
-import { bySlug, money, menu } from "@/lib/catalog";
+import { money, type Product } from "@/lib/catalog";
+import { useProducts } from "@/components/CatalogContext";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { occasions } from "@/lib/occasions";
@@ -100,15 +101,17 @@ type CardConfig = { cards: boolean; applicationId?: string; locationId?: string;
 // An entry off the menu (the chocolates, since 2026-10-14) is skipped
 // below and comes back by itself when the product does.
 const ADD_ON_PRIORITY = ["petite-box-of-chocolates", "bohemian-breakfast-tea", "lil-lovey"];
-const ADD_ON_POOL = (() => {
+const addOnPool = (menu: Product[]) => {
   const gifts = menu.filter((p) => p.cats.includes("gifts-add-ons"));
   return [
     ...ADD_ON_PRIORITY.map((s) => gifts.find((g) => g.slug === s)).filter((p): p is NonNullable<typeof p> => !!p),
     ...gifts.filter((g) => !ADD_ON_PRIORITY.includes(g.slug)).sort((a, b) => a.price - b.price),
   ];
-})();
+};
 
 export default function CartView() {
+  const products = useProducts();
+  const ADD_ON_POOL = useMemo(() => addOnPool(products.filter((p) => !p.offMenu)), [products]);
   const { items, subtotal, setQty, remove, count, clear, add, lines } = useCart();
   const [checkingOut, setCheckingOut] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ state: "idle" });

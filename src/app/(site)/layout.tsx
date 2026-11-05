@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { CartProvider } from "@/components/Cart";
+import { CatalogProvider } from "@/components/CatalogContext";
+import { getCatalog } from "@/lib/catalog-live";
+import { hasAnyPhoto } from "@/lib/order";
 import { Header, Footer } from "@/components/Chrome";
 import { SeasonBand } from "@/components/Season";
 import { BreezeOnLoad } from "@/components/Logo";
@@ -83,9 +86,17 @@ export const metadata: Metadata = {
 };
 
 export default async function DemoLayout({ children }: { children: React.ReactNode }) {
+  const catalog = await getCatalog();
+  // WHAT THE CART NEEDS, NOT THE WHOLE CATALOG: the menu only (an off-menu
+  // design is dropped from the cart anyway), no harvest image path, and a
+  // description only where the botanical print still has to draw from it.
+  // The full list rode along in every page at first: 25KB of HTML a phone
+  // had to parse before the first paint, for a cart that reads four fields.
+  const forCart = catalog.menu.map((p) => ({ ...p, img: "", desc: hasAnyPhoto(p) ? "" : p.desc }));
   const { season, holiday } = await currentSeasonal();
   return (
-    <CartProvider>
+    <CatalogProvider products={forCart}>
+    <CartProvider products={forCart}>
       {/*
         data-season is the seasonal palette's only hook: globals.css repoints the
         one accent token under it, so every hover and accent in the demo turns
@@ -121,5 +132,6 @@ export default async function DemoLayout({ children }: { children: React.ReactNo
         <BreezeOnLoad />
       </div>
     </CartProvider>
+    </CatalogProvider>
   );
 }

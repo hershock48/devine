@@ -2,6 +2,9 @@ import manifest from "@/lib/image-manifest.json";
 
 /** True where a real photograph of this product exists in public/img/product/. */
 export const hasPhoto = (slug: string): boolean => `product/${slug}` in manifest;
+/** A photograph from either source: the owner's upload (Products tab) or
+    the build-time manifest. */
+export const hasAnyPhoto = (p: { slug: string; photo?: { v: number } | null }): boolean => !!p.photo || hasPhoto(p.slug);
 
 /**
  * PHOTOGRAPHED FIRST, everywhere a grid renders.
@@ -28,6 +31,6 @@ export const hasPhoto = (slug: string): boolean => `product/${slug}` in manifest
  * preserved inside each of the two groups. When the remaining 37 photographs land,
  * this function quietly becomes a no-op.
  */
-export function photoFirst<T extends { slug: string }>(items: readonly T[]): T[] {
-  return [...items].sort((a, b) => Number(hasPhoto(b.slug)) - Number(hasPhoto(a.slug)));
+export function photoFirst<T extends { slug: string; photo?: { v: number } | null }>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => Number(hasAnyPhoto(b)) - Number(hasAnyPhoto(a)));
 }

@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { bySlug } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { square, type SquareConfig } from "@/lib/square/client";
 import { resolveSquare } from "@/lib/square/oauth";
 import { getStore, type SquareSale, type SquareSaleLine } from "@/lib/workroom/store";
@@ -96,6 +96,7 @@ async function toLines(
       if (sku) skuById.set(o.id, sku);
     }
   }
+  const { bySlug } = await getCatalog();
   const lines = items.map((l) => {
     const sku = l.catalog_object_id ? skuById.get(l.catalog_object_id) : undefined;
     return {

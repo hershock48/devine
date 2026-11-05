@@ -1,6 +1,6 @@
 import { site, formatHours, addressOneLine } from "@/lib/site";
 import { NAV, FOOTER_ONLY, href } from "@/lib/nav";
-import { shopCategories } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { CartLink } from "./Cart";
 import Logo from "./Logo";
 import GlazedPlate from "./GlazedPlate";
@@ -74,7 +74,8 @@ export function Header() {
   );
 }
 
-export function Footer() {
+export async function Footer() {
+  const { shopCategories } = await getCatalog();
   return (
     <footer className="site-foot">
       <div className="wrap cols">

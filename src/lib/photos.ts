@@ -1,5 +1,6 @@
-import { menu, type Product } from "@/lib/catalog";
-import { hasPhoto } from "@/lib/order";
+import type { Product } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
+import { hasAnyPhoto } from "@/lib/order";
 
 /**
  * THE PHOTO LIST: every catalog product without a real photograph, in the
@@ -46,8 +47,9 @@ export const TIERS: Tier[] = [
   { key: "rest", label: "Everything else", cats: ["seasonal", "just-because", "plants"] },
 ];
 
-export function neededPhotos(): { tier: Tier; items: NeededPhoto[] }[] {
-  const missing = menu.filter((p) => !hasPhoto(p.slug) && !DESIGNERS_CHOICE.has(p.slug));
+export async function neededPhotos(): Promise<{ tier: Tier; items: NeededPhoto[] }[]> {
+  const { menu } = await getCatalog();
+  const missing = menu.filter((p) => !hasAnyPhoto(p) && !DESIGNERS_CHOICE.has(p.slug));
   const taken = new Set<string>();
 
   const pick = (test: (p: Product) => boolean) =>
@@ -72,6 +74,6 @@ export function neededPhotos(): { tier: Tier; items: NeededPhoto[] }[] {
   }).filter((t) => t.items.length > 0);
 }
 
-export function neededSlugs(): Set<string> {
-  return new Set(neededPhotos().flatMap((t) => t.items.map((i) => i.slug)));
+export async function neededSlugs(): Promise<Set<string>> {
+  return new Set((await neededPhotos()).flatMap((t) => t.items.map((i) => i.slug)));
 }

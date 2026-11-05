@@ -34,6 +34,11 @@ export type Product = {
   desc: string;
   /** Their image path under wp-content/uploads. Used once real photos land. */
   img: string;
+  /** A PHOTOGRAPH THE OWNER UPLOADED from the workroom's Products tab
+      (2026-11-05). Served from the database at /api/catalog/photo/<slug>;
+      `v` busts caches on replace, `w`/`h` keep the layout from jumping.
+      Wins over the build-time manifest when both exist. */
+  photo?: { v: number; w: number; h: number };
   /** True where their own shop uses a line-art placeholder rather than a photo. */
   placeholderImage?: boolean;
   /** No substitution clause appears on their wedding items or the plush toys. */
@@ -310,6 +315,7 @@ export function inCategory(catSlug: string): Product[] {
 
 export function priceRange(catSlug: string): [number, number] {
   const ps = inCategory(catSlug).map((p) => p.price);
+  if (ps.length === 0) return [0, 0];
   return [Math.min(...ps), Math.max(...ps)];
 }
 

@@ -1,4 +1,6 @@
 import Board from "@/components/workroom/Board";
+import { CatalogProvider } from "@/components/CatalogContext";
+import { getCatalog } from "@/lib/catalog-live";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 
 /**
@@ -12,5 +14,10 @@ import { isWorkroomAuthed } from "@/lib/workroom/auth";
 export const dynamic = "force-dynamic";
 
 export default async function WorkroomPage() {
-  return <Board initialAuthed={await isWorkroomAuthed()} />;
+  const catalog = await getCatalog();
+  return (
+    <CatalogProvider products={catalog.products} categories={catalog.categories}>
+      <Board initialAuthed={await isWorkroomAuthed()} />
+    </CatalogProvider>
+  );
 }

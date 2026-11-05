@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
 import { getStore, normalizeVariety, type Recipe } from "@/lib/workroom/store";
-import { bySlug } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 
 /**
  * One recipe per catalog product: which stems, how many. PUT replaces the
@@ -19,7 +19,7 @@ export async function PUT(req: Request) {
   if (!p) return NextResponse.json({ error: "Malformed." }, { status: 400 });
 
   const slug = typeof p.slug === "string" ? p.slug : "";
-  if (!bySlug.has(slug)) {
+  if (!(await getCatalog()).bySlug.has(slug)) {
     return NextResponse.json({ error: "Recipes hang off catalog products; that slug is not one." }, { status: 400 });
   }
 

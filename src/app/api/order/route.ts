@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "That did not look like an order." }, { status: 400 });
   }
 
-  const priced = priceOrder(raw);
+  const priced = await priceOrder(raw);
   if ("error" in priced) {
     return NextResponse.json({ ok: false, error: priced.error }, { status: 400 });
   }

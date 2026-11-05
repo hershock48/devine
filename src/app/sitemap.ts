@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { shopCategories, menu } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { NAV, FOOTER_ONLY, href } from "@/lib/nav";
 import { CANONICAL_HOST } from "@/lib/seo";
 
@@ -23,7 +23,11 @@ import { CANONICAL_HOST } from "@/lib/seo";
  * and then lies — or a hand-maintained date per route, which nobody maintains. An
  * absent field is better than a wrong one.
  */
-export default function sitemap(): MetadataRoute.Sitemap {
+// Read per request: the catalog is the owner's to change (Products tab).
+export const dynamic = "force-dynamic";
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const { shopCategories, menu } = await getCatalog();
   const url = (path: string) => `${CANONICAL_HOST}${href(path)}`;
 
   const pages = [

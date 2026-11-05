@@ -28,6 +28,9 @@ const TABS = [
   // Inventory the same day: the page holds the stem library, the cooler,
   // buys, tosses and recipes, and "Stems" named only one of them.
   { href: "/workroom/inventory", label: "Inventory" },
+  // The shop's own catalog, edited by the owner (Kevin, 2026-11-05): prices,
+  // copy, shelves, photographs. Owner's PIN, like the dashboard.
+  { href: "/workroom/products", label: "Products" },
   // Plants folded into Weekly order 2026-09-01: same weekly buying motion
   // (walk, count, read the list to the supplier), one tab.
   { href: "/workroom/weekly-order", label: "Weekly order" },

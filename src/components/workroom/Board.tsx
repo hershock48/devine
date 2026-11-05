@@ -1,7 +1,8 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { products, type Product } from "@/lib/catalog";
+import type { Product } from "@/lib/catalog";
+import { useProducts } from "@/components/CatalogContext";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate, RemoveDuplicate } from "@/components/workroom/ui";
@@ -1722,7 +1723,6 @@ function OrderCard({
   );
 }
 
-const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name));
 
 type DraftPart = { variety: string; stems: string };
 /** `uid` is the row's identity for React (a Remove in the middle of the
@@ -1849,7 +1849,7 @@ const stopHasWork = (s: Stop) =>
     s.lines.some((l) => l.slug || l.custom.trim() || l.parts.some((pt) => pt.variety.trim()))
   );
 
-const productBySlug = (slug: string): Product | undefined => sortedProducts.find((p) => p.slug === slug);
+const productBySlug = (products: Product[], slug: string): Product | undefined => products.find((p) => p.slug === slug);
 const stemPriceIn = (library: StemPrice[], variety: string): number | undefined => {
   const v = library.find((x) => x.name === normalizeVariety(variety));
   return v && v.sellStem != null && v.sellStem > 0 ? v.sellStem : undefined;
@@ -1872,15 +1872,15 @@ const builtPriceIn = (library: StemPrice[], l: DraftLine): { each: number; unpri
 /** What one draft line costs each, by the rule the route will apply:
     built by stems from the library, else the catalog price, else what
     was typed. The warning and the items list read the same number. */
-const lineEachIn = (library: StemPrice[], l: DraftLine): number =>
-  l.byStems && canBuild(l) ? builtPriceIn(library, l).each : l.slug ? productBySlug(l.slug)?.price ?? 0 : Number(l.each) || 0;
+const lineEachIn = (library: StemPrice[], products: Product[], l: DraftLine): number =>
+  l.byStems && canBuild(l) ? builtPriceIn(library, l).each : l.slug ? productBySlug(products, l.slug)?.price ?? 0 : Number(l.each) || 0;
 
 /** One order's arithmetic, in the route's terms: items, the fee as shown,
     tax on the items (none when exempt), and the delivery-minimum reading.
     Display only; the route writes the ticket. */
-function stopMath(s: Stop, library: StemPrice[], taxExempt: boolean) {
+function stopMath(s: Stop, library: StemPrice[], products: Product[], taxExempt: boolean) {
   const delivering = s.fulfillment === "delivery";
-  const items = s.lines.reduce((sum, l) => sum + lineEachIn(library, l) * l.qty, 0);
+  const items = s.lines.reduce((sum, l) => sum + lineEachIn(library, products, l) * l.qty, 0);
   // A by-stems piece with a flower the library does not price would be
   // summed short and could cry "under" at an order that is not; no warning
   // until every piece can be priced.
@@ -1893,14 +1893,14 @@ function stopMath(s: Stop, library: StemPrice[], taxExempt: boolean) {
   // zip is still a delivery, and the website would have refused it too).
   const minimum = delivering && s.zip.trim().length >= 5 ? deliveryMinimumFor(s.zip.trim()) : 0;
   const underMinimum = minimum > 0 && !anyUnpriced && items > 0 && items < minimum;
-  const tax = taxFor(s.lines.map((l) => ({ name: l.custom.trim() || "item", qty: l.qty, each: lineEachIn(library, l) })), taxExempt);
+  const tax = taxFor(s.lines.map((l) => ({ name: l.custom.trim() || "item", qty: l.qty, each: lineEachIn(library, products, l) })), taxExempt);
   const total = Math.round((items + fee + tax) * 100) / 100;
   return { delivering, items, anyUnpriced, sheetFee, deliveryFee, feeTyped, fee, minimum, underMinimum, tax, total };
 }
 
 /** What the route reads for one order: the form's stop in the body's words. */
-function stopPayload(s: Stop, library: StemPrice[]) {
-  const m = stopMath(s, library, false);
+function stopPayload(s: Stop, library: StemPrice[], products: Product[]) {
+  const m = stopMath(s, library, products, false);
   return {
     fulfillment: s.fulfillment,
     date: s.date,
@@ -2327,6 +2327,8 @@ function ItemsEditor({
       several orders sit on one form. */
   aria?: (t: string) => string;
 }) {
+  const products = useProducts();
+  const sortedProducts = useMemo(() => [...products].sort((a, b) => a.name.localeCompare(b.name)), [products]);
   function setLine(i: number, p: Partial<DraftLine>) {
     setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...p } : l)));
   }
@@ -2346,7 +2348,7 @@ function ItemsEditor({
       <span style={labelText}>Items</span>
       <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
         {lines.map((l, i) => {
-          const p = productBySlug(l.slug);
+          const p = productBySlug(products, l.slug);
           const building = l.byStems && canBuild(l);
           const built = building ? builtPriceIn(library, l) : null;
           return (
@@ -2540,6 +2542,7 @@ type PlacedSale = {
 };
 
 function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: () => void }) {
+  const products = useProducts();
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
   const [taxExempt, setTaxExempt] = useState(false);
   /** Who rang it up: kept between sales, because the same person is at
@@ -2558,13 +2561,13 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
   // The same stop is what ring() sends, so the figure shown is the figure
   // charged.
   const stop = useMemo(() => blankStop({ fulfillment: "pickup", lines }), [lines]);
-  const m = stopMath(stop, library, taxExempt);
+  const m = stopMath(stop, library, products, taxExempt);
   /** The lines with anything typed in them. Each must price above zero
       (a catalog product, a typed price, or a build the library prices):
       a $0 quick sale would be born done and never paid, and so vanish
       from the board. The route refuses the same thing in the same words. */
   const started = lines.filter(lineStarted);
-  const unpriced = started.some((l) => !(lineEachIn(library, l) > 0));
+  const unpriced = started.some((l) => !(lineEachIn(library, products, l) > 0));
 
   function clear() {
     setLines([blankLine()]);
@@ -2623,7 +2626,7 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
     setDone("");
     const halfBuilt = lines.find((l) => l.byStems && canBuild(l) && (l.slug || l.custom.trim()) && !l.parts.some((pt) => pt.variety.trim() && Number(pt.stems) > 0));
     if (halfBuilt) {
-      setError(`"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`);
+      setError(`"${halfBuilt.custom.trim() || productBySlug(products, halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`);
       return;
     }
     if (started.length === 0) {
@@ -2646,7 +2649,7 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
       // The write-up's own payload reading for the lines, on the stop the
       // figures were shown for; the route reads only the items, the
       // tax-exempt box and the initials on a quick sale.
-      const { lines: payload } = stopPayload(stop, library);
+      const { lines: payload } = stopPayload(stop, library, products);
       const r = await fetch("/api/workroom/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2823,6 +2826,7 @@ function PhoneOrderForm({
       come from this order; what this one is for starts blank. */
   addTo?: Order | null;
 }) {
+  const products = useProducts();
   /** The group this write-up belongs to: an existing group's id when adding
       to it; otherwise the route makes one when there are several. */
   const [batchId, setBatchId] = useState(editing?.batchId ?? (addTo ? addTo.batchId || addTo.id : ""));
@@ -2935,7 +2939,7 @@ function PhoneOrderForm({
       );
       if (halfBuilt) {
         setError(
-          `${many ? `Order ${i + 1}: ` : ""}"${halfBuilt.custom.trim() || productBySlug(halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`,
+          `${many ? `Order ${i + 1}: ` : ""}"${halfBuilt.custom.trim() || productBySlug(products, halfBuilt.slug)?.name || "An item"}" is marked by stems but has no flowers yet. Add a flower and a count, or untick Price it by stems.`,
         );
         return;
       }
@@ -2961,7 +2965,7 @@ function PhoneOrderForm({
     };
     // An edit is one order, flat, as the PUT route has always read it; a
     // new write-up is the customer once and a list, one entry per order.
-    const payload = editing ? { ...shared, ...stopPayload(stops[0], library) } : { ...shared, force, deliveries: stops.map((s) => stopPayload(s, library)) };
+    const payload = editing ? { ...shared, ...stopPayload(stops[0], library, products) } : { ...shared, force, deliveries: stops.map((s) => stopPayload(s, library, products)) };
     const r = await fetch("/api/workroom/orders", {
       method: editing ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
@@ -2996,7 +3000,7 @@ function PhoneOrderForm({
   }
 
   const many = stops.length > 1;
-  const maths = stops.map((s) => stopMath(s, library, noTax));
+  const maths = stops.map((s) => stopMath(s, library, products, noTax));
   const sum = (pick: (m: ReturnType<typeof stopMath>) => number) => Math.round(maths.reduce((t, m) => t + pick(m), 0) * 100) / 100;
   const grand = { items: sum((m) => m.items), fee: sum((m) => m.fee), tax: sum((m) => m.tax), total: sum((m) => m.total) };
 

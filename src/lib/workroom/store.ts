@@ -1,5 +1,6 @@
 import "server-only";
 import { balanceCents } from "./derive";
+import type { Category, Product } from "@/lib/catalog";
 
 /**
  * Workroom storage: orders, stem events, recipes.
@@ -657,6 +658,18 @@ type Store = {
       along with a board refresh. */
   searchContacts(kind: Contact["kind"], q: string, limit: number): Promise<Contact[]>;
   countContacts(): Promise<{ customer: number; recipient: number }>;
+  /** THE CATALOG, OWNER-EDITED (Kevin, 2026-11-05: "an admin panel thing
+      where they can do this themselves"). lib/catalog.ts is the seed;
+      these rows are the truth once they exist (lib/catalog-live.ts seeds
+      what is missing and reads the rest). Products by slug, categories
+      by slug with a position, photographs by "<slug>/<variant>". */
+  listCatalogProducts(): Promise<Product[]>;
+  upsertCatalogProduct(p: Product): Promise<void>;
+  listCatalogCategories(): Promise<{ category: Category; position: number }[]>;
+  upsertCatalogCategory(c: Category, position: number): Promise<void>;
+  deleteCatalogCategory(slug: string): Promise<void>;
+  putCatalogPhoto(key: string, bytes: Buffer, w: number, h: number): Promise<void>;
+  getCatalogPhoto(key: string): Promise<{ bytes: Buffer; w: number; h: number; updatedAt: number } | null>;
 };
 
 /** What the contact search matches on, lowercased, built once per row. */
@@ -689,6 +702,9 @@ type Bag = {
   acceptances: Map<string, AgreementAcceptance>;
   photoSubs: Map<string, PhotoSubmission>;
   contacts: Map<string, Contact>;
+  catalogProducts: Map<string, Product>;
+  catalogCategories: Map<string, { category: Category; position: number }>;
+  catalogPhotos: Map<string, { bytes: Buffer; w: number; h: number; updatedAt: number }>;
 };
 
 function bag(): Bag {
@@ -707,6 +723,9 @@ function bag(): Bag {
       acceptances: new Map(),
       photoSubs: new Map(),
       contacts: new Map(),
+      catalogProducts: new Map(),
+      catalogCategories: new Map(),
+      catalogPhotos: new Map(),
     };
   }
   // A bag created by an older module instance predates the newer maps.
@@ -720,6 +739,9 @@ function bag(): Bag {
   if (b.squareTokens === undefined) b.squareTokens = null;
   if (!b.acceptances) b.acceptances = new Map();
   if (!b.photoSubs) b.photoSubs = new Map();
+  if (!b.catalogProducts) b.catalogProducts = new Map();
+  if (!b.catalogCategories) b.catalogCategories = new Map();
+  if (!b.catalogPhotos) b.catalogPhotos = new Map();
   return b;
 }
 
@@ -955,6 +977,27 @@ const memoryStore: Store = {
     const all = [...bag().contacts.values()];
     return { customer: all.filter((c) => c.kind === "customer").length, recipient: all.filter((c) => c.kind === "recipient").length };
   },
+  async listCatalogProducts() {
+    return [...bag().catalogProducts.values()];
+  },
+  async upsertCatalogProduct(p) {
+    bag().catalogProducts.set(p.slug, p);
+  },
+  async listCatalogCategories() {
+    return [...bag().catalogCategories.values()].sort((a, b) => a.position - b.position);
+  },
+  async upsertCatalogCategory(c, position) {
+    bag().catalogCategories.set(c.slug, { category: c, position });
+  },
+  async deleteCatalogCategory(slug) {
+    bag().catalogCategories.delete(slug);
+  },
+  async putCatalogPhoto(key, bytes, w, h) {
+    bag().catalogPhotos.set(key, { bytes, w, h, updatedAt: Date.now() });
+  },
+  async getCatalogPhoto(key) {
+    return bag().catalogPhotos.get(key) ?? null;
+  },
 };
 
 /* ----------------------------- postgres ----------------------------- */
@@ -1050,6 +1093,23 @@ async function pgPool(): Promise<PgPool> {
         data jsonb NOT NULL
       );
       CREATE INDEX IF NOT EXISTS workroom_contacts_kind ON workroom_contacts (kind);
+      CREATE TABLE IF NOT EXISTS catalog_products (
+        slug text PRIMARY KEY,
+        updated_at bigint NOT NULL,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS catalog_categories (
+        slug text PRIMARY KEY,
+        position integer NOT NULL,
+        data jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS catalog_photos (
+        key text PRIMARY KEY,
+        bytes bytea NOT NULL,
+        w integer NOT NULL,
+        h integer NOT NULL,
+        updated_at bigint NOT NULL
+      );
     `).catch((err: unknown) => {
       g.__devinePgPool = undefined;
       g.__devinePgReady = undefined;
@@ -1496,6 +1556,51 @@ const postgresStore: Store = {
     const out = { customer: 0, recipient: 0 };
     for (const row of r.rows) if (row.kind === "customer" || row.kind === "recipient") out[row.kind as "customer" | "recipient"] = Number(row.n);
     return out;
+  },
+  async listCatalogProducts() {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM catalog_products`);
+    return r.rows.map((row) => row.data as Product);
+  },
+  async upsertCatalogProduct(p) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO catalog_products (slug, updated_at, data) VALUES ($1, $2, $3)
+       ON CONFLICT (slug) DO UPDATE SET updated_at = EXCLUDED.updated_at, data = EXCLUDED.data`,
+      [p.slug, Date.now(), JSON.stringify(p)],
+    );
+  },
+  async listCatalogCategories() {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data, position FROM catalog_categories ORDER BY position ASC, slug ASC`);
+    return r.rows.map((row) => ({ category: row.data as Category, position: Number(row.position) }));
+  },
+  async upsertCatalogCategory(c, position) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO catalog_categories (slug, position, data) VALUES ($1, $2, $3)
+       ON CONFLICT (slug) DO UPDATE SET position = EXCLUDED.position, data = EXCLUDED.data`,
+      [c.slug, position, JSON.stringify(c)],
+    );
+  },
+  async deleteCatalogCategory(slug) {
+    const pool = await pgPool();
+    await pool.query(`DELETE FROM catalog_categories WHERE slug = $1`, [slug]);
+  },
+  async putCatalogPhoto(key, bytes, w, h) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO catalog_photos (key, bytes, w, h, updated_at) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (key) DO UPDATE SET bytes = EXCLUDED.bytes, w = EXCLUDED.w, h = EXCLUDED.h, updated_at = EXCLUDED.updated_at`,
+      [key, bytes, w, h, Date.now()],
+    );
+  },
+  async getCatalogPhoto(key) {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT bytes, w, h, updated_at FROM catalog_photos WHERE key = $1`, [key]);
+    const row = r.rows[0];
+    if (!row) return null;
+    return { bytes: row.bytes as Buffer, w: Number(row.w), h: Number(row.h), updatedAt: Number(row.updated_at) };
   },
 };
 

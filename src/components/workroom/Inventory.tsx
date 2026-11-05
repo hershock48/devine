@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { products } from "@/lib/catalog";
+import { useProducts } from "@/components/CatalogContext";
 import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, VarietyGate } from "@/components/workroom/ui";
 import { HISTORY_DAYS, consumption, isoDate, lotCosting, normalizeVariety, recipeUnitCost, saleInstantMs } from "@/lib/workroom/derive";
 
@@ -80,22 +80,32 @@ type Variety = {
 
 const REASONS = ["wilted", "damaged", "overbought", "event fell through", "other"];
 
-const productName = new Map(products.map((p) => [p.slug, p.name]));
-const productPrice = new Map(products.map((p) => [p.slug, p.price]));
 
 /** Products a recipe can exist FOR: anything that is not purely a gift item.
     Chocolate, tea, plush and chimes have no stems in them, so they never
     count against recipe coverage. */
-const recipeEligible = products.filter((p) => p.cats.some((c) => c !== "gifts-add-ons"));
-const recipeEligibleSlugs = new Set(recipeEligible.map((p) => p.slug));
 /** The recipe picker's option list: eligible designs only, by name. */
-const sortedEligible = [...recipeEligible].sort((a, b) => a.name.localeCompare(b.name));
+/** The live catalog (Products tab), as the maps this screen reads. */
+function useProductMaps() {
+  const products = useProducts();
+  return useMemo(() => {
+    const recipeEligible = products.filter((p) => p.cats.some((c) => c !== "gifts-add-ons"));
+    return {
+      productName: new Map(products.map((p) => [p.slug, p.name])),
+      productPrice: new Map(products.map((p) => [p.slug, p.price])),
+      recipeEligible,
+      recipeEligibleSlugs: new Set(recipeEligible.map((p) => p.slug)),
+      sortedEligible: [...recipeEligible].sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }, [products]);
+}
 
 /* Adding a name to the library is VarietyGate's job (ui.tsx): suggestions
    first, then a small deliberate form. The old one-tap helper died with
    Kevin's catch that one reflexive click enshrined the typo anyway. */
 
 export default function Inventory({ initialAuthed }: { initialAuthed: boolean }) {
+  const { productName, productPrice, recipeEligible, recipeEligibleSlugs } = useProductMaps();
   const [authed, setAuthed] = useState(initialAuthed);
   const [events, setEvents] = useState<StemEvent[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -863,6 +873,7 @@ function RecipeForm({
   pickSlug?: string;
   onSaved: () => void;
 }) {
+  const { productPrice, sortedEligible } = useProductMaps();
   const [slug, setSlug] = useState("");
   const [parts, setParts] = useState<{ variety: string; stems: string }[]>([{ variety: "", stems: "" }]);
   const [error, setError] = useState("");

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { getStore } from "@/lib/workroom/store";
 import { neededSlugs } from "@/lib/photos";
-import { bySlug } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 
 export const runtime = "nodejs";
 
@@ -75,10 +75,10 @@ export async function POST(req: Request) {
   }
 
   const slug = typeof body.slug === "string" ? body.slug : "";
-  const product = bySlug.get(slug);
+  const product = (await getCatalog()).bySlug.get(slug);
   // Any catalog product that still needs a photo is accepted; the tiers are
   // presentation, not permission.
-  if (!product || !neededSlugs().has(slug)) {
+  if (!product || !(await neededSlugs()).has(slug)) {
     return NextResponse.json({ error: "That design is not on the list (it may already have its photo)." }, { status: 400 });
   }
 
@@ -166,7 +166,7 @@ export async function POST(req: Request) {
   // firstTimeForSlug gate, every retake on a finished list re-announced
   // COMPLETE forever. Best-effort: the completion mail failing must not fail
   // the photo that triggered it.
-  const remaining = [...neededSlugs()].filter((s) => !submitted.includes(s));
+  const remaining = [...(await neededSlugs())].filter((s) => !submitted.includes(s));
   if (remaining.length === 0 && firstTimeForSlug) {
     await transport
       .sendMail({

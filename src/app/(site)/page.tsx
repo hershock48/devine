@@ -1,6 +1,7 @@
 import ProductCard from "@/components/ProductCard";
 import HeroTrace from "@/components/HeroTrace";
-import { bySlug, shopCategories, inCategory, priceRange, money, menu } from "@/lib/catalog";
+import { money } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { site, formatHours } from "@/lib/site";
 import { currentSeasonal, heroFor } from "@/lib/seasons";
 import { photoFirst } from "@/lib/order";
@@ -33,6 +34,7 @@ import { href } from "@/lib/nav";
  */
 export default async function Home() {
   const { season } = await currentSeasonal();
+  const { bySlug, shopCategories, inCategory, priceRange, menu } = await getCatalog();
   const hero = heroFor(season);
   // photoFirst: this grid is a sample, so her real photographs lead it. The
   // seasonal lists are built half-photographed (see lib/seasons.ts); this puts

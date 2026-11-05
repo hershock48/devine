@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
-import { inCategory } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { site, formatHours } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { photoFirst } from "@/lib/order";
@@ -30,7 +30,8 @@ export const metadata: Metadata = {
  * A page read by someone making funeral arrangements should not perform. It is a
  * short column, a phone number, two practical answers and the flowers.
  */
-export default function CelebrationOfLife() {
+export default async function CelebrationOfLife() {
+  const { inCategory } = await getCatalog();
   const arrangements = inCategory("celebration-of-life");
   const plants = photoFirst(
     inCategory("plants").filter((p) =>

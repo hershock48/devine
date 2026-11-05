@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import ProductCard from "@/components/ProductCard";
-import { inCategory, priceRange, money } from "@/lib/catalog";
+import { money } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { site } from "@/lib/site";
 import GreeningInquiry from "@/components/GreeningInquiry";
 
@@ -21,7 +22,8 @@ export const metadata: Metadata = {
  * thing on this page, because it is recurring revenue rather than a one-off sale, so
  * it gets a section and a way to ask about it.
  */
-export default function Greening() {
+export default async function Greening() {
+  const { inCategory, priceRange } = await getCatalog();
   const plants = inCategory("plants");
   const [lo, hi] = priceRange("plants");
 

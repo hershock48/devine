@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic";
 export default async function PhotosPage() {
   const store = getStore();
   const submitted = await store.listPhotoSubmissions().catch(() => []);
-  const tiers = neededPhotos().map((t) => ({ label: t.tier.label, items: t.items }));
+  const tiers = (await neededPhotos()).map((t) => ({ label: t.tier.label, items: t.items }));
   const mailReady = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 
   return (

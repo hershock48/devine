@@ -33,6 +33,27 @@ export default function ProductImage({
 }) {
   const key = `product/${p.slug}`;
 
+  // THE OWNER'S OWN UPLOAD FIRST (Products tab, 2026-11-05): served from
+  // the database by the photo route, versioned so a replaced photograph
+  // is not served from a cache. The manifest is the fallback for the
+  // photographs that landed through the repo.
+  if (p.photo) {
+    const { v, w, h } = p.photo;
+    const base = `/api/catalog/photo/${p.slug}`;
+    return (
+      <img
+        src={`${base}/full?v=${v}`}
+        srcSet={`${base}/sm?v=${v} 400w, ${base}/full?v=${v} ${w}w`}
+        sizes={detail ? "(max-width: 780px) 100vw, 560px" : "(max-width: 400px) 50vw, 280px"}
+        width={w}
+        height={h}
+        alt={`${p.name} by DeVine's Flowers & Botanicals`}
+        loading={detail ? "eager" : "lazy"}
+        decoding="async"
+      />
+    );
+  }
+
   if (!has(key)) {
     return <Bloom slug={p.slug} desc={p.desc} name={p.name} detail={detail} />;
   }

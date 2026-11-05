@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { catBySlug, bySlug } from "@/lib/catalog";
+import type { Category, Product } from "@/lib/catalog";
+import { useCategories, useProducts } from "@/components/CatalogContext";
 import { site } from "@/lib/site";
 import {
   HISTORY_DAYS,
@@ -130,7 +131,8 @@ const methodKey = (o: Order, p: Payment) =>
 
 type Sheet = ReturnType<typeof compute>;
 
-function compute(orders: Order[], sales: Sale[], w: Window) {
+function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<string, Product>; catBySlug: Map<string, Category> }) {
+  const { bySlug, catBySlug } = maps;
   const live = orders.filter((o) => o.status !== "hold");
 
   /* MONEY IN, by the way it came. An order's payments carry the method
@@ -324,7 +326,13 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
   }, [authed, pull]);
 
   const win = useMemo(() => windowFor(view, view === "day" ? day : month), [view, day, month]);
-  const sheet = useMemo(() => compute(orders, sales, win), [orders, sales, win]);
+  const products = useProducts();
+  const categories = useCategories();
+  const maps = useMemo(
+    () => ({ bySlug: new Map(products.map((p) => [p.slug, p])), catBySlug: new Map(categories.map((c) => [c.slug, c])) }),
+    [products, categories],
+  );
+  const sheet = useMemo(() => compute(orders, sales, win, maps), [orders, sales, win, maps]);
 
   if (!authed) {
     return (

@@ -1,7 +1,8 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { products, type Product } from "@/lib/catalog";
+import type { Product } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { square, type SquareConfig } from "./client";
 
 /**
@@ -88,6 +89,7 @@ async function listItems(cfg: SquareConfig): Promise<SquareCatalogItem[]> {
 }
 
 export async function syncCatalogToSquare(cfg: SquareConfig): Promise<SyncReport> {
+  const { products } = await getCatalog();
   const existing = await listItems(cfg);
 
   // slug -> the Square item that carries it, found by variation SKU.

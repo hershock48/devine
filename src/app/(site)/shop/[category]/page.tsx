@@ -1,16 +1,13 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
-import { shopCategories, shopCatBySlug, inCategory, priceRange, money } from "@/lib/catalog";
+import { money } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { photoFirst } from "@/lib/order";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
 
 type Params = { params: Promise<{ category: string }> };
-
-export function generateStaticParams() {
-  return shopCategories.map((c) => ({ category: c.slug }));
-}
 
 /**
  * Every category gets its own title and description. glaze.md's launch bar requires
@@ -33,6 +30,7 @@ const TITLE: Record<string, string> = {
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { category } = await params;
+  const { shopCatBySlug, inCategory, priceRange } = await getCatalog();
   const c = shopCatBySlug.get(category);
   if (!c) return {};
   const [lo, hi] = priceRange(c.slug);
@@ -44,6 +42,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 export default async function CategoryPage({ params }: Params) {
   const { category } = await params;
+  const { shopCatBySlug, inCategory, priceRange } = await getCatalog();
   const c = shopCatBySlug.get(category);
   if (!c) notFound();
 

@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import ProductImage from "@/components/ProductImage";
 import ProductCard from "@/components/ProductCard";
 import { AddToCart } from "@/components/Cart";
-import { menu, bySlug, catBySlug, inCategory, money } from "@/lib/catalog";
+import { money } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { site } from "@/lib/site";
 import { href } from "@/lib/nav";
 import { photoFirst } from "@/lib/order";
@@ -11,12 +12,9 @@ import ogManifest from "@/lib/og-manifest.json";
 
 type Params = { params: Promise<{ slug: string }> };
 
-export function generateStaticParams() {
-  return menu.map((p) => ({ slug: p.slug }));
-}
-
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { slug } = await params;
+  const { bySlug, catBySlug, menu } = await getCatalog();
   const p = bySlug.get(slug);
   // Off the menu reads as gone in the head too: no title, no link card.
   if (!p || p.offMenu) return {};
@@ -66,9 +64,12 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     The JPEGs and the manifest come from tools/og-products.mjs; regenerate both
     when photographs land.
   */
-  if (!(ogManifest as string[]).includes(p.slug)) return { title, description };
+  // The owner's upload (Products tab) carries its own link card; the repo's
+  // og manifest covers the photographs that landed through the repo.
+  const ogUrl = p.photo ? `/api/catalog/photo/${p.slug}/og?v=${p.photo.v}` : (ogManifest as string[]).includes(p.slug) ? `/og/product/${p.slug}.jpg` : null;
+  if (!ogUrl) return { title, description };
 
-  const img = { url: `/og/product/${p.slug}.jpg`, width: 1200, height: 630, alt: `${p.name} by ${site.name}` };
+  const img = { url: ogUrl, width: 1200, height: 630, alt: `${p.name} by ${site.name}` };
   return {
     title,
     description,
@@ -86,6 +87,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 export default async function ProductPage({ params }: Params) {
   const { slug } = await params;
+  const { bySlug, catBySlug, inCategory } = await getCatalog();
   const p = bySlug.get(slug);
   // Off the menu reads as gone: no page, no link anywhere to reach it.
   if (!p || p.offMenu) notFound();

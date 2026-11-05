@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Reports from "@/components/workroom/Reports";
+import { CatalogProvider } from "@/components/CatalogContext";
+import { getCatalog } from "@/lib/catalog-live";
 import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 
 export const metadata: Metadata = { title: "Reports" };
@@ -9,5 +11,10 @@ export const dynamic = "force-dynamic";
     sheet opens to the staff PIN (they close the drawer); the month sheet
     asks for the owner's, like the dashboard. */
 export default async function ReportsPage() {
-  return <Reports initialAuthed={await isWorkroomAuthed()} initialOwner={await isWorkroomOwner()} />;
+  const catalog = await getCatalog();
+  return (
+    <CatalogProvider products={catalog.products} categories={catalog.categories}>
+      <Reports initialAuthed={await isWorkroomAuthed()} initialOwner={await isWorkroomOwner()} />
+    </CatalogProvider>
+  );
 }

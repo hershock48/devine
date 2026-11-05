@@ -3,7 +3,7 @@ import { deliveryFeeFor, site } from "@/lib/site";
 import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { duplicateMessage, looksLikeDuplicate, sameDelivery } from "@/lib/workroom/duplicate";
-import { bySlug } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { balanceCents, deliveryLineName, isDeliveryLine, isTaxLine, normalizeVariety, squareMoney, withTaxLine } from "@/lib/workroom/derive";
 import { INITIALS_ERROR } from "@/lib/workroom/initials";
 import { sendDeliveredEmail, sendRefundEmail, sendWorkroomReceipt } from "@/lib/intake";
@@ -102,7 +102,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
     const raw = l as Record<string, unknown>;
     const qty = Math.min(99, Math.max(1, Math.round(Number(raw.qty) || 1)));
     const slug = str(raw.slug, 80);
-    const product = bySlug.get(slug);
+    const product = (await getCatalog()).bySlug.get(slug);
     const built = await priceParts(raw.parts);
     if (built && "error" in built) return { error: built.error };
     // Parts were sent but none had a flower and a count: the form refuses

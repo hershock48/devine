@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { inCategory, money } from "@/lib/catalog";
+import { money } from "@/lib/catalog";
+import { getCatalog } from "@/lib/catalog-live";
 import { href } from "@/lib/nav";
 import { site } from "@/lib/site";
 import { WeddingInquiry } from "@/components/InquiryForms";
@@ -31,7 +32,8 @@ export const metadata: Metadata = {
  * that is actually the argument, the process against the studio print, the ask, and
  * only then the four things you can buy without talking to anyone.
  */
-export default function Weddings() {
+export default async function Weddings() {
+  const { inCategory } = await getCatalog();
   const weddingItems = inCategory("wedding");
 
   return (
