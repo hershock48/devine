@@ -665,6 +665,12 @@ type Store = {
       by slug with a position, photographs by "<slug>/<variant>". */
   listCatalogProducts(): Promise<Product[]>;
   upsertCatalogProduct(p: Product): Promise<void>;
+  /** A NEW design: written only if no row has its slug. True when this
+      call wrote the row, false when the slug was already taken (by a row
+      this caller never saw, or by another add that landed first). The
+      caller mints the next slug and tries again; an existing design is
+      never overwritten by an add. */
+  insertCatalogProduct(p: Product): Promise<boolean>;
   /** The seed: insert what is missing, never touch a row that exists.
       One statement for the lot, so the first page view after a deploy
       is one round trip and not sixty-four. */
@@ -988,6 +994,12 @@ const memoryStore: Store = {
   async upsertCatalogProduct(p) {
     bag().catalogProducts.set(p.slug, p);
   },
+  async insertCatalogProduct(p) {
+    const m = bag().catalogProducts;
+    if (m.has(p.slug)) return false;
+    m.set(p.slug, p);
+    return true;
+  },
   async seedCatalogProducts(list) {
     const m = bag().catalogProducts;
     for (const p of list) if (!m.has(p.slug)) m.set(p.slug, p);
@@ -1047,8 +1059,24 @@ async function pgPool(): Promise<PgPool> {
       the same rejected promise long after the database recovered. On failure
       the pool and the promise are dropped so the next request retries.
       Inherited from the pjs store, where the same fix is owed.
+
+      ONE INSTANCE AT A TIME. CREATE TABLE IF NOT EXISTS is not safe when two
+      cold instances run it at once: both see no table, both create it, and
+      the loser fails on pg_type_typname_nsp_index (SQLSTATE 23505). That
+      happened on the 2026-11-05 deploy that added the catalog tables. The
+      whole string goes to the server as one simple query, which Postgres
+      runs as a single transaction, so the advisory lock taken by its first
+      statement is held until the last CREATE commits; the instance that
+      waited then finds the tables there and creates nothing. The number is
+      "devine" in ASCII; it only has to be the same in every instance.
+
+      Should the lock ever not hold (a proxy that splits the statements),
+      the two codes that race produces, 23505 and 42P07, get one more run:
+      by then the other instance has committed and every CREATE is a no-op.
     */
-    g.__devinePgReady = g.__devinePgPool.query(`
+    const pool = g.__devinePgPool;
+    const schema = () => pool.query(`
+      SELECT pg_advisory_xact_lock(110386941095525);
       CREATE TABLE IF NOT EXISTS workroom_orders (
         id text PRIMARY KEY,
         status text NOT NULL,
@@ -1127,11 +1155,18 @@ async function pgPool(): Promise<PgPool> {
         h integer NOT NULL,
         updated_at bigint NOT NULL
       );
-    `).catch((err: unknown) => {
-      g.__devinePgPool = undefined;
-      g.__devinePgReady = undefined;
-      throw err;
-    });
+    `);
+    g.__devinePgReady = schema()
+      .catch((err: unknown) => {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code === "23505" || code === "42P07") return schema();
+        throw err;
+      })
+      .catch((err: unknown) => {
+        g.__devinePgPool = undefined;
+        g.__devinePgReady = undefined;
+        throw err;
+      });
   }
   await g.__devinePgReady;
   return g.__devinePgPool!;
@@ -1586,6 +1621,16 @@ const postgresStore: Store = {
        ON CONFLICT (slug) DO UPDATE SET updated_at = EXCLUDED.updated_at, data = EXCLUDED.data`,
       [p.slug, Date.now(), JSON.stringify(p)],
     );
+  },
+  async insertCatalogProduct(p) {
+    const pool = await pgPool();
+    const r = await pool.query(
+      `INSERT INTO catalog_products (slug, updated_at, data) VALUES ($1, $2, $3)
+       ON CONFLICT (slug) DO NOTHING
+       RETURNING slug`,
+      [p.slug, Date.now(), JSON.stringify(p)],
+    );
+    return r.rows.length === 1;
   },
   async seedCatalogProducts(list) {
     if (list.length === 0) return;

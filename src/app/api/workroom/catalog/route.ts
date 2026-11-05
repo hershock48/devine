@@ -36,8 +36,12 @@ const PRICE_ERROR = "The price did not read as a number above zero (up to 10,000
 function readPrice(v: unknown): number | null {
   if (typeof v === "string" && !v.trim()) return null;
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[$,\s]/g, "")) : NaN;
-  if (!Number.isFinite(n) || n <= 0 || n > 10000) return null;
-  return Math.round(n * 100) / 100;
+  if (!Number.isFinite(n)) return null;
+  // To the cent FIRST, then the range: 0.004 is above zero as typed and
+  // zero as saved, and a design must never be saved at a price of 0.
+  const cents = Math.round(n * 100) / 100;
+  if (cents <= 0 || cents > 10000) return null;
+  return cents;
 }
 
 /** THE WAS-PRICE (the owner's Sale switch): shown struck through beside the
@@ -76,8 +80,7 @@ export async function POST(req: Request) {
   if (!cats) return bad("Malformed shelves.");
   const was = readWas(p.regularPrice, price);
   if (was && "error" in was) return bad(was.error);
-  const product: Product = {
-    slug: slugFor(name, new Set(cat.products.map((x) => x.slug))),
+  const fields = {
     name,
     price,
     ...(was && was.set !== null ? { regularPrice: was.set } : {}),
@@ -87,9 +90,23 @@ export async function POST(req: Request) {
     ...(p.noSubs === true ? { noSubs: true } : {}),
     ...(p.offMenu === true ? { offMenu: true } : {}),
   };
-  await getStore().upsertCatalogProduct(product);
-  forgetCatalog();
-  return NextResponse.json({ ok: true, product });
+  // THE SLUG IS MINTED FROM A READ, SO THE WRITE HAS TO BE INSERT-ONLY. Two
+  // adds of the same name at once both read "free" and both mint the same
+  // slug; with an upsert the second silently replaced the first. The insert
+  // refuses a slug that is taken, and the loser mints the next one and goes
+  // again. Each refusal is one more design that exists, so the loop ends;
+  // the cap is only there so a broken database cannot spin a request.
+  const store = getStore();
+  const taken = new Set(cat.products.map((x) => x.slug));
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const product: Product = { slug: slugFor(name, taken), ...fields };
+    if (await store.insertCatalogProduct(product)) {
+      forgetCatalog();
+      return NextResponse.json({ ok: true, product });
+    }
+    taken.add(product.slug);
+  }
+  return bad("That name is being added from somewhere else right now. Try again in a moment.", 409);
 }
 
 export async function PATCH(req: Request) {
