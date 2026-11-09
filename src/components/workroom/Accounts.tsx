@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, refundedCents, squareMoney, zipFeeCentsToAppend } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, payWord, refundedCents, squareMoney, zipFeeCentsToAppend } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate, RemoveDuplicate } from "@/components/workroom/ui";
-import PayControls from "@/components/workroom/PayControls";
+import PayControls, { ApplyCredit, parseDollars } from "@/components/workroom/PayControls";
 
 /**
  * HOUSE ACCOUNTS (Katy, 2026-10-14, and the proposal's "who owes what"):
@@ -27,7 +27,7 @@ import PayControls from "@/components/workroom/PayControls";
  * give the account a phone number, which the form keeps on every order.
  */
 
-type Payment = { at: number; method: string; totalCents: number; feeCents: number; refundedAt?: number };
+type Payment = { at: number; method: string; totalCents: number; feeCents: number; refundedAt?: number; via?: string; checkNumber?: string; note?: string };
 type Line = { slug: string | null; name: string; qty: number; each: number };
 type Order = {
   id: string;
@@ -48,12 +48,13 @@ type Order = {
   createdAt: number;
   payment?: Payment | null;
   topUps?: Payment[];
-  refunds?: { at: number; cents: number; note: string }[];
+  refunds?: { at: number; cents: number; note: string; how?: string; kept?: boolean }[];
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
   thirdParty?: boolean;
   takenBy?: string;
+  poNumber?: string;
 };
 
 type Account = {
@@ -71,6 +72,9 @@ type Account = {
   open: number;
   /** createdAt of the oldest order still owed, or 0. */
   oldestOpenAt: number;
+  /** Paid for more than its tickets and not yet applied or given back
+      (2026-11-09): credit the account is holding. */
+  creditCents: number;
   lastAt: number;
 };
 
@@ -84,6 +88,10 @@ const daysSince = (ms: number) => Math.max(0, Math.floor((Date.now() - ms) / DAY
 /** What is collectable now. A held order is not: nothing is promised yet
     and the pay route refuses it, the board's own reading. */
 const owedOn = (o: Order): number => (o.status === "canceled" || o.status === "hold" ? 0 : owedNowCents(o));
+/** Credit moved onto another order, and money actually given back: the
+    two things a row's refunds can be (2026-11-09). */
+const movedCents = (o: Order) => (o.refunds ?? []).reduce((sum, r) => sum + (r.how === "transfer" ? r.cents : 0), 0);
+const backCents = (o: Order) => refundedCents(o) - movedCents(o);
 const itemsOf = (o: Order) => o.lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l));
 
 function groupAccounts(orders: Order[]): Account[] {
@@ -97,11 +105,12 @@ function groupAccounts(orders: Order[]): Account[] {
     const key = biz ? `biz:${biz}` : phoneKey(o.phone) || (name ? `name:${name}` : o.id);
     const a = map.get(key) ?? {
       key, name: o.name, business: o.business ?? "", company: o.company ?? "", phone: o.phone, email: o.email,
-      orders: [], owedCents: 0, paidCents: 0, open: 0, oldestOpenAt: 0, lastAt: 0,
+      orders: [], owedCents: 0, paidCents: 0, open: 0, oldestOpenAt: 0, lastAt: 0, creditCents: 0,
     };
     a.orders.push(o);
     const owed = owedOn(o);
     a.owedCents += owed;
+    if (o.status !== "canceled" && o.payment && balanceCents(o) < 0) a.creditCents += -balanceCents(o);
     if (owed > 0) {
       a.open += 1;
       if (!a.oldestOpenAt || o.createdAt < a.oldestOpenAt) a.oldestOpenAt = o.createdAt;
@@ -137,7 +146,7 @@ function statementText(a: Account): string {
   const rows = open.map((o) => {
     const items = itemsOf(o).map((l) => `${l.qty} x ${l.name}`).join(", ");
     const to = o.recipient && o.recipient !== o.name ? `  for ${o.recipient}` : "";
-    return `${o.date}  ${o.number}  ${items}${to}  ${money(owedOn(o) / 100)}`;
+    return `${o.date}  ${o.number}${o.poNumber ? `  PO ${o.poNumber}` : ""}  ${items}${to}  ${money(owedOn(o) / 100)}`;
   });
   return [
     `${site.name}`,
@@ -156,7 +165,7 @@ function statementText(a: Account): string {
 const rowOf = (o: Order) => ({
   date: o.date,
   number: o.number,
-  items: itemsOf(o).map((l) => `${l.qty} x ${l.name}`).join(", ") + (o.recipient && o.recipient !== o.name ? ` (for ${o.recipient})` : ""),
+  items: itemsOf(o).map((l) => `${l.qty} x ${l.name}`).join(", ") + (o.recipient && o.recipient !== o.name ? ` (for ${o.recipient})` : "") + (o.poNumber ? ` · PO ${o.poNumber}` : ""),
   owed: money(owedOn(o) / 100),
 });
 
@@ -187,6 +196,147 @@ function invoiceText(a: Account, o: Order): string {
     "",
     `Questions: ${site.phone}. Thank you.`,
   ].join("\n");
+}
+
+/**
+ * ONE PAYMENT FOR THE ACCOUNT (Katy, 2026-11-09: "in the accounts section
+ * they need to be able to take checks", and "apply an overage to another
+ * order of theirs as a partial payment"). An account pays the way it is
+ * billed: one check against several orders. The amount on the check is
+ * dealt out oldest order first, each filled before the next gets any, so
+ * a check that covers one order and part of the next leaves exactly that
+ * on the books; the preview says who gets what before anything is saved.
+ * The pay route does the dealing (the same rule as one card for several
+ * orders); twenty orders at a time is its limit, said here when it bites.
+ */
+function AccountPayment({ a, onDone }: { a: Account; onDone: (note: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<"check" | "manual">("check");
+  const [amountText, setAmountText] = useState("");
+  const [checkNo, setCheckNo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const unpaidAll = a.orders.filter((o) => owedOn(o) > 0).sort((x, y) => x.createdAt - y.createdAt);
+  const unpaid = unpaidAll.slice(0, 20);
+  const due = unpaid.reduce((s, o) => s + owedOn(o), 0);
+  if (unpaid.length === 0) return null;
+  if (!open) {
+    return (
+      <p style={{ margin: "8px 0 0" }}>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            setAmountText((due / 100).toFixed(2));
+            setOpen(true);
+          }}
+        >
+          Record a check for this account
+        </button>
+      </p>
+    );
+  }
+  const amount = parseDollars(amountText);
+  const problem =
+    amount === null ? "Type the amount as a number, like 250 or 250.00." : amount <= 0 ? "The amount has to be more than zero." : amount > due + 500_000 ? `That is far more than the ${money(due / 100)} owed. Check the figure.` : "";
+  // The route's own dealing, shown before it happens.
+  let left = amount ?? 0;
+  const shares = unpaid.map((o) => {
+    const owed = owedOn(o);
+    const share = Math.min(left, owed);
+    left -= share;
+    return { o, owed, share };
+  });
+  const over = left;
+  async function save() {
+    if (problem || amount === null) return;
+    setBusy(true);
+    setError("");
+    try {
+      const reached = shares.filter((x) => x.share > 0).map((x) => x.o.id);
+      const r = await fetch("/api/workroom/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...(reached.length >= 2 ? { ids: reached } : { id: reached[0] }), method: kind, amountCents: amount, checkNumber: kind === "check" ? checkNo.trim() : undefined }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!r.ok || !d?.ok) setError(d?.error || "That did not save.");
+      else {
+        setOpen(false);
+        setCheckNo("");
+        onDone(`${money(amount / 100)} recorded on ${reached.length} order${reached.length === 1 ? "" : "s"} for ${a.business || a.name}${over > 0 ? `; ${money(over / 100)} of it is credit on ${shares[shares.length - 1].o.number}` : ""}.`);
+      }
+    } catch {
+      setError("The connection dropped. Reload the accounts and look before recording it again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="panel" style={{ margin: "10px 0 0", padding: 12, display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", fontSize: 14.5 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input type="radio" name={`acct-pay-${a.key}`} checked={kind === "check"} onChange={() => setKind("check")} />
+          A check
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input type="radio" name={`acct-pay-${a.key}`} checked={kind === "manual"} onChange={() => setKind("manual")} />
+          Another way (a transfer, money already in hand)
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", fontSize: 14.5 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          Amount
+          <input value={amountText} onChange={(e) => setAmountText(e.target.value)} inputMode="decimal" disabled={busy} aria-label="Payment amount, in dollars" style={{ ...field, width: 120, padding: "6px 10px" }} />
+        </label>
+        {kind === "check" && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            Check number
+            <input value={checkNo} onChange={(e) => setCheckNo(e.target.value)} inputMode="numeric" disabled={busy} aria-label="Check number" style={{ ...field, width: 120, padding: "6px 10px" }} />
+          </label>
+        )}
+        <span className="muted">of {money(due / 100)} owed</span>
+      </div>
+      {!problem && amount !== null && (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 14, display: "grid", gap: 2 }}>
+          {shares.map(({ o, owed, share }) => (
+            <li key={o.id} style={{ display: "flex", justifyContent: "space-between", gap: 10 }} className={share === 0 ? "muted" : undefined}>
+              <span>
+                {o.number} · {o.date}
+                {o.recipient && o.recipient !== o.name ? ` · for ${o.recipient}` : ""}
+              </span>
+              <span style={{ whiteSpace: "nowrap" }}>
+                {share === 0 ? `not reached, ${money(owed / 100)} stays owed` : share < owed ? `${money(share / 100)} of ${money(owed / 100)}, ${money((owed - share) / 100)} stays owed` : `${money(share / 100)}, paid in full`}
+              </span>
+            </li>
+          ))}
+          {over > 0 && (
+            <li style={{ fontWeight: 600 }}>
+              {money(over / 100)} more than is owed: it stays on {shares[shares.length - 1].o.number} as credit, to apply to their next order.
+            </li>
+          )}
+        </ul>
+      )}
+      {unpaidAll.length > unpaid.length && (
+        <span className="muted" style={{ fontSize: 13.5 }}>
+          The oldest 20 of {unpaidAll.length} open orders are shown; record a second payment for the rest.
+        </span>
+      )}
+      {(problem || error) && (
+        <span role="alert" style={{ fontWeight: 600, color: "var(--rose-ink)", fontSize: 14 }}>
+          {problem || error}
+        </span>
+      )}
+      <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <button type="button" className="btn btn--solid" disabled={busy || !!problem} onClick={save}>
+          {busy ? "Recording…" : `Record ${amount !== null && !problem ? money(amount / 100) : "it"}`}
+        </button>
+        <button type="button" disabled={busy} onClick={() => setOpen(false)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+          Never mind
+        </button>
+      </p>
+    </div>
+  );
 }
 
 export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) {
@@ -246,8 +396,9 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
         a.orders.some((o) => o.number.toLowerCase().includes(q)),
     );
   }, [accounts, find]);
-  const owing = shown.filter((a) => a.owedCents > 0);
-  const settled = shown.filter((a) => a.owedCents === 0);
+  // An account holding credit is not done with: it stays in the open list.
+  const owing = shown.filter((a) => a.owedCents > 0 || a.creditCents > 0);
+  const settled = shown.filter((a) => a.owedCents === 0 && a.creditCents === 0);
   const owedAll = accounts.reduce((s, a) => s + a.owedCents, 0);
   const owingAll = accounts.filter((a) => a.owedCents > 0).length;
 
@@ -354,7 +505,8 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
           </div>
           <div style={{ textAlign: "right" }}>
             <strong style={{ fontSize: 17, color: a.owedCents > 0 ? "var(--rose-ink)" : "var(--green)" }}>
-              {a.owedCents > 0 ? `Owes ${money(a.owedCents / 100)}` : "Settled"}
+              {a.owedCents > 0 ? `Owes ${money(a.owedCents / 100)}` : a.creditCents > 0 ? `${money(a.creditCents / 100)} credit` : "Settled"}
+              {a.owedCents > 0 && a.creditCents > 0 ? ` · ${money(a.creditCents / 100)} credit` : ""}
             </strong>
             <p className="muted" style={{ margin: "2px 0 0", fontSize: 13.5 }}>
               {a.owedCents > 0
@@ -379,9 +531,19 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
               <button type="button" onClick={() => copyStatement(a)} style={{ ...textButton, fontSize: 14 }}>
                 {copied === a.key ? "Statement copied" : "Copy a statement"}
               </button>
+              <a href={`/workroom/invoice?statement=1&ids=${a.orders.filter((o) => owedOn(o) > 0).sort((x, y) => x.createdAt - y.createdAt).slice(0, 60).map((o) => o.id).join(",")}`} target="_blank" rel="noopener" style={{ fontSize: 14 }}>
+                Print a statement
+              </a>
             </>
           )}
         </p>
+        <AccountPayment
+          a={a}
+          onDone={(note) => {
+            setChangeNote(note);
+            pull().catch(() => {});
+          }}
+        />
         {open && (
           <ul style={{ listStyle: "none", padding: 0, margin: "12px 0 0", display: "grid", gap: 10 }}>
             {a.orders.map((o) => {
@@ -392,22 +554,30 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                     <span>
                       <strong>{o.number}</strong> · {o.date} · {o.fulfillment}
                       {o.recipient && o.recipient !== o.name ? ` · for ${o.recipient}` : ""}
+                      {o.poNumber ? ` · PO ${o.poNumber}` : ""}
                       {o.taxExempt ? ` · tax exempt${o.taxId ? ` (ID ${o.taxId})` : ""}` : ""}
                       {o.thirdParty ? " · third-party order, no tax" : ""}
                       {o.takenBy ? ` · taken by ${o.takenBy}` : ""}
                       {o.status === "canceled" ? " · canceled" : o.status === "hold" ? " · on hold, not yet owed" : ""}
                       {" · "}
-                      <a href={`/api/workroom/print/${o.id}`} target="_blank" rel="noopener">Print</a>
+                      <a href={`/api/workroom/print/${o.id}`} target="_blank" rel="noopener">Print the ticket</a>
+                      {o.status !== "canceled" && o.status !== "hold" && (
+                        <>
+                          {" · "}
+                          <a href={`/workroom/invoice?ids=${o.id}`} target="_blank" rel="noopener">Print an invoice</a>
+                        </>
+                      )}
                     </span>
-                    <span style={{ whiteSpace: "nowrap" }}>
+                    {/* Wraps: with a refund in it the line is wider than a phone. */}
+                    <span style={{ textAlign: "right", minWidth: 0 }}>
                       {o.payment && owed === 0
                         ? o.status === "canceled" && !o.payment.refundedAt
                           ? <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Paid {money(grossPaidCents(o) / 100)}, canceled: refund due · {when(o.payment.at)}</span>
                           : balanceCents(o) < 0
                             /* The ticket shrank after it was paid (a fee off): not
                                settled. The board card is where the refund is marked. */
-                            ? <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Paid {money(grossPaidCents(o) / 100)}; {money(-balanceCents(o) / 100)} to refund, mark it on the board card · {when(o.payment.at)}</span>
-                            : <span style={{ color: "var(--green)", fontWeight: 600 }}>{o.payment.refundedAt ? `Refunded ${money(grossPaidCents(o) / 100)}` : `Paid ${money((collectedCents(o) - refundedCents(o)) / 100)}${refundedCents(o) > 0 ? ` (${money(refundedCents(o) / 100)} refunded)` : ""}`} · {when(o.payment.at)}</span>
+                            ? <span style={{ color: "var(--rose-ink)", fontWeight: 600 }}>Paid {money(grossPaidCents(o) / 100)}; {money(-balanceCents(o) / 100)} over: apply it to another order below, or give it back and mark that on the board card · {when(o.payment.at)}</span>
+                            : <span style={{ color: "var(--green)", fontWeight: 600 }}>{o.payment.refundedAt ? `Refunded ${money(grossPaidCents(o) / 100)}` : `Paid ${money((collectedCents(o) - refundedCents(o)) / 100)}${backCents(o) > 0 ? ` (${money(backCents(o) / 100)} refunded)` : ""}${movedCents(o) > 0 ? ` (${money(movedCents(o) / 100)} moved to another order)` : ""}`} · {when(o.payment.at)}</span>
                         : owed > 0
                           ? <strong>{money(owed / 100)} owed</strong>
                           : <span className="muted">nothing owed</span>}
@@ -416,6 +586,30 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                   <p className="muted" style={{ margin: "4px 0 0", fontSize: 13.5 }}>
                     {itemsOf(o).map((l) => `${l.qty} × ${l.name}`).join(", ")}
                   </p>
+                  {/* How it was paid, when that is worth saying: a check by
+                      its number, credit by the order it came from. */}
+                  {[o.payment, ...(o.topUps ?? [])].some((p) => p && p.via) && (
+                    <p className="muted" style={{ margin: "2px 0 0", fontSize: 13.5 }}>
+                      {[o.payment, ...(o.topUps ?? [])].filter((p): p is Payment => !!p).map((p) => `${money(p.totalCents / 100)} by ${payWord(p)}, ${when(p.at)}`).join(" · ")}
+                    </p>
+                  )}
+                  {/* Paid for more than its ticket: the difference is credit,
+                      and it can go onto another order this account owes on. */}
+                  {o.status !== "canceled" && o.payment && balanceCents(o) < 0 && (
+                    <p style={{ margin: "6px 0 0", fontSize: 14 }}>
+                      <ApplyCredit
+                        fromId={o.id}
+                        creditCents={-balanceCents(o)}
+                        targets={a.orders
+                          .filter((x) => x.id !== o.id && owedOn(x) > 0)
+                          .sort((x, y) => x.createdAt - y.createdAt)
+                          .map((x) => ({ id: x.id, number: x.number, label: x.date, owedCents: owedOn(x) }))}
+                        onDone={() => {
+                          pull().catch(() => {});
+                        }}
+                      />
+                    </p>
+                  )}
                   {/* This order billed on its own: a funeral home pays per
                       service and asks for that service's invoice, not the
                       account's statement (Katy, 2026-10-29). */}

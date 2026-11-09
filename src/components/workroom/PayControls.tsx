@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { field, textButton } from "@/components/workroom/ui";
 import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
+import { payWord } from "@/lib/workroom/derive";
 
 /**
  * The money corner of an order card: a PAID badge once settled, otherwise
@@ -21,7 +22,7 @@ import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
  * it until the moment a card is in hand.
  */
 
-type Payment = { at: number; method: string; totalCents: number; feeCents: number };
+type Payment = { at: number; method: string; totalCents: number; feeCents: number; via?: string; checkNumber?: string; note?: string };
 
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 /** "40", "40.5", "$1,200.00" to cents; null when it is not a money amount. */
@@ -151,7 +152,7 @@ export default function PayControls({
   /** True after an unsure Square answer: the retry must send the same
       request, so the one/all choice is frozen until it is settled. */
   const [unsure, setUnsure] = useState(false);
-  const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual">(start);
+  const [mode, setMode] = useState<"idle" | "card" | "cash" | "manual" | "check">(start);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** True once Square's card field is attached and typeable. The charge
@@ -189,10 +190,29 @@ export default function PayControls({
       notice, the quick sale's Done line, the Accounts tab). */
   const [tendered, setTendered] = useState("");
   const [changeBack, setChangeBack] = useState<number | null>(null);
-  const openMode = (m: "card" | "cash" | "manual") => {
+  /* A CHECK (Katy, 2026-11-09: "they need to be able to take checks").
+     Its own amount box, because a check is whatever was written on it:
+     less than what is due leaves a balance, and more leaves credit on
+     the order, which its card offers to move to another order of theirs.
+     Recorded for the books; a check never goes through Square. */
+  const [checkText, setCheckText] = useState("");
+  const [checkNo, setCheckNo] = useState("");
+  const openMode = (m: "card" | "cash" | "manual" | "check") => {
     setChangeBack(null);
+    if (m === "check") setCheckText((amount / 100).toFixed(2));
     setMode(m);
   };
+  const checkCents = parseDollars(checkText);
+  const checkError =
+    mode !== "check"
+      ? ""
+      : checkCents === null
+        ? "Type the check's amount as a number, like 250 or 250.00."
+        : checkCents <= 0
+          ? "The amount has to be more than zero."
+          : checkCents > amount + 500_000
+            ? `That is far more than what is due (${dollars(amount)}). Check the figure.`
+            : "";
   const partCents = part ? parseDollars(partText) : null;
   const partError = !part
     ? ""
@@ -277,12 +297,12 @@ export default function PayControls({
     };
   }, [mode]);
 
-  async function pay(method: "card" | "cash" | "manual") {
+  async function pay(method: "card" | "cash" | "manual" | "check") {
     setBusy(true);
     setError("");
     setChangeBack(null);
     try {
-      if (partError) throw new Error(partError);
+      if (method === "check" ? checkError : partError) throw new Error(method === "check" ? checkError : partError);
       let sourceId: string | undefined;
       if (method === "card") {
         if (!cardRef.current) throw new Error("The card field is not ready yet.");
@@ -306,7 +326,8 @@ export default function PayControls({
             attempt: attemptRef.current || undefined,
             // Only when the box is open: a closed box means the whole of
             // what is due, the route's own default.
-            amountCents: part ? charge : undefined,
+            amountCents: method === "check" ? checkCents ?? undefined : part ? charge : undefined,
+            checkNumber: method === "check" ? checkNo.trim() : undefined,
           }),
         });
         d = (await r.json().catch(() => ({}))) as typeof d;
@@ -350,7 +371,9 @@ export default function PayControls({
               : "CHARGED, but the board did not save it. Do NOT charge again. Reload in a minute; the payment will appear.",
         );
       }
-      onPaid(method, charge, { settled: charge >= amount, boardMissed: !!d.boardMissed, changeCents });
+      const sum = method === "check" ? checkCents ?? charge : charge;
+      // A check is a by-hand mark to the screens above this one.
+      onPaid(method === "check" ? "manual" : method, sum, { settled: sum >= amount, boardMissed: !!d.boardMissed, changeCents });
     } catch (err) {
       setError(err instanceof Error ? err.message : "The payment did not go through.");
     } finally {
@@ -377,7 +400,7 @@ export default function PayControls({
         ? `Paid ${dollars(collectedCents)} of ${dollars(Math.round(subtotal * 100))} · ${dollars(balanceCents)} still due`
         : paidInParts
           ? `Paid in full · ${dollars(collectedCents)} · in parts`
-          : `Paid · ${payment.method === "other" || payment.method === "manual" ? "marked by hand" : payment.method} · ${dollars(payment.totalCents)}`}
+          : `Paid · ${payment.method === "manual" || (payment.method === "other" && !payment.via) ? "marked by hand" : payWord(payment)} · ${dollars(payment.totalCents)}`}
       {refundedCents > 0 ? ` · ${dollars(refundedCents)} refunded` : ""}
       {balanceCents < 0 ? ` · ${dollars(-balanceCents)} ${squareMoney ? "to refund (Square dashboard)" : "to give back"}` : ""}
     </p>
@@ -468,6 +491,9 @@ export default function PayControls({
           <button type="button" onClick={() => openMode("cash")} style={{ ...textButton, fontSize: 14 }}>
             Record cash
           </button>
+          <button type="button" onClick={() => openMode("check")} style={{ ...textButton, fontSize: 14 }}>
+            Record a check
+          </button>
           {/* The escape hatch for money that moved outside the board (rung
               at the register without the DV note, a check, an account
               customer). Without it, orders paid off-system nag in the owed
@@ -511,6 +537,41 @@ export default function PayControls({
             </button>
           </p>
         </>
+      )}
+
+      {mode === "check" && (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", fontSize: 14.5 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              Check amount
+              <input value={checkText} onChange={(e) => setCheckText(e.target.value)} inputMode="decimal" disabled={busy} aria-label="Check amount, in dollars" style={{ ...field, width: 110, padding: "6px 10px" }} />
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              Check number
+              <input value={checkNo} onChange={(e) => setCheckNo(e.target.value)} inputMode="numeric" disabled={busy} aria-label="Check number" style={{ ...field, width: 110, padding: "6px 10px" }} />
+            </label>
+          </div>
+          <span className="muted" style={{ fontSize: 13.5 }}>
+            {checkCents !== null && checkCents > amount
+              ? `${dollars(checkCents - amount)} more than the ${dollars(amount)} due. The extra stays on ${forAll ? "the last of these orders" : "this order"} as credit, and its card offers to move it to another order of theirs.`
+              : checkCents !== null && checkCents > 0 && checkCents < amount
+                ? `${dollars(amount - checkCents)} of the ${dollars(amount)} stays due.`
+                : `${dollars(amount)} is due. Recorded here for the books; a check does not go through Square.`}
+          </span>
+          {checkError && (
+            <span role="alert" style={{ fontWeight: 600, color: "var(--rose-ink)", fontSize: 14 }}>
+              {checkError}
+            </span>
+          )}
+          <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn btn--solid" disabled={busy || !!checkError} onClick={() => pay("check")}>
+              {busy ? "Recording…" : `Record ${checkCents !== null && !checkError ? dollars(checkCents) : ""} check`}
+            </button>
+            <button type="button" disabled={busy} onClick={close} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+              Never mind
+            </button>
+          </p>
+        </div>
       )}
 
       {mode === "card" && (
@@ -571,6 +632,97 @@ export default function PayControls({
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * CREDIT, MOVED TO ANOTHER ORDER (Katy, 2026-11-09: "need to be able to
+ * apply an overage to another order of theirs, as a partial payment"). An
+ * order paid for more than its ticket (a check written for too much, or a
+ * ticket trimmed after it was paid) holds the difference as credit. This
+ * moves it onto another order the same customer owes on: the overpaid
+ * order records it as applied there, the other order records it as a
+ * payment, and no money-in figure counts it twice. The pay route does
+ * both halves; this only asks which order and how much.
+ */
+export function ApplyCredit({
+  fromId,
+  creditCents,
+  targets,
+  onDone,
+}: {
+  fromId: string;
+  creditCents: number;
+  /** The same customer's other orders that still owe, oldest first. */
+  targets: { id: string; number: string; label: string; owedCents: number }[];
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (creditCents <= 0 || targets.length === 0) return null;
+  const target = targets.find((t) => t.id === to) ?? targets[0];
+  const move = Math.min(creditCents, target.owedCents);
+  async function apply() {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/workroom/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: target.id, method: "credit", fromId, amountCents: move }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!r.ok || !d?.ok) setError(d?.error || "The credit did not move.");
+      else {
+        setOpen(false);
+        onDone();
+      }
+    } catch {
+      setError("The connection dropped. Reload and look at both orders before trying again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} style={{ ...textButton, fontSize: 14 }}>
+        Apply the {dollars(creditCents)} to another order of theirs
+      </button>
+    );
+  }
+  return (
+    <div style={{ display: "grid", gap: 8, margin: "6px 0 0" }}>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 14.5 }}>
+        Apply it to
+        <select value={target.id} onChange={(e) => setTo(e.target.value)} disabled={busy} aria-label="The order to apply the credit to" style={{ ...field, width: "auto", padding: "6px 10px" }}>
+          {targets.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.number} · {t.label} · {dollars(t.owedCents)} owed
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="muted" style={{ fontSize: 13.5 }}>
+        Moves {dollars(move)} onto {target.number} as a payment
+        {move < target.owedCents ? `; ${dollars(target.owedCents - move)} stays due there` : ", which settles it"}
+        {move < creditCents ? `. ${dollars(creditCents - move)} of credit stays here.` : "."}
+      </span>
+      {error && (
+        <span role="alert" style={{ fontWeight: 600, color: "var(--rose-ink)", fontSize: 14 }}>
+          {error}
+        </span>
+      )}
+      <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <button type="button" className="btn btn--solid" disabled={busy} onClick={apply}>
+          {busy ? "Moving…" : `Move ${dollars(move)}`}
+        </button>
+        <button type="button" disabled={busy} onClick={() => setOpen(false)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+          Never mind
+        </button>
+      </p>
     </div>
   );
 }

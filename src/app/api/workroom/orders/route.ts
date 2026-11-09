@@ -4,7 +4,7 @@ import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { duplicateMessage, looksLikeDuplicate, sameDelivery } from "@/lib/workroom/duplicate";
 import { getCatalog } from "@/lib/catalog-live";
-import { balanceCents, deliveryLineName, isDeliveryLine, isTaxLine, normalizeVariety, squareMoney, withTaxLine } from "@/lib/workroom/derive";
+import { balanceCents, deliveryLineName, isDeliveryLine, isTaxLine, normalizeVariety, squareMoney, withTaxLine, refundableCents } from "@/lib/workroom/derive";
 import { INITIALS_ERROR } from "@/lib/workroom/initials";
 import { sendDeliveredEmail, sendRefundEmail, sendWorkroomReceipt } from "@/lib/intake";
 
@@ -181,6 +181,9 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
   // Checked whole, not clipped first: "KEVIN" is refused, not stored as KEV.
   const takenBy = str(p.takenBy, 12).toUpperCase();
   if (!/^[A-Z]{2,3}$/.test(takenBy)) return { error: INITIALS_ERROR };
+  // Where the bill goes, when the counter typed one (Katy, 2026-11-09).
+  const bt = p.billTo && typeof p.billTo === "object" ? (p.billTo as Record<string, unknown>) : null;
+  const billTo = bt && [bt.street, bt.town, bt.zip].some((v) => typeof v === "string" && v.trim()) ? { street: str(bt.street, 160), town: str(bt.town, 80), zip: str(bt.zip, 12) } : null;
   return {
     fields: {
       takenBy,
@@ -189,6 +192,8 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
       taxExempt,
       taxId: taxExempt ? str(p.taxId, 40) : "",
       thirdParty,
+      poNumber: str(p.poNumber, 40),
+      ...(billTo ? { billTo } : {}),
       name,
       business: str(p.business, 120),
       phone: str(p.phone, 40),
@@ -284,7 +289,7 @@ export async function POST(req: Request) {
   // The customer's own fields come from the body, never from an entry:
   // one sale is one customer, one way of paying, one receipt address.
   const shared: Record<string, unknown> = {};
-  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "thirdParty", "batchId", "tax", "hold"]) {
+  for (const k of ["name", "business", "phone", "email", "takenBy", "account", "taxExempt", "taxId", "thirdParty", "poNumber", "billTo", "batchId", "tax", "hold"]) {
     if (k in p) shared[k] = p[k];
   }
   const cache: PriceCache = { stemPrices: null };
@@ -438,7 +443,7 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as {
-    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
+    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; refund?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
     void?: unknown; unvoid?: unknown; by?: unknown;
   };
   const id = typeof p.id === "string" ? p.id : "";
@@ -549,6 +554,34 @@ export async function PATCH(req: Request) {
   // system so they match up"). The shop refunds in Square; this records
   // that it did, for the amount the card said was owed back, so the
   // balance returns to zero and the order leaves "Money to return".
+  // A REFUND WHILE THE TICKET STANDS (Katy, 2026-11-09: "how can she
+  // refund? full or partial or even refunding delivery. She does it on
+  // Square, but wants to do it for her workroom for her books"). The
+  // money goes back where it came from (the Square dashboard for a card,
+  // the till for cash, a check); this records that it did, with a reason,
+  // and the ticket is left as written. It is the record, not the refund:
+  // the workroom still moves no money out.
+  if (p.refund && typeof p.refund === "object") {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    const r = p.refund as Record<string, unknown>;
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    if (!o.payment) return NextResponse.json({ error: "That order has no payment to refund from." }, { status: 409 });
+    if (o.status === "canceled") return NextResponse.json({ error: "A canceled order is refunded whole: use the refund button on its card." }, { status: 409 });
+    if (o.payment.refundedAt) return NextResponse.json({ error: "That payment was already refunded whole." }, { status: 409 });
+    if (balanceCents(o) < 0) return NextResponse.json({ error: `This order already shows ${(-balanceCents(o) / 100).toFixed(2)} to give back after a change. Mark that on its card first.` }, { status: 409 });
+    const cents = typeof r.cents === "number" ? Math.round(r.cents) : NaN;
+    if (!Number.isInteger(cents) || cents <= 0) return NextResponse.json({ error: "The refund has to be more than zero." }, { status: 400 });
+    const left = refundableCents(o);
+    if (cents > left) return NextResponse.json({ error: left > 0 ? `Only ${(left / 100).toFixed(2)} of what was paid is left to refund.` : "Everything paid on this order has already gone back." }, { status: 409 });
+    const how = r.how === "square" || r.how === "hand" || r.how === "check" ? r.how : squareMoney(o) ? "square" : "hand";
+    const reason = str(r.reason, 120);
+    if (!reason) return NextResponse.json({ error: "Say what the refund is for (late delivery, wrong flowers, the delivery fee)." }, { status: 400 });
+    const written = await getStore().addKeptRefund(id, { at: Date.now(), cents, how, note: reason, kept: true });
+    if (!written) return NextResponse.json({ error: "That did not record: it may already be on the order. Reload the board and look at the card." }, { status: 409 });
+    if (o.email) await sendRefundEmail(o, cents);
+    return NextResponse.json({ ok: true });
+  }
   if (typeof p.refunded === "number") {
     if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
     const o = await getStore().getOrder(id);
@@ -581,6 +614,9 @@ export async function PATCH(req: Request) {
     if (o.payment.refundedAt) return NextResponse.json({ error: "That payment was marked refunded, so it stays as it is." }, { status: 409 });
     // Part of it was given back already: the mark is a record now, not a slip.
     if ((o.refunds ?? []).length) return NextResponse.json({ error: "Part of that payment was refunded, so the paid mark stays." }, { status: 409 });
+    // Credit moved here from another order left a record on that order
+    // too; taking this half back would lose the customer's money.
+    if ([o.payment, ...(o.topUps ?? [])].some((q) => q.via === "credit")) return NextResponse.json({ error: "Part of this was credit moved from another order, so the paid mark stays." }, { status: 409 });
     const cleared = await getStore().clearHandPayments(id);
     if (!cleared) {
       return NextResponse.json(

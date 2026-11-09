@@ -290,10 +290,12 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
           align-items: center; gap: 12px; padding: 10px 18px; background: var(--paper-2);
           border-top: 1px solid var(--line); font-size: 15px; z-index: 5; }
         @media (min-width: 980px) { .qb-bar { display: none; } }
-        #quote-doc { display: none; }
+        #quote-doc, #florist-doc { display: none; }
         @media print {
           .qb-app, .qb-bar { display: none !important; }
           #quote-doc { display: block; }
+          body[data-quote-print="florist"] #quote-doc { display: none; }
+          body[data-quote-print="florist"] #florist-doc { display: block; }
           @page { margin: 18mm; }
         }
       `}</style>
@@ -318,8 +320,11 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
                 ))}
               </select>
             </label>
-            <button className="btn" type="button" onClick={() => window.print()}>
+            <button className="btn" type="button" onClick={() => printCopy("client")}>
               Print the quote
+            </button>
+            <button className="btn" type="button" onClick={() => printCopy("florist")}>
+              Print the florist&rsquo;s breakdown
             </button>
           </div>
         </div>
@@ -657,6 +662,7 @@ export default function QuoteBuilder({ id, initialAuthed }: { id: string; initia
       </div>
 
       <PrintDoc draft={draft} pricing={pricing} />
+      <FloristDoc draft={draft} pricing={pricing} />
     </>
   );
 }
@@ -798,6 +804,155 @@ function PieceCard({
  * see the arithmetic, and a competitor does not get the recipe. Policies on
  * it are the shop's own published words (site.ts), never invented.
  */
+/** Which of the two paper copies the browser prints. The choice rides on
+    the body for the length of the print and comes off after, so a plain
+    Ctrl+P is always the client's copy. */
+function printCopy(which: "client" | "florist") {
+  if (which === "florist") {
+    document.body.dataset.quotePrint = "florist";
+    window.addEventListener("afterprint", () => delete document.body.dataset.quotePrint, { once: true });
+  } else delete document.body.dataset.quotePrint;
+  window.print();
+}
+
+/**
+ * THE FLORIST'S COPY (Katy, 2026-11-09: "wedding stuff needs another way
+ * to print the wedding quote: the breakdown to show the florist"). The
+ * client's copy hides the workings on purpose. This one is the workings:
+ * each piece with its recipe (stems of each flower, for one and for the
+ * count), what there is to spend on flowers, the hardgoods, and then the
+ * whole buy list the quote adds up to. It is marked as the workroom's and
+ * never goes to the client. Every piece prints, priced or not, because a
+ * piece with no price yet is exactly what the designer needs to see.
+ */
+function FloristDoc({ draft, pricing }: { draft: Draft; pricing: QuotePricing }) {
+  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const cell: React.CSSProperties = { padding: "2mm 1mm", borderBottom: "1px solid #d8d2c6", verticalAlign: "top" };
+  const right: React.CSSProperties = { ...cell, textAlign: "right", whiteSpace: "nowrap" };
+  const headCell = (i: number): React.CSSProperties => ({ textAlign: i === 0 ? "left" : "right", borderBottom: "1px solid #1a1611", padding: "2mm 1mm", fontSize: "9pt", letterSpacing: ".08em", textTransform: "uppercase" });
+  const pieces = draft.pieces.filter((p) => p.name.trim());
+  return (
+    <div id="florist-doc" style={{ fontFamily: "var(--sans)", color: "#1a1611", fontSize: "11.5pt", lineHeight: 1.5 }}>
+      <header style={{ borderBottom: "2px solid #1a1611", paddingBottom: "3mm", marginBottom: "5mm" }}>
+        <p style={{ fontFamily: "var(--serif)", fontSize: "18pt", margin: 0 }}>{site.name}</p>
+        <p style={{ margin: "1mm 0 0", fontSize: "10pt", letterSpacing: ".1em", textTransform: "uppercase" }}>
+          {draft.kind === "wedding" ? "Wedding flowers" : "Funeral flowers"} · florist&rsquo;s breakdown · workroom copy, not for the client
+        </p>
+      </header>
+      <p style={{ fontFamily: "var(--serif)", fontSize: "16pt", margin: "0 0 1mm" }}>{draft.clientName || "No name yet"}</p>
+      <p style={{ margin: "0 0 5mm", fontSize: "10.5pt" }}>
+        {[draft.eventDate ? longDate(draft.eventDate) : "", draft.serviceTime ? prettyTime(draft.serviceTime) : "", draft.venue].filter(Boolean).join(" · ") || " "}
+        <span style={{ float: "right" }}>Printed {today}</span>
+      </p>
+
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5pt" }}>
+        <thead>
+          <tr>
+            {["Piece and its flowers", "Qty", "Flowers each", "Hardgoods", "Price each", "Total"].map((h, i) => (
+              <th key={h} style={headCell(i)}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {pieces.map((p) => {
+            const pp = pricing.perPiece.get(p.id);
+            const qty = Math.max(1, Math.round(Number(p.qty) || 1));
+            const parts = p.parts.filter((x) => x.variety.trim() && Number(x.stems) > 0);
+            return (
+              <tr key={p.id} style={{ breakInside: "avoid" }}>
+                <td style={cell}>
+                  <strong>{p.name}</strong>
+                  {p.forWhom && <span> · for {p.forWhom}</span>}
+                  {parts.length === 0 ? (
+                    <span style={{ display: "block", fontSize: "9.5pt" }}>No flowers entered yet.</span>
+                  ) : (
+                    <span style={{ display: "block", fontSize: "9.5pt" }}>
+                      {parts.map((x) => `${Math.round(Number(x.stems))} ${x.variety.trim()}${qty > 1 ? ` (${Math.round(Number(x.stems)) * qty} for all ${qty})` : ""}`).join(", ")}
+                    </span>
+                  )}
+                  {pp && pp.unpriced.length > 0 && <span style={{ display: "block", fontSize: "9.5pt" }}>No cost on the list for: {pp.unpriced.join(", ")}.</span>}
+                  {pp && pp.overBudget !== null && pp.overBudget > 0 && <span style={{ display: "block", fontSize: "9.5pt", fontWeight: 700 }}>These flowers run {money(pp.overBudget)} over what the price allows.</span>}
+                </td>
+                <td style={right}>{qty}</td>
+                <td style={right}>{pp ? (pp.mode === "price" && pp.stemBudget !== null ? `${money(pp.stemBudget)} to spend` : `${money(pp.stemCost)} cost`) : ""}</td>
+                <td style={right}>{pp && pp.hardgoods > 0 ? money(pp.hardgoods) : ""}</td>
+                <td style={right}>{pp && pp.each > 0 ? money(pp.each) : "not priced"}</td>
+                <td style={right}>{pp && pp.total > 0 ? money(pp.total) : ""}</td>
+              </tr>
+            );
+          })}
+          {pieces.length === 0 && (
+            <tr>
+              <td style={cell} colSpan={6}>No pieces on this quote yet.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <div style={{ display: "flex", gap: "10mm", flexWrap: "wrap", alignItems: "flex-start", marginTop: "6mm" }}>
+        <div style={{ flex: "1 1 80mm", breakInside: "avoid" }}>
+          <p style={{ margin: "0 0 1mm", fontSize: "9.5pt", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: 700 }}>The buy list</p>
+          {pricing.buyList.length === 0 ? (
+            <p style={{ margin: 0, fontSize: "10.5pt" }}>No stems entered yet.</p>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5pt" }}>
+              <tbody>
+                {pricing.buyList.map((b) => (
+                  <tr key={b.variety}>
+                    <td style={cell}>{b.variety}</td>
+                    <td style={right}>{b.stems} stems</td>
+                    <td style={right}>{b.cost === null ? "no cost" : money(b.cost)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ ...cell, fontWeight: 700, borderBottom: 0 }}>All stems</td>
+                  <td style={{ ...right, fontWeight: 700, borderBottom: 0 }}>{pricing.buyList.reduce((sum, b) => sum + b.stems, 0)} stems</td>
+                  <td style={{ ...right, fontWeight: 700, borderBottom: 0 }}>{money(pricing.stemCost)}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div style={{ flex: "0 1 70mm", breakInside: "avoid" }}>
+          <p style={{ margin: "0 0 1mm", fontSize: "9.5pt", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: 700 }}>How the price is made</p>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5pt" }}>
+            <tbody>
+              {(
+                [
+                  ["Flowers at cost", money(pricing.stemCost)],
+                  ["Flowers at retail", money(pricing.flowerRetail)],
+                  ["Labor", money(pricing.labor)],
+                  ["Hardgoods", money(pricing.hardgoods)],
+                  ["Pieces", money(pricing.piecesTotal)],
+                  ...(pricing.tax > 0 ? [[`Sales tax (${pricing.taxPct}%)`, money(pricing.tax)]] : []),
+                  ...(pricing.delivery > 0 ? [["Delivery", money(pricing.delivery)]] : []),
+                  ...(pricing.setup > 0 ? [["Setup and installation", money(pricing.setup)]] : []),
+                ] as [string, string][]
+              ).map(([k, v]) => (
+                <tr key={k}>
+                  <td style={cell}>{k}</td>
+                  <td style={right}>{v}</td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{ ...cell, fontWeight: 700, borderBottom: 0 }}>Total quoted</td>
+                <td style={{ ...right, fontWeight: 700, borderBottom: 0 }}>{money(pricing.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {draft.notes?.trim() && (
+        <p style={{ marginTop: "6mm", fontSize: "10.5pt", whiteSpace: "pre-wrap" }}>
+          <strong>Notes: </strong>
+          {draft.notes}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function PrintDoc({ draft, pricing }: { draft: Draft; pricing: QuotePricing }) {
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   return (

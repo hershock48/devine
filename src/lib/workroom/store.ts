@@ -1,5 +1,5 @@
 import "server-only";
-import { balanceCents } from "./derive";
+import { balanceCents, refundableCents } from "./derive";
 import type { Category, Product } from "@/lib/catalog";
 
 /**
@@ -66,13 +66,31 @@ export type WorkroomLine = {
 /** Part of a payment given back (derive.ts refundedCents). `how` is where
     it came back from: Square's dashboard, or the till by hand; the
     dashboard nets the by-hand kind out of the by-hand money taken. */
-export type OrderRefund = { at: number; cents: number; how: "square" | "hand"; note: string };
+/** `how`: "square" is Square's dashboard; "hand" is cash out of the till;
+    "check" is a check the shop wrote; "transfer" is credit moved onto
+    another order of the same customer (no money left the shop).
+    `kept` (Katy, 2026-11-09: "full or partial or even refunding delivery
+    ... she wants to do it for her workroom for her books") marks money
+    given back WHILE THE TICKET STANDS as written: a late delivery, a
+    goodwill refund. It is not owed again (derive.ts balanceCents). */
+export type OrderRefund = { at: number; cents: number; how: "square" | "hand" | "check" | "transfer"; note: string; kept?: boolean };
 export type OrderPayment = {
   at: number;
   /** "other" is the by-hand mark for money that moved outside the board (a
       check, an account, an unlinked register ring); its squarePaymentId is
       empty because there is no Square payment to point at. */
   method: "card" | "cash" | "register" | "other";
+  /** WHAT KIND OF BY-HAND MONEY (Katy, 2026-11-09: "they need to be able
+      to take checks", and "apply an overage to another order of theirs").
+      Only ever set on an "other" payment, so every rule that asks whether
+      Square holds the money keeps its one test. "check" is a paper check
+      (its number beside it); "credit" is an overpayment moved here from
+      another order of the same customer, which is not new money and is
+      left out of every money-in figure. */
+  via?: "check" | "credit";
+  checkNumber?: string;
+  /** For a credit: where it came from ("Credit from order DV-..."). */
+  note?: string;
   squarePaymentId: string;
   totalCents: number;
   /** The ticket's total, in cents, when a register ring was linked to the
@@ -87,6 +105,27 @@ export type OrderPayment = {
       pretend to; this is the human mark that clears the money-to-return
       section. */
   refundedAt?: number;
+};
+
+export type BillTo = { street: string; town: string; zip: string };
+
+/**
+ * THE DRAWER AT CLOSING (Katy, 2026-11-09: "cash we're putting in,
+ * balancing drawer at end of day"). One row per day: the float the drawer
+ * opened with, cash added or taken out during the day that was not a sale,
+ * and what was counted at close. The day sheet sets these beside the cash
+ * it derived from the orders and says over or short.
+ */
+export type DrawerCount = {
+  day: string; // yyyy-mm-dd
+  openingCents: number;
+  addedCents: number;
+  removedCents: number;
+  /** null until someone counts. */
+  countedCents: number | null;
+  note: string;
+  by: string;
+  at: number;
 };
 
 /** Who took an order off the books as written up twice, and when. */
@@ -177,6 +216,15 @@ export type WorkroomOrder = {
       line, like exempt, but said as what it is on the card and the
       ticket, so the real exemptions can be told apart. */
   thirdParty?: boolean;
+  /** THE CUSTOMER'S OWN PURCHASE ORDER NUMBER (Katy, 2026-11-09: "Tribute
+      orders / FireKeepers need to be able to add a PO number, next to
+      account and tax"). Printed on the ticket, the invoice and the
+      statement, because their payables desk matches on it. */
+  poNumber?: string;
+  /** WHERE THE BILL GOES (Katy, 2026-11-09: "need to add billing address
+      for customer"), when it is not where the flowers go. Printed on the
+      invoice; a returning customer's next write-up starts with it. */
+  billTo?: BillTo;
   /** When the counter's print helper printed it (web orders). Server-side
       so a restart or a second machine never prints it twice. */
   printedAt?: number;
@@ -516,6 +564,7 @@ export type OrderContact = {
   taxExempt?: boolean;
   taxId?: string;
   thirdParty?: boolean;
+  billTo?: BillTo;
 };
 
 /**
@@ -597,6 +646,13 @@ type Store = {
       stored state: appended only while that much is still owed back, so a
       double tap or two devices record it once. True when written. */
   addOrderRefund(id: string, r: OrderRefund): Promise<boolean>;
+  /** Money given back while the ticket stands (OrderRefund.kept). Guarded
+      on the stored state too: appended only while that much of what was
+      paid has not already gone back, and never on a payment marked
+      refunded whole. True when written. */
+  addKeptRefund(id: string, r: OrderRefund): Promise<boolean>;
+  getDrawerCount(day: string): Promise<DrawerCount | null>;
+  setDrawerCount(d: DrawerCount): Promise<void>;
   /** The pay route appends the delivery-fee line when it charges a
       delivery ticket that never carried one, so the ticket's rows and its
       payment agree. */
@@ -716,6 +772,7 @@ type Bag = {
   catalogProducts: Map<string, Product>;
   catalogCategories: Map<string, { category: Category; position: number }>;
   catalogPhotos: Map<string, { bytes: Buffer; w: number; h: number; updatedAt: number }>;
+  drawer?: Map<string, DrawerCount>;
 };
 
 function bag(): Bag {
@@ -825,6 +882,19 @@ const memoryStore: Store = {
     o.refunds = [...(o.refunds ?? []), r];
     return true;
   },
+  async addKeptRefund(id, r) {
+    const o = bag().orders.get(id);
+    if (!o?.payment || o.payment.refundedAt || refundableCents(o) < r.cents) return false;
+    o.refunds = [...(o.refunds ?? []), { ...r, kept: true }];
+    return true;
+  },
+  async getDrawerCount(day) {
+    return bag().drawer?.get(day) ?? null;
+  },
+  async setDrawerCount(d) {
+    const b = bag();
+    (b.drawer ??= new Map()).set(d.day, d);
+  },
   async setOrderLines(id, lines, subtotal) {
     const o = bag().orders.get(id);
     if (o) {
@@ -869,6 +939,7 @@ const memoryStore: Store = {
         street: o.street,
         town: o.town,
         zip: o.zip,
+        ...(o.billTo ? { billTo: o.billTo } : {}),
       }));
   },
   async addStemEvent(e) {
@@ -1155,6 +1226,10 @@ async function pgPool(): Promise<PgPool> {
         h integer NOT NULL,
         updated_at bigint NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS workroom_drawer (
+        day text PRIMARY KEY,
+        data jsonb NOT NULL
+      );
     `);
     g.__devinePgReady = schema()
       .catch((err: unknown) => {
@@ -1291,7 +1366,8 @@ const postgresStore: Store = {
              SELECT ROUND((data->>'subtotal')::numeric * 100) AS sub,
                     ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
                       + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0) AS collected,
-                    COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0) AS refunded
+                    -- kept refunds (money back while the ticket stands) are not owed again
+                    COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0) AS refunded
            )
            SELECT CASE WHEN data->'payment'->>'method' = 'register'
                        THEN LEAST(collected - refunded - sub, GREATEST(0, COALESCE((data->'payment'->>'ticketCents')::numeric, sub) - sub) - refunded)
@@ -1301,6 +1377,36 @@ const postgresStore: Store = {
       [id, JSON.stringify([r]), r.cents],
     );
     return res.rows.length > 0;
+  },
+  async addKeptRefund(id, r) {
+    const pool = await pgPool();
+    // Appended only while that much of what was paid (every charge as it
+    // was made) has not already gone back, so two taps record it once
+    // and nothing is refunded past what was taken.
+    const res = await pool.query(
+      `UPDATE workroom_orders
+       SET data = data || jsonb_build_object('refunds', COALESCE(data->'refunds', '[]'::jsonb) || $2::jsonb)
+       WHERE id = $1 AND data->'payment' IS NOT NULL AND data->'payment'->>'refundedAt' IS NULL
+         AND $3::numeric <= (
+           (data->'payment'->>'totalCents')::numeric
+           + COALESCE((SELECT SUM((t->>'totalCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
+           - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0))
+       RETURNING id`,
+      [id, JSON.stringify([{ ...r, kept: true }]), r.cents],
+    );
+    return res.rows.length > 0;
+  },
+  async getDrawerCount(day) {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_drawer WHERE day = $1`, [day]);
+    return r.rows.length ? (r.rows[0].data as DrawerCount) : null;
+  },
+  async setDrawerCount(d) {
+    const pool = await pgPool();
+    await pool.query(
+      `INSERT INTO workroom_drawer (day, data) VALUES ($1, $2) ON CONFLICT (day) DO UPDATE SET data = EXCLUDED.data`,
+      [d.day, JSON.stringify(d)],
+    );
   },
   async setOrderLines(id, lines, subtotal) {
     const pool = await pgPool();
@@ -1356,7 +1462,7 @@ const postgresStore: Store = {
               COALESCE(data->>'business', '') AS business,
               COALESCE(data->>'recipientPhone', '') AS recipient_phone,
               COALESCE(data->>'account', 'false') AS account, COALESCE(data->>'taxExempt', 'false') AS tax_exempt, COALESCE(data->>'taxId', '') AS tax_id, COALESCE(data->>'thirdParty', 'false') AS third_party,
-              data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, created_at
+              data->>'street' AS street, data->>'town' AS town, data->>'zip' AS zip, data->'billTo' AS bill_to, created_at
        FROM workroom_orders WHERE status <> 'canceled' AND COALESCE(data->>'quick', 'false') <> 'true' AND data->>'voided' IS NULL ORDER BY created_at DESC LIMIT 5000`,
     );
     return r.rows.map((row) => ({
@@ -1376,6 +1482,7 @@ const postgresStore: Store = {
       street: (row.street as string) ?? "",
       town: (row.town as string) ?? "",
       zip: (row.zip as string) ?? "",
+      ...(row.bill_to && typeof row.bill_to === "object" ? { billTo: row.bill_to as BillTo } : {}),
     }));
   },
   async addStemEvent(e) {

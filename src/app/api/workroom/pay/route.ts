@@ -22,6 +22,10 @@ import { getStore, type OrderPayment, type WorkroomLine, type WorkroomOrder } fr
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** How far over what is due a by-hand payment may run, in cents: enough
+    for a real overpayment, not enough for a slipped decimal point. */
+const OVER_LIMIT_CENTS = 500_000;
+
 export async function POST(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
 
@@ -33,7 +37,13 @@ export async function POST(req: Request) {
   }
   const p = (raw ?? {}) as Record<string, unknown>;
   const id = typeof p.id === "string" ? p.id : "";
-  const method = p.method === "card" || p.method === "cash" || p.method === "manual" ? p.method : null;
+  // "check" and "credit" (Katy, 2026-11-09) are by-hand marks like
+  // "manual": no Square call, a record of money that moved outside the
+  // board. A check carries its number; a credit names the overpaid order
+  // it is moved from.
+  const method = p.method === "card" || p.method === "cash" || p.method === "manual" || p.method === "check" || p.method === "credit" ? p.method : null;
+  const checkNumber = typeof p.checkNumber === "string" ? p.checkNumber.trim().slice(0, 30) : "";
+  const fromId = typeof p.fromId === "string" ? p.fromId : "";
   const sourceId = typeof p.sourceId === "string" ? p.sourceId : undefined;
   // The pane's id for this card attempt; kept across a retry whose
   // answer was lost, so the retry cannot be a second charge (below).
@@ -58,7 +68,10 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if (ids.length >= 2) return payBatch(ids, method, sourceId, attempt, amountCents);
+  if (ids.length >= 2) {
+    if (method === "credit") return NextResponse.json({ error: "Credit moves onto one order at a time." }, { status: 400 });
+    return payBatch(ids, method, sourceId, attempt, amountCents, checkNumber);
+  }
 
   const store = getStore();
   const order = await store.getOrder(id);
@@ -95,7 +108,12 @@ export async function POST(req: Request) {
   // the balance on a top-up. A part payment may be any amount up to it;
   // the fee still joins the ticket on the first payment, part or whole.
   const dueCents = topUp ? due : Math.round(ticketSubtotal * 100);
-  if (amountCents !== undefined && amountCents > dueCents) {
+  // A CHECK FOR MORE THAN THE ORDER (Katy, 2026-11-09: "apply an overage
+  // to another order of theirs"). A by-hand payment may run over what is
+  // due: the extra sits on this order as credit, and the card offers to
+  // move it onto another order. A card or cash charge never runs over.
+  const mayRunOver = (method === "check" || method === "manual") && amountCents !== undefined && amountCents <= dueCents + OVER_LIMIT_CENTS;
+  if (amountCents !== undefined && amountCents > dueCents && !mayRunOver) {
     return NextResponse.json({ error: `That is more than what is due (${(dueCents / 100).toFixed(2)}).` }, { status: 400 });
   }
   const part = amountCents !== undefined && amountCents < dueCents;
@@ -110,16 +128,41 @@ export async function POST(req: Request) {
   // The by-hand mark: money already moved outside the board (a check, an
   // account, an unlinked register ring). Records the fact and touches
   // nothing else; deliberately works even with Square unconfigured.
-  if (method === "manual") {
+  if (method === "manual" || method === "check" || method === "credit") {
+    const at = Date.now();
+    let cents = payCents;
+    let note = "";
+    if (method === "credit") {
+      // CREDIT FROM ANOTHER ORDER: the overpaid order gives it up first
+      // (the store appends only while that much is still owed back, so
+      // the same credit cannot be spent twice), then it lands here.
+      const src = fromId && fromId !== order.id ? await store.getOrder(fromId) : null;
+      if (!src) return NextResponse.json({ error: "Pick the order the credit comes from." }, { status: 400 });
+      if (src.voided || src.status === "canceled") return NextResponse.json({ error: `${src.number} is ${src.voided ? "removed" : "canceled"}; its money is refunded, not moved.` }, { status: 409 });
+      const credit = src.payment ? -balanceCents(src) : 0;
+      if (credit <= 0) return NextResponse.json({ error: `${src.number} has no credit on it.` }, { status: 409 });
+      if (amountCents !== undefined && amountCents > credit) return NextResponse.json({ error: `Only ${(credit / 100).toFixed(2)} of credit is on ${src.number}.` }, { status: 400 });
+      cents = Math.min(payCents, credit);
+      const moved = await store.addOrderRefund(src.id, { at, cents, how: "transfer", note: `Applied to order ${order.number}` });
+      if (!moved) return NextResponse.json({ error: "That credit was already used or given back. Reload the board and look at both cards." }, { status: 409 });
+      note = `Credit from order ${src.number}`;
+    }
     const payment: OrderPayment = {
-      at: Date.now(),
+      at,
       method: "other",
+      ...(method === "check" ? { via: "check" as const, ...(checkNumber ? { checkNumber } : {}) } : method === "credit" ? { via: "credit" as const, note } : {}),
       squarePaymentId: "",
-      totalCents: payCents,
+      totalCents: cents,
       feeCents: 0,
     };
-    if (feeAppended) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
-    await record(payment);
+    try {
+      if (feeAppended) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
+      await record(payment);
+    } catch (err) {
+      if (method !== "credit") throw err;
+      console.error(`[devine] credit left its order but did not land on ${order.number}:`, err);
+      return NextResponse.json({ error: `The credit left its order but did not land on ${order.number}. Mark ${order.number} "Paid another way" for ${(cents / 100).toFixed(2)} so the two agree.` }, { status: 500 });
+    }
     return NextResponse.json({ ok: true, payment });
   }
 
@@ -265,7 +308,7 @@ async function recordOnce(id: string, pmt: OrderPayment): Promise<void> {
  * settled order in the list is refused by name, so nobody pays for one
  * that does not need it.
  */
-async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourceId: string | undefined, attempt: string, amountCents?: number) {
+async function payBatch(ids: string[], method: "card" | "cash" | "manual" | "check", sourceId: string | undefined, attempt: string, amountCents?: number, checkNumber = "") {
   const store = getStore();
   const orders = await Promise.all(ids.map((x) => store.getOrder(x)));
   // Each order's ticket as it will stand once charged (the sheet fee
@@ -296,7 +339,10 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
   }
   const dueCents = parts.reduce((s, x) => s + x.amountCents, 0);
   if (dueCents <= 0) return NextResponse.json({ error: "Nothing is owed on those orders." }, { status: 409 });
-  if (amountCents !== undefined && amountCents > dueCents) {
+  // A by-hand payment may run over (one check for a little more than the
+  // account owes): the extra sits on the last order as credit.
+  const over = amountCents !== undefined && amountCents > dueCents ? amountCents - dueCents : 0;
+  if (over > 0 && !((method === "check" || method === "manual") && over <= OVER_LIMIT_CENTS)) {
     return NextResponse.json({ error: `That is more than what is due on those orders (${(dueCents / 100).toFixed(2)}).` }, { status: 400 });
   }
   // A PART PAYMENT ON THE GROUP (Kevin, 2026-10-14) is dealt out in order,
@@ -326,6 +372,7 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
       x.amountCents = share;
     }
   }
+  if (over > 0) parts[parts.length - 1].amountCents += over;
   const totalCents = parts.reduce((s, x) => s + x.amountCents, 0);
   // The reference stays the group's first order, whatever the amount
   // reached; the label counts only the orders this payment touches.
@@ -345,9 +392,10 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual", sourc
     }
   };
 
-  if (method === "manual") {
-    await record((x) => ({ at, method: "other", squarePaymentId: "", totalCents: x.amountCents, feeCents: 0 }));
-    return NextResponse.json({ ok: true, payment: { at, method: "other", squarePaymentId: "", totalCents, feeCents: 0 } });
+  if (method === "manual" || method === "check") {
+    const kind = method === "check" ? { via: "check" as const, ...(checkNumber ? { checkNumber } : {}) } : {};
+    await record((x) => ({ at, method: "other", ...kind, squarePaymentId: "", totalCents: x.amountCents, feeCents: 0 }));
+    return NextResponse.json({ ok: true, payment: { at, method: "other", ...kind, squarePaymentId: "", totalCents, feeCents: 0 }, orders: funded.map((x) => ({ number: x.o.number, cents: x.amountCents })) });
   }
 
   const cfg = await resolveSquare();

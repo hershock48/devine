@@ -65,6 +65,13 @@ export default function Products({ initialAuthed, initialOwner }: { initialAuthe
   const [cat, setCat] = useState<Catalog | null>(null);
   const [error, setError] = useState("");
   const [find, setFind] = useState("");
+  /** OLD DESIGNS OUT OF THE WAY (Katy, 2026-11-09: "be able to hide old
+      items, not delete, but maybe grey them out so they don't show up, so
+      only the live ones show"). A design off the menu is kept (old orders
+      and reports still name it) but leaves this list until asked for, and
+      shows greyed when it is. A search always looks through all of them,
+      so an old one can be found and put back. */
+  const [showOff, setShowOff] = useState(false);
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -96,10 +103,10 @@ export default function Products({ initialAuthed, initialOwner }: { initialAuthe
     if (!cat) return [];
     const q = find.trim().toLowerCase();
     const list = [...cat.products].sort((a, b) => a.name.localeCompare(b.name));
-    if (!q) return list;
+    if (!q) return showOff ? list : list.filter((p) => !p.offMenu);
     const catNames = new Map(cat.categories.map((c) => [c.slug, c.name.toLowerCase()]));
     return list.filter((p) => p.name.toLowerCase().includes(q) || p.slug.includes(q) || p.cats.some((c) => (catNames.get(c) ?? c).includes(q)));
-  }, [cat, find]);
+  }, [cat, find, showOff]);
 
   if (!authed) {
     return (
@@ -186,6 +193,17 @@ export default function Products({ initialAuthed, initialOwner }: { initialAuthe
               aria-label="Find a design"
               style={{ ...field, maxWidth: 420, margin: "10px 0 14px" }}
             />
+            {(() => {
+              const off = cat.products.filter((p) => p.offMenu).length;
+              if (off === 0 || find.trim()) return null;
+              return (
+                <p style={{ margin: "-6px 0 14px", fontSize: 14 }}>
+                  <button type="button" onClick={() => setShowOff((v) => !v)} aria-pressed={showOff} style={{ ...textButton, fontSize: 14 }}>
+                    {showOff ? `Hide the ${off} that ${off === 1 ? "is" : "are"} off the menu` : `Show the ${off} that ${off === 1 ? "is" : "are"} off the menu`}
+                  </button>
+                </p>
+              );
+            })()}
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
               {shown.map((p) => (
                 <DesignRow
@@ -362,17 +380,26 @@ function ShelfRow({
 
 function DesignRow({ p, cat, onChanged, onError }: { p: Product; cat: Catalog; onChanged: (what: string) => void; onError: (e: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [moving, setMoving] = useState(false);
   const names = new Map(cat.categories.map((c) => [c.slug, c.name]));
+  /** Off the menu, or back on it, without opening the form. */
+  async function toggleMenu() {
+    setMoving(true);
+    const r = await call("PATCH", { slug: p.slug, offMenu: !p.offMenu });
+    setMoving(false);
+    if (!r.ok) onError(String(r.data?.error ?? "That did not save."));
+    else onChanged(p.offMenu ? `${p.name} is back on the menu.` : `${p.name} is off the menu. It is kept, and out of this list until you ask to see the ones off the menu.`);
+  }
   return (
-    <li className="panel" style={{ padding: "10px 12px" }}>
+    <li className="panel" style={{ padding: "10px 12px", ...(p.offMenu ? { background: "transparent", borderStyle: "dashed" } : {}) }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ width: 56, height: 56, overflow: "hidden", borderRadius: 6, background: "var(--line)", flex: "0 0 auto", display: "grid", placeItems: "center" }}>
-          <span style={{ width: 56, height: 56, display: "block" }} className="product-thumb">
+          <span style={{ width: 56, height: 56, display: "block", ...(p.offMenu ? { filter: "grayscale(1)", opacity: 0.55 } : {}) }} className="product-thumb">
             <ProductImage p={p} />
           </span>
         </span>
         <span style={{ flex: "1 1 220px" }}>
-          <strong>{p.name}</strong> <span style={{ whiteSpace: "nowrap" }}>{money(p.price)}</span>
+          <strong className={p.offMenu ? "muted" : undefined}>{p.name}</strong> <span style={{ whiteSpace: "nowrap" }} className={p.offMenu ? "muted" : undefined}>{money(p.price)}</span>
           {p.regularPrice ? <span className="muted" style={{ whiteSpace: "nowrap" }}> (on sale, was {money(p.regularPrice)})</span> : null}
           <br />
           <span className="muted" style={{ fontSize: 13.5 }}>
@@ -386,6 +413,9 @@ function DesignRow({ p, cat, onChanged, onError }: { p: Product; cat: Catalog; o
             See it on the site
           </a>
         )}
+        <button type="button" disabled={moving} onClick={toggleMenu} style={{ ...textButton, fontSize: 13.5 }}>
+          {moving ? "Saving…" : p.offMenu ? "Put it back on the menu" : "Take it off the menu"}
+        </button>
         <button type="button" className="btn" onClick={() => setOpen((o) => !o)}>
           {open ? "Close" : "Edit"}
         </button>

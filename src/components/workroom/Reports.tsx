@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { parseDollars } from "@/components/workroom/PayControls";
 import type { Category, Product } from "@/lib/catalog";
 import { useCategories, useProducts } from "@/components/CatalogContext";
 import { site } from "@/lib/site";
@@ -17,7 +18,7 @@ import {
   refundedCents,
   saleInstantMs,
 } from "@/lib/workroom/derive";
-import { MemoryWarning, PinGate, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
+import { InitialsInput, MemoryWarning, PinGate, field, isInitials, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
 
 /**
  * REPORTS (Katy, 2026-10-22: "billing and end of day / end of month and
@@ -35,7 +36,10 @@ import { MemoryWarning, PinGate, money, phoneKey, textButton, todayISO } from "@
  *   in the month, and orders written in the month), sales by category
  *   and the best sellers, and what the house accounts owe by age. Behind
  *   the owner's PIN as a screen gate: a month's takings are hers to
- *   read. (The figures derive from ledgers every staff sign-in can
+ *   read. The CUSTOMER sheet (Katy, 2026-11-09: "top customer report,
+ *   different types of customer reports") sits behind the same gate:
+ *   who spends the most, who orders most often, who is new, and which
+ *   regulars have gone quiet. (The figures derive from ledgers every staff sign-in can
  *   already fetch, so unlike the dashboard's summary route there is no
  *   server-side tier here; the gate keeps the sheet off a staff screen,
  *   it does not hide the data.)
@@ -53,7 +57,7 @@ import { MemoryWarning, PinGate, money, phoneKey, textButton, todayISO } from "@
  */
 
 type Line = { slug: string | null; name: string; qty: number; each: number };
-type Payment = { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number };
+type Payment = { at: number; method: string; via?: string; checkNumber?: string; note?: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number };
 type Order = {
   id: string;
   number: string;
@@ -70,7 +74,7 @@ type Order = {
   createdAt: number;
   payment?: Payment | null;
   topUps?: Payment[];
-  refunds?: { at: number; cents: number; how?: "square" | "hand"; note?: string }[];
+  refunds?: { at: number; cents: number; how?: "square" | "hand" | "check" | "transfer"; note?: string; kept?: boolean }[];
   account?: boolean;
   taxExempt?: boolean;
   thirdParty?: boolean;
@@ -78,7 +82,7 @@ type Order = {
 };
 type Sale = { id: string; workroomOrderId?: string; source: string; totalCents: number; paidAt: string; createdAt: number };
 
-type View = "day" | "month";
+type View = "day" | "month" | "customers";
 type Window = { beginMs: number; endMs: number; label: string; days: string[] };
 
 /** The local window for a day (ISO date) or a month ("YYYY-MM"). */
@@ -119,15 +123,19 @@ const shiftMonth = (ym: string, by: number) => {
 const inWin = (ms: number, w: Window) => ms >= w.beginMs && ms < w.endMs;
 const dateInWin = (iso: string, w: Window) => (w.days.length === 0 ? false : w.days.length === 1 ? iso === w.days[0] : iso.slice(0, 7) === w.days[0].slice(0, 7));
 
-const payments = (o: Order): Payment[] => [...(o.payment ? [o.payment] : []), ...(o.topUps ?? [])];
-const methodWord: Record<string, string> = { web: "Card, on the website", card: "Card, at the board", cash: "Cash", register: "Rung on the register", other: "By hand (check, transfer, marked paid)" };
+/** Money that came in. Credit moved from another order of the same
+    customer (via "credit", 2026-11-09) is on the order's record but is
+    NOT new money: the overpayment was counted when it was taken, on the
+    order it was taken on. Every money-in figure here reads this list. */
+const payments = (o: Order): Payment[] => [...(o.payment ? [o.payment] : []), ...(o.topUps ?? [])].filter((p) => p.via !== "credit");
+const methodWord: Record<string, string> = { web: "Card, on the website", card: "Card, at the board", cash: "Cash", check: "Checks", register: "Rung on the register", other: "By hand (transfer, marked paid)" };
 /** The row a payment lands on. A website order's checkout card is its
     own line, since the counter's terminal never saw it: that is the
     first payment, written in the same request as the order (api/order),
     so it sits within seconds of createdAt. A card taken at the board
     later on a web order (checkout cards off, or a top-up) is the board's. */
 const methodKey = (o: Order, p: Payment) =>
-  p.method === "card" && o.source === "web" && p === o.payment && Math.abs(p.at - o.createdAt) < 120_000 ? "web" : p.method;
+  p.method === "card" && o.source === "web" && p.at === o.payment?.at && Math.abs(p.at - o.createdAt) < 120_000 ? "web" : p.method === "other" && p.via === "check" ? "check" : p.method;
 
 type Sheet = ReturnType<typeof compute>;
 
@@ -162,7 +170,14 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
     // A part refund says how it went back; by hand is out of the drawer
     // (cash or a check; the drawer side is counted as cash, the only
     // place it can have come from on the day).
-    for (const r of o.refunds ?? []) if (inWin(r.at, w)) { refundCount += 1; if (r.how === "hand") { refundHand += r.cents; refundCash += r.cents; } else refundSquare += r.cents; }
+    // Credit moved onto another order ("transfer") left the shop not at all.
+    for (const r of o.refunds ?? []) {
+      if (!inWin(r.at, w) || r.how === "transfer") continue;
+      refundCount += 1;
+      if (r.how === "hand") { refundHand += r.cents; refundCash += r.cents; }
+      else if (r.how === "check") refundHand += r.cents;
+      else refundSquare += r.cents;
+    }
     // A whole refund (a canceled order marked refunded) goes back the way
     // it came: a card or register ring through Square; cash or a by-hand
     // mark by hand, and cash out of the drawer.
@@ -183,6 +198,10 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
       }
     }
   }
+  /* THE CHECKS IN THE WINDOW, one by one: the deposit slip. */
+  const checks: { number: string; who: string; checkNumber: string; cents: number; at: number }[] = [];
+  for (const o of live) for (const p of payments(o)) if (p.via === "check" && inWin(p.at, w)) checks.push({ number: o.number, who: o.business || o.name, checkNumber: p.checkNumber ?? "", cents: p.totalCents, at: p.at });
+  checks.sort((a, b) => a.at - b.at);
   const cashIn = (byMethod.get("cash")?.cents ?? 0) + walkInCash;
   const cashToCount = cashIn - refundCash;
 
@@ -272,7 +291,7 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
 
   return {
     byMethod, walkInCard, walkInCash, walkIns, takenCents, cardFeeCents,
-    refundSquare, refundHand, refundCash, refundCount, cashIn, cashToCount,
+    refundSquare, refundHand, refundCash, refundCount, cashIn, cashToCount, checks,
     written, dated, quick, canceled,
     taxPaid, taxWritten,
     billed, accountPaid, owedNow, aging, customers, openAccount: openAccount.length,
@@ -325,7 +344,8 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
     return () => clearInterval(t);
   }, [authed, pull]);
 
-  const win = useMemo(() => windowFor(view, view === "day" ? day : month), [view, day, month]);
+  const win = useMemo(() => windowFor(view === "month" ? "month" : "day", view === "month" ? month : day), [view, day, month]);
+  const [span, setSpan] = useState<Span>("90");
   const products = useProducts();
   const categories = useCategories();
   const maps = useMemo(
@@ -343,7 +363,7 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
     );
   }
 
-  const monthLocked = view === "month" && !owner;
+  const monthLocked = view !== "day" && !owner;
 
   return (
     <>
@@ -354,7 +374,7 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
       <MemoryWarning backend={backend} />
       <div className="no-print" style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", margin: "0 0 16px" }}>
         <div role="group" aria-label="Sheet" style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: 2 }}>
-          {(["day", "month"] as View[]).map((v) => (
+          {(["day", "month", "customers"] as View[]).map((v) => (
             <button
               key={v}
               type="button"
@@ -362,7 +382,7 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
               aria-pressed={view === v}
               style={{ ...textButton, padding: "6px 14px", fontSize: 14, textDecoration: "none", background: view === v ? "var(--ink)" : "transparent", color: view === v ? "var(--paper)" : "var(--ink)" }}
             >
-              {v === "day" ? "End of day" : "End of month"}
+              {v === "day" ? "End of day" : v === "month" ? "End of month" : "Customers"}
             </button>
           ))}
         </div>
@@ -373,6 +393,15 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
             <button type="button" disabled={day >= todayISO()} onClick={() => setDay((d) => shiftDay(d, 1))} style={{ ...textButton, fontSize: 14 }} aria-label="The day after">›</button>
             {day !== todayISO() && <button type="button" onClick={() => setDay(todayISO())} style={{ ...textButton, fontSize: 13.5 }}>Today</button>}
           </span>
+        ) : view === "customers" ? (
+          <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 14 }}>
+            Orders dated in
+            <select value={span} onChange={(e) => setSpan(e.target.value as Span)} aria-label="Period" style={{ padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 2, font: "inherit", fontSize: 14 }}>
+              {SPANS.map(([v, label]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
+            </select>
+          </label>
         ) : (
           <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
             <button type="button" onClick={() => setMonth((m) => shiftMonth(m, -1))} style={{ ...textButton, fontSize: 14 }} aria-label="The month before">‹</button>
@@ -390,7 +419,7 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
       {monthLocked ? (
         <>
           <p className="lede" style={{ margin: "4px 0 10px" }}>
-            A month&rsquo;s takings are the owner&rsquo;s to read: this sheet asks for the owner&rsquo;s PIN. The end-of-day sheet is open to everyone.
+            {view === "customers" ? "Who the customers are and what they spend" : "A month’s takings"} {view === "customers" ? "is" : "are"} the owner&rsquo;s to read: this sheet asks for the owner&rsquo;s PIN. The end-of-day sheet is open to everyone.
           </p>
           <PinGate
             onAuthed={(info) => {
@@ -405,7 +434,7 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
       ) : !loaded ? (
         <p className="muted" aria-live="polite">Adding it up…</p>
       ) : (
-        <SheetView view={view} win={win} s={sheet} />
+        view === "customers" ? <CustomersView orders={orders} span={span} /> : <SheetView view={view} win={win} s={sheet} day={day} />
       )}
     </>
   );
@@ -452,8 +481,8 @@ function Block({ title, children, note }: { title: string; children: React.React
   );
 }
 
-function SheetView({ view, win, s }: { view: View; win: Window; s: Sheet }) {
-  const methodRows: [string, string, string?][] = ["web", "card", "cash", "register", "other"]
+function SheetView({ view, win, s, day }: { view: View; win: Window; s: Sheet; day: string }) {
+  const methodRows: [string, string, string?][] = ["web", "card", "cash", "check", "register", "other"]
     .filter((m) => s.byMethod.has(m))
     .map((m) => {
       const x = s.byMethod.get(m)!;
@@ -502,11 +531,22 @@ function SheetView({ view, win, s }: { view: View; win: Window; s: Sheet }) {
           />
         </Block>
 
-        <Block title="Money out" note="Square refunds are made from the Square dashboard and marked on the board; the mark is what is counted here.">
+        {view === "day" && <Drawer day={day} cashFromSales={s.cashToCount} />}
+
+        {s.checks.length > 0 && (
+          <Block title="Checks to deposit" note="Each check recorded in this window, in the order it was taken.">
+            <Rows
+              rows={s.checks.map((k) => [`${k.who} · ${k.number}`, c$(k.cents), k.checkNumber ? `check #${k.checkNumber}` : "no check number written"] as [string, string, string])}
+              total={[`${s.checks.length} check${s.checks.length === 1 ? "" : "s"}`, c$(s.checks.reduce((a, k) => a + k.cents, 0))]}
+            />
+          </Block>
+        )}
+
+        <Block title="Money out" note="A refund is recorded on the order's card or its finished row, and that record is what is counted here. Money moved from one order to another of the same customer is not money out and is left off.">
           <Rows
             rows={[
               ["Refunded through Square", c$(s.refundSquare)],
-              ["Given back by hand", c$(s.refundHand)],
+              ["Given back by hand (cash or a check)", c$(s.refundHand)],
             ]}
             total={[`${s.refundCount} refund${s.refundCount === 1 ? "" : "s"}`, c$(s.refundSquare + s.refundHand)]}
           />
@@ -602,6 +642,315 @@ function SheetView({ view, win, s }: { view: View; win: Window; s: Sheet }) {
       )}
       <p className="muted" style={{ margin: "14px 0 0", fontSize: 13 }}>
         Every figure here is derived from the board&rsquo;s orders and the Square rings it has seen since launch; nothing is estimated. Square&rsquo;s own reports remain the record for processing fees and deposits. Gross of refunds unless a line says otherwise.
+      </p>
+    </div>
+  );
+}
+
+/* ------------------------------ the drawer ------------------------------ */
+
+/**
+ * THE DRAWER AT CLOSING (Katy, 2026-11-09: "cash we're putting in,
+ * balancing drawer at end of day, daily reports"). The sheet already knew
+ * the cash the day's sales should have left; it could not know the float
+ * the drawer opened with, cash put in or taken out that was not a sale, or
+ * what was counted. Those four figures are typed here, kept per day, and
+ * the block says over or short. It prints with the sheet.
+ */
+type DrawerCount = { day: string; openingCents: number; addedCents: number; removedCents: number; countedCents: number | null; note: string; by: string; at: number };
+const amt = (cents: number | null | undefined) => (cents === null || cents === undefined ? "" : (cents / 100).toFixed(2));
+
+function Drawer({ day, cashFromSales }: { day: string; cashFromSales: number }) {
+  const [saved, setSaved] = useState<DrawerCount | null>(null);
+  const [opening, setOpening] = useState("");
+  const [added, setAdded] = useState("");
+  const [removed, setRemoved] = useState("");
+  const [counted, setCounted] = useState("");
+  const [note, setNote] = useState("");
+  const [by, setBy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let dead = false;
+    setLoaded(false);
+    setError("");
+    fetch(`/api/workroom/drawer?day=${day}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (dead) return;
+        const c = (d?.count as DrawerCount | null) ?? null;
+        setSaved(c);
+        setOpening(amt(c?.openingCents));
+        setAdded(c && c.addedCents ? amt(c.addedCents) : "");
+        setRemoved(c && c.removedCents ? amt(c.removedCents) : "");
+        setCounted(amt(c?.countedCents));
+        setNote(c?.note ?? "");
+        setBy(c?.by ?? "");
+        setLoaded(true);
+      })
+      .catch(() => {
+        if (!dead) setLoaded(true);
+      });
+    return () => {
+      dead = true;
+    };
+  }, [day]);
+
+  // A blank box is zero, except the count: blank means not counted yet.
+  const read = (v: string) => (v.trim() === "" ? 0 : parseDollars(v));
+  const o = read(opening);
+  const a = read(added);
+  const r = read(removed);
+  const k = counted.trim() === "" ? null : parseDollars(counted);
+  const bad = o === null || a === null || r === null || (counted.trim() !== "" && k === null);
+  const expected = (o ?? 0) + (a ?? 0) - (r ?? 0) + cashFromSales;
+  const diff = k === null ? null : k - expected;
+
+  async function save() {
+    if (bad) return setError("One of the amounts did not read as money. Use figures like 150 or 150.00.");
+    if (!isInitials(by)) return setError("Your initials, two or three letters, so the count has a name on it.");
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/workroom/drawer", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ day, openingCents: o, addedCents: a, removedCents: r, countedCents: k, note, by: by.trim().toUpperCase() }),
+      });
+      const d = (await res.json().catch(() => null)) as { ok?: boolean; count?: DrawerCount; error?: string } | null;
+      if (!res.ok || !d?.ok) setError(d?.error || "The count did not save.");
+      else setSaved(d.count ?? null);
+    } catch {
+      setError("The connection dropped. The count is still in the boxes; save it again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const box: React.CSSProperties = { ...field, width: 110, padding: "6px 10px" };
+  const line: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 14.5 };
+  return (
+    <Block
+      title="The drawer"
+      note="Opening float plus cash put in, less cash taken out, plus the cash from the day's sales, is what the drawer should hold. Count it and the sheet says over or short."
+    >
+      {!loaded ? (
+        <p className="muted" style={{ margin: 0 }}>Reading the count…</p>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          <label style={line}>
+            Opening float (the cash it started with)
+            <input value={opening} onChange={(e) => setOpening(e.target.value)} inputMode="decimal" placeholder="0.00" aria-label="Opening float, in dollars" style={box} />
+          </label>
+          <label style={line}>
+            Cash put in during the day (not a sale)
+            <input value={added} onChange={(e) => setAdded(e.target.value)} inputMode="decimal" placeholder="0.00" aria-label="Cash put in, in dollars" style={box} />
+          </label>
+          <label style={line}>
+            Cash taken out during the day (a drop, a purchase)
+            <input value={removed} onChange={(e) => setRemoved(e.target.value)} inputMode="decimal" placeholder="0.00" aria-label="Cash taken out, in dollars" style={box} />
+          </label>
+          <div style={line}>
+            <span>Cash from the day&rsquo;s sales</span>
+            <span style={{ fontVariantNumeric: "tabular-nums" }}>{c$(cashFromSales)}</span>
+          </div>
+          <div style={{ ...line, fontWeight: 700, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+            <span>The drawer should hold</span>
+            <span style={{ fontVariantNumeric: "tabular-nums" }}>{bad ? "…" : c$(expected)}</span>
+          </div>
+          <label style={line}>
+            Counted at close
+            <input value={counted} onChange={(e) => setCounted(e.target.value)} inputMode="decimal" placeholder="not counted yet" aria-label="Cash counted at close, in dollars" style={box} />
+          </label>
+          {diff !== null && !bad && (
+            <div role="status" style={{ ...line, fontWeight: 700, color: diff === 0 ? "var(--green)" : "var(--rose-ink)" }}>
+              <span>{diff === 0 ? "The drawer balances" : diff > 0 ? "Over" : "Short"}</span>
+              <span style={{ fontVariantNumeric: "tabular-nums" }}>{diff === 0 ? c$(0) : c$(Math.abs(diff))}</span>
+            </div>
+          )}
+          <label className="no-print" style={{ ...line, justifyContent: "flex-start" }}>
+            Note
+            <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} aria-label="A note on the count" style={{ ...field, flex: "1 1 200px", width: "auto", padding: "6px 10px" }} />
+          </label>
+          {note && <p style={{ margin: 0, fontSize: 13.5 }} className="muted">Note: {note}</p>}
+          <p className="no-print" style={{ margin: 0, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <InitialsInput value={by} onChange={setBy} />
+            <button type="button" className="btn" disabled={busy} onClick={save}>
+              {busy ? "Saving…" : "Save the count"}
+            </button>
+            {error && <span role="alert" style={{ color: "var(--rose-ink)", fontWeight: 600, fontSize: 14 }}>{error}</span>}
+          </p>
+          {saved && (
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              Saved by {saved.by}, {new Date(saved.at).toLocaleString("en-US", { timeZone: site.timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.
+            </p>
+          )}
+        </div>
+      )}
+    </Block>
+  );
+}
+
+/* ----------------------------- the customers ---------------------------- */
+
+type Span = "30" | "90" | "365" | "year" | "all";
+const SPANS: [Span, string][] = [
+  ["30", "the last 30 days"],
+  ["90", "the last 90 days"],
+  ["year", "this year"],
+  ["365", "the last 12 months"],
+  ["all", "everything on file"],
+];
+
+/**
+ * THE CUSTOMER SHEET (Katy, 2026-11-09: "top customer report, etc.,
+ * different types of customer reports"). Four answers from the orders
+ * already on the board, no separate customer table: who spends the most
+ * (or orders the most often, by the sort), who placed a first order in the
+ * period, and which regulars have gone quiet. A customer is the Accounts
+ * tab's grouping: the business when there is one, else the phone, else the
+ * name. Quick sales are nobody and are left out; canceled and held orders
+ * are not sales. Spend is ticket totals, tax and delivery included, by
+ * the order's own date.
+ */
+function CustomersView({ orders, span }: { orders: Order[]; span: Span }) {
+  const [sort, setSort] = useState<"spend" | "orders" | "recent">("spend");
+  const today = todayISO();
+  const from =
+    span === "all" ? "0000-00-00" : span === "year" ? `${today.slice(0, 4)}-01-01` : isoDate(new Date(dayAt(today).getTime() - Number(span) * 86_400_000));
+  const data = useMemo(() => {
+    const keyOf = (o: Order) => (o.business?.trim() ? `biz:${o.business.trim().toLowerCase()}` : phoneKey(o.phone) ? `ph:${phoneKey(o.phone)}` : `name:${o.name.trim().toLowerCase()}`);
+    type Row = { key: string; label: string; phone: string; orders: number; cents: number; last: string; first: string; everOrders: number; everCents: number; owed: number; account: boolean };
+    const rows = new Map<string, Row>();
+    const sales = orders.filter((o) => o.status !== "canceled" && o.status !== "hold" && !o.quick && (o.name.trim() || o.business?.trim()));
+    for (const o of sales) {
+      const key = keyOf(o);
+      const cur = rows.get(key) ?? { key, label: "", phone: "", orders: 0, cents: 0, last: "", first: "9999-99-99", everOrders: 0, everCents: 0, owed: 0, account: false };
+      const cents = Math.round(o.subtotal * 100);
+      cur.everOrders += 1;
+      cur.everCents += cents;
+      if (o.date > cur.last) {
+        cur.last = o.date;
+        cur.label = o.business ? `${o.business}${o.name ? ` · ${o.name}` : ""}` : o.name;
+        cur.phone = o.phone;
+      }
+      if (o.date < cur.first) cur.first = o.date;
+      if (o.date >= from && o.date <= today) {
+        cur.orders += 1;
+        cur.cents += cents;
+      }
+      if (o.account) cur.account = true;
+      cur.owed += balanceCents(o) > 0 ? owedNowCents(o) : 0;
+      rows.set(key, cur);
+    }
+    const all = [...rows.values()];
+    const inSpan = all.filter((r) => r.orders > 0);
+    const quietFrom = isoDate(new Date(dayAt(today).getTime() - 90 * 86_400_000));
+    return {
+      inSpan,
+      total: inSpan.reduce((s, r) => s + r.cents, 0),
+      fresh: all.filter((r) => r.first >= from && r.first <= today).sort((a, b) => b.first.localeCompare(a.first)),
+      quiet: all.filter((r) => r.everOrders >= 2 && r.last < quietFrom).sort((a, b) => b.everCents - a.everCents).slice(0, 25),
+      repeat: inSpan.filter((r) => r.everOrders >= 2).length,
+    };
+  }, [orders, from, today]);
+  const top = [...data.inSpan].sort((a, b) => (sort === "spend" ? b.cents - a.cents : sort === "orders" ? b.orders - a.orders || b.cents - a.cents : b.last.localeCompare(a.last))).slice(0, 25);
+  const label = SPANS.find(([v]) => v === span)?.[1] ?? "";
+  const short = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? dayAt(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "");
+  const head: React.CSSProperties = { ...kicker, fontSize: 12 };
+
+  return (
+    <div className="sheet" style={{ maxWidth: 860 }}>
+      <p style={{ margin: "0 0 14px", fontSize: 15 }}>
+        <strong>{site.shortName}</strong> · Customers · <strong>orders dated in {label}</strong>
+        <span className="muted"> · printed {new Date().toLocaleString("en-US", { timeZone: site.timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+      </p>
+      {/* minmax(0, 1fr): the wide table scrolls inside its own block on a
+          phone instead of widening the page. */}
+      <div style={{ display: "grid", gap: 14, gridTemplateColumns: "minmax(0, 1fr)" }}>
+        <Block title="In short">
+          <Rows
+            rows={[
+              ["Customers who ordered", String(data.inSpan.length), `${data.repeat} have ordered more than once`],
+              ["What they spent", c$(data.total), data.inSpan.length ? `${c$(Math.round(data.total / data.inSpan.length))} a customer on average` : undefined],
+              ["First-time customers", String(data.fresh.length)],
+            ]}
+          />
+        </Block>
+
+        <Block title={`Top customers · ${sort === "spend" ? "by what they spent" : sort === "orders" ? "by how often they order" : "most recent first"}`} note="The top 25. Spend is ticket totals with tax and delivery; canceled orders and quick sales are left out.">
+          <p className="no-print" style={{ margin: "0 0 8px", display: "flex", gap: 14, flexWrap: "wrap", fontSize: 14 }}>
+            Sort by
+            {(
+              [
+                ["spend", "what they spent"],
+                ["orders", "number of orders"],
+                ["recent", "most recent order"],
+              ] as ["spend" | "orders" | "recent", string][]
+            ).map(([v, w]) => (
+              <button key={v} type="button" onClick={() => setSort(v)} aria-pressed={sort === v} style={{ ...textButton, fontSize: 14, fontWeight: sort === v ? 700 : 400 }}>
+                {w}
+              </button>
+            ))}
+          </p>
+          {top.length === 0 ? (
+            <p className="muted" style={{ margin: 0 }}>No orders in this period.</p>
+          ) : (
+            <div role="region" aria-label="Top customers table" tabIndex={0} style={{ overflowX: "auto" }}>
+              <table style={{ ...table, minWidth: 560 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...td, textAlign: "left", ...head }}>Customer</th>
+                    <th style={{ ...tdR, ...head }}>Orders</th>
+                    <th style={{ ...tdR, ...head }}>Spent</th>
+                    <th style={{ ...tdR, ...head }}>Average</th>
+                    <th style={{ ...tdR, ...head }}>Last order</th>
+                    <th style={{ ...tdR, ...head }}>Owes now</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {top.map((r, i) => (
+                    <tr key={r.key}>
+                      <td style={td}>
+                        {i + 1}. {r.label || "No name"}
+                        <span className="muted" style={{ display: "block", fontSize: 13 }}>
+                          {[r.phone, r.account ? "house account" : ""].filter(Boolean).join(" · ")}
+                        </span>
+                      </td>
+                      <td style={tdR}>{r.orders}</td>
+                      <td style={tdR}>{c$(r.cents)}</td>
+                      <td style={tdR}>{c$(Math.round(r.cents / r.orders))}</td>
+                      <td style={tdR}>{short(r.last)}</td>
+                      <td style={tdR}>{r.owed > 0 ? c$(r.owed) : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Block>
+
+        <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(min(380px, 100%), 1fr))" }}>
+          <Block title="New customers" note="Their first order on file falls in this period.">
+            {data.fresh.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>None in this period.</p>
+            ) : (
+              <Rows rows={data.fresh.slice(0, 25).map((r) => [r.label || "No name", c$(r.everCents), `first order ${short(r.first)} · ${r.everOrders} order${r.everOrders === 1 ? "" : "s"} since`] as [string, string, string])} />
+            )}
+          </Block>
+          <Block title="Regulars gone quiet" note="Two or more orders on file, and none dated in the last 90 days. By what they have spent in all; worth a call or a card.">
+            {data.quiet.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>Nobody: every regular has ordered in the last 90 days.</p>
+            ) : (
+              <Rows rows={data.quiet.map((r) => [r.label || "No name", c$(r.everCents), `${r.everOrders} orders · last ${short(r.last)}${r.phone ? ` · ${r.phone}` : ""}`] as [string, string, string])} />
+            )}
+          </Block>
+        </div>
+      </div>
+      <p className="muted" style={{ margin: "14px 0 0", fontSize: 13 }}>
+        From the orders on the board, which go back {HISTORY_DAYS} days at most; older history is not counted. A customer is their business when they have one, otherwise their phone number, otherwise their name.
       </p>
     </div>
   );

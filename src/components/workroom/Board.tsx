@@ -6,8 +6,9 @@ import { useProducts } from "@/components/CatalogContext";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate, RemoveDuplicate } from "@/components/workroom/ui";
-import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeCentsToAppend } from "@/lib/workroom/derive";
-import PayControls, { CashTendered, changeFor } from "@/components/workroom/PayControls";
+import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, payWord, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeCentsToAppend } from "@/lib/workroom/derive";
+import PayControls, { ApplyCredit, CashTendered, changeFor } from "@/components/workroom/PayControls";
+import RefundControl from "@/components/workroom/Refund";
 
 /**
  * The order board. Adapted from the pjs kitchen screen, at florist pace:
@@ -58,9 +59,12 @@ type Order = {
   lines: Line[];
   subtotal: number;
   createdAt: number;
-  payment?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
-  topUps?: { at: number; method: string; squarePaymentId: string; totalCents: number; feeCents: number }[];
-  refunds?: { at: number; cents: number; note: string }[];
+  payment?: { at: number; method: string; via?: string; checkNumber?: string; note?: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
+  topUps?: { at: number; method: string; via?: string; checkNumber?: string; note?: string; squarePaymentId: string; totalCents: number; feeCents: number }[];
+  refunds?: { at: number; cents: number; note: string; how?: string; kept?: boolean }[];
+  /** The customer's own PO number, and where the bill goes (2026-11-09). */
+  poNumber?: string;
+  billTo?: BillTo;
   batchId?: string;
   canceledFrom?: string;
   madeBy?: string;
@@ -111,7 +115,11 @@ function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   }
 }
 
+type BillTo = { street: string; town: string; zip: string };
+const NO_BILL: BillTo = { street: "", town: "", zip: "" };
+
 type Contact = {
+  billTo?: BillTo;
   name: string;
   phone: string;
   email: string;
@@ -164,6 +172,43 @@ function CustomerName({ o }: { o: { business?: string; name: string } }) {
   );
 }
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th"}`;
+
+/** The whole board, for the two things a card needs from beyond itself:
+    the same customer's other orders (credit moved between them), and a
+    refresh after a refund or a credit is recorded. */
+const BoardCtx = createContext<{ orders: Order[]; refresh: () => void }>({ orders: [], refresh: () => {} });
+/** The Accounts tab's grouping, for two orders: the business when either
+    has one, else the phone, else the name. A walk-in is nobody. */
+const sameCustomer = (a: Order, b: Order): boolean => {
+  if (a.quick || b.quick) return false;
+  const ba = (a.business ?? "").trim().toLowerCase();
+  const bb = (b.business ?? "").trim().toLowerCase();
+  if (ba || bb) return !!ba && ba === bb;
+  const pa = phoneKey(a.phone);
+  const pb = phoneKey(b.phone);
+  if (pa || pb) return !!pa && pa === pb;
+  return !!a.name.trim() && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+};
+/** How one refund reads on a card and a row. */
+const refundLabel = (r: { note: string; how?: string; kept?: boolean }) => (r.how === "transfer" ? r.note : r.kept && r.note ? `Refunded: ${r.note}` : "Refunded");
+
+/** Refund some or all of a paid order, from its card or its finished row. */
+function CardRefund({ o }: { o: Order }) {
+  const { refresh } = useContext(BoardCtx);
+  if (o.status === "canceled" || !o.payment || o.payment.refundedAt || balanceCents(o) < 0 || refundableCents(o) <= 0) return null;
+  const delivery = o.lines.filter(isDeliveryLine).reduce((sum, l) => sum + Math.round(l.each * l.qty * 100), 0);
+  return <RefundControl orderId={o.id} number={o.number} refundableCents={refundableCents(o)} deliveryCents={delivery} square={squareMoney(o)} onDone={refresh} />;
+}
+/** Move an overpaid order's credit onto another order the same customer owes on. */
+function CardCredit({ o }: { o: Order }) {
+  const { orders, refresh } = useContext(BoardCtx);
+  if (o.status === "canceled" || !o.payment || balanceCents(o) >= 0) return null;
+  const targets = orders
+    .filter((x) => x.id !== o.id && sameCustomer(x, o) && x.status !== "canceled" && x.status !== "hold" && owedNowCents(x) > 0)
+    .sort((x, y) => x.createdAt - y.createdAt)
+    .map((x) => ({ id: x.id, number: x.number, label: x.date, owedCents: owedNowCents(x) }));
+  return <ApplyCredit fromId={o.id} creditCents={-balanceCents(o)} targets={targets} onDone={refresh} />;
+}
 
 export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const [authed, setAuthed] = useState(initialAuthed);
@@ -498,7 +543,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   }
 
   return (
-    <>
+    <BoardCtx.Provider value={{ orders, refresh: () => { pull().catch(() => {}); } }}>
       {/* Page identity only. Getting anywhere else is the shared chrome's job
           (components/workroom/Chrome.tsx). */}
       <h1>Orders</h1>
@@ -655,7 +700,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
           {showDone && <ClosedList orders={buckets.closed} onUncancel={uncancel} onRemove={removeDuplicate} onUnmark={unmarkPaid} onAccountOff={accountOff} />}
         </>
       )}
-    </>
+    </BoardCtx.Provider>
   );
 }
 
@@ -751,7 +796,7 @@ function ClosedList({
               )}
               {o.payment && (
                 <p className="muted" style={{ margin: 0 }}>
-                  Paid {o.payment.method === "other" ? "by hand (marked paid another way)" : `by ${o.payment.method}`}, {money(o.payment.totalCents / 100)}
+                  Paid {o.payment.method === "other" && !o.payment.via ? "by hand (marked paid another way)" : `by ${payWord(o.payment)}`}, {money(o.payment.totalCents / 100)}
                   {/* When, on the shop's clock, so "did I mark that yesterday?"
                       (Katy, 2026-10-15) is answered by the row itself. */}
                   {o.payment.at > 0 ? ` · ${new Date(o.payment.at).toLocaleString("en-US", { timeZone: site.timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
@@ -759,6 +804,14 @@ function ClosedList({
                   {o.payment.refundedAt ? " · refunded" : ""}
                 </p>
               )}
+              {(o.refunds ?? []).length > 0 && (
+                <p className="muted" style={{ margin: 0 }}>
+                  {(o.refunds ?? []).map((r) => `${refundLabel(r)}, ${money(r.cents / 100)}`).join(" · ")}
+                </p>
+              )}
+              {/* A finished order is where most refunds happen (it went out
+                  late, it was wrong): recorded from its own row. */}
+              <CardRefund o={o} />
               {/* A delivered account order marked paid by hand lands here, so
                   the undo lives here too (Katy, 2026-10-15); never for Square
                   money, never once refunded. */}
@@ -1445,6 +1498,7 @@ function OrderCard({
         {o.occasion && o.occasion !== "Everyday" ? ` · ${o.occasion}` : ""}
         {o.status !== "confirmed" ? ` · ${statusWord}` : ""}
         {o.account ? <strong> · ON ACCOUNT</strong> : ""}
+        {o.poNumber ? ` · PO ${o.poNumber}` : ""}
         {batch ? <strong> · order {batch.index} of {batch.count}, one card for all</strong> : ""}
         {o.taxExempt ? ` · tax exempt${o.taxId ? ` (ID ${o.taxId})` : ""}` : ""}
         {o.thirdParty ? " · third-party order, no tax" : ""}
@@ -1500,12 +1554,13 @@ function OrderCard({
         {/* Money given back after the payment (a fee off a ticket picked up
             instead): on the ticket itself, so Total, the payment and the
             refund read as one record. */}
-        {o.payment && refundedCents(o) > 0 && (
-          <li style={{ display: "flex", justifyContent: "space-between", color: "var(--rose-ink)" }}>
-            <span>Refunded</span>
-            <span>−{money(refundedCents(o) / 100)}</span>
-          </li>
-        )}
+        {o.payment &&
+          (o.refunds ?? []).map((r, i) => (
+            <li key={`rf${i}`} style={{ display: "flex", justifyContent: "space-between", color: "var(--rose-ink)" }}>
+              <span>{refundLabel(r)}</span>
+              <span>−{money(r.cents / 100)}</span>
+            </li>
+          ))}
         {/* After an edit to a paid ticket, or a part payment (Kevin,
             2026-10-14): the payments taken since the first, and what is
             still due or owed back (derive.ts balanceCents). */}
@@ -1513,13 +1568,13 @@ function OrderCard({
           <li style={{ display: "flex", justifyContent: "space-between" }}>
             {/* The first payment gets its own row once there are more,
                 so the list adds up on its own ($40 cash + $28.90 card). */}
-            <span>Paid, {o.payment.method === "other" ? "another way" : o.payment.method}</span>
+            <span>Paid, {payWord(o.payment)}</span>
             <span>{money((o.payment.totalCents - o.payment.feeCents) / 100)}</span>
           </li>
         )}
         {o.payment && paidInParts(o) && o.topUps!.map((p, i) => (
           <li key={i} style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>Also paid, {p.method === "other" ? "another way" : p.method}</span>
+            <span>Also paid, {payWord(p)}</span>
             <span>{money(p.totalCents / 100)}</span>
           </li>
         ))}
@@ -1658,6 +1713,10 @@ function OrderCard({
               {refunding ? "Marking…" : squareMoney(o) ? `Refunded ${money(-balanceCents(o) / 100)} in Square` : `Gave ${money(-balanceCents(o) / 100)} back`}
             </button>
           )}
+          {/* Or it stays theirs: onto another order they owe on (2026-11-09). */}
+          <div style={{ margin: "8px 0 0" }}>
+            <CardCredit o={o} />
+          </div>
         </div>
       )}
       {o.status !== "canceled" && o.status !== "hold" && (
@@ -1679,6 +1738,9 @@ function OrderCard({
           onPaid={(_m, _c, out) => onPaid(out?.changeCents ?? null).catch(() => {})}
         />
       )}
+      <div style={{ margin: "6px 0 0" }}>
+        <CardRefund o={o} />
+      </div>
 
       {/* Keyed by status so a half-finished cancel confirm or initials
           prompt resets when the 30s poll brings a new status underneath. */}
@@ -1731,6 +1793,8 @@ type DraftLine = { uid: number; slug: string; custom: string; each: string; qty:
 let lineUid = 0;
 const newUid = () => ++lineUid;
 const blankLine = (): DraftLine => ({ uid: newUid(), slug: "", custom: "", each: "", qty: 1, byStems: false, parts: [{ variety: "", stems: "" }] });
+/** The named items sold at a price typed on the spot (ItemsEditor). */
+const OPEN_PRICE_ITEMS = ["Designer's Choice", "Green Plant", "Casket Spray", "Standing Spray"];
 /** The lines that can be built by stems: her Designer's Choice three and
     anything custom. A Peace Lily is a Peace Lily. */
 const canBuild = (l: DraftLine) => !l.slug || l.slug.startsWith("designers-choice");
@@ -1998,6 +2062,34 @@ function StopFields({
   const [typedRecipient, setTypedRecipient] = useState(false);
   /** Hits from the contacts on file (IRIS), fetched as the human types. */
   const [fileRecipHits, setFileRecipHits] = useState<FileContact[]>([]);
+  /** THE PLACE, THE SAME WAY (Katy, 2026-11-09: "they would like the
+      autofill company or place address and info under delivery address
+      too"). A funeral home, a hospital, a church gets flowers every week;
+      a few letters of its name offer it from the orders already written
+      and from the contacts on file, and a tap fills the place and its
+      address. Only what the human typed drives it, and a pick closes it. */
+  const [typedCompany, setTypedCompany] = useState(false);
+  const [filePlaceHits, setFilePlaceHits] = useState<FileContact[]>([]);
+  const placeQ = typedCompany ? s.company.trim() : "";
+  useEffect(() => {
+    let dead = false;
+    if (placeQ.length < 2) {
+      setFilePlaceHits([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      fetch(`/api/workroom/contacts?kind=recipient&q=${encodeURIComponent(placeQ)}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!dead) setFilePlaceHits(((d?.hits as FileContact[]) ?? []).filter((f) => f.business && f.business.toLowerCase().includes(placeQ.toLowerCase())));
+        })
+        .catch(() => {});
+    }, 180);
+    return () => {
+      dead = true;
+      clearTimeout(t);
+    };
+  }, [placeQ]);
   const recipQ = typedRecipient ? s.recipient.trim() : "";
   useEffect(() => {
     let dead = false;
@@ -2180,8 +2272,76 @@ function StopFields({
             don't use it"). */}
         <label style={{ display: "block", marginBottom: 14 }}>
           <span style={labelText}>Company or place (optional)</span>
-          <input value={s.company} onChange={(e) => patch({ company: e.target.value })} placeholder="Funeral home, school, church, office" style={field} />
+          <input
+            value={s.company}
+            onChange={(e) => {
+              setTypedCompany(true);
+              patch({ company: e.target.value });
+            }}
+            placeholder="Funeral home, school, church, office"
+            autoComplete="off"
+            style={field}
+          />
         </label>
+        {(() => {
+          const q = placeQ.toLowerCase();
+          if (q.length < 2) return null;
+          const latest = new Map<string, { c: Contact; count: number }>();
+          for (const c of contacts) {
+            const place = (c.company ?? "").trim();
+            if (!place || !(c.street ?? "").trim()) continue;
+            const key = `${place.toLowerCase()}|${(c.street ?? "").trim().toLowerCase()}`;
+            const cur = latest.get(key);
+            if (!cur) latest.set(key, { c, count: 1 });
+            else {
+              cur.count += 1;
+              if (c.createdAt > cur.c.createdAt) cur.c = c;
+            }
+          }
+          const hits = [...latest.values()]
+            .filter(({ c }) => (c.company ?? "").toLowerCase().includes(q))
+            .sort((a, b) => b.count - a.count || b.c.createdAt - a.c.createdAt)
+            .slice(0, 4);
+          const seen = new Set(hits.map(({ c }) => `${(c.company ?? "").trim().toLowerCase()}|${(c.street ?? "").trim().toLowerCase()}`));
+          const onFile: FileContact[] = [];
+          for (const f of filePlaceHits) {
+            const key = `${f.business.trim().toLowerCase()}|${f.street.trim().toLowerCase()}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            onFile.push(f);
+          }
+          if (hits.length === 0 && onFile.length === 0) return null;
+          return (
+            <div role="status" style={{ margin: "-6px 0 14px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {hits.map(({ c, count: n }) => (
+                <button
+                  key={`${c.company}|${c.street}`}
+                  type="button"
+                  onClick={() => {
+                    setTypedCompany(false);
+                    patch({ company: c.company ?? "", street: c.street ?? "", town: c.town ?? "", zip: c.zip ?? "" });
+                  }}
+                  style={chipSolid}
+                >
+                  {c.company} · {[c.street, c.town].filter(Boolean).join(", ")} · {n} order{n === 1 ? "" : "s"}
+                </button>
+              ))}
+              {onFile.slice(0, 4).map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => {
+                    setTypedCompany(false);
+                    patch({ company: f.business, street: [f.street, f.street2].filter(Boolean).join(", "), town: f.town, zip: f.zip });
+                  }}
+                  style={chipDashed}
+                >
+                  {f.business} · {[f.street, f.town].filter(Boolean).join(", ") || "no address on file"} · on file
+                </button>
+              ))}
+            </div>
+          );
+        })()}
         <div style={{ display: "grid", gap: 14, gridTemplateColumns: "2fr 1fr minmax(70px, 110px)" }}>
           <label style={{ minWidth: 0 }}>
             <span style={labelText}>Street</span>
@@ -2333,6 +2493,24 @@ function ItemsEditor({
 }) {
   const products = useProducts();
   const lock = useContext(PriceLock);
+  /** The line whose price box takes the cursor: the one a named button just added. */
+  const [focusPrice, setFocusPrice] = useState(0);
+  /** A NAMED ITEM AT WHATEVER PRICE IT IS TODAY (Katy, 2026-11-09: "a
+      button for designer's choice where you can enter the amount,
+      currently it's price locked", then Green Plant, Casket Spray and
+      Standing Spray). The catalog's Designer's Choice is three fixed
+      prices; these are the things the shop sells every day at a price
+      decided on the phone. One tap names the line and puts the cursor in
+      its price. It fills the empty line when there is one. */
+  const addNamed = (name: string) => {
+    const line = { ...blankLine(), custom: name };
+    setFocusPrice(line.uid);
+    setLines((cur) => {
+      const last = cur[cur.length - 1];
+      const empty = last && !last.slug && !last.custom.trim() && !last.each.trim() && !last.byStems;
+      return empty ? [...cur.slice(0, -1), line] : [...cur, line];
+    });
+  };
   const sortedProducts = useMemo(() => [...products].sort((a, b) => a.name.localeCompare(b.name)), [products]);
   function setLine(i: number, p: Partial<DraftLine>) {
     setLines((cur) => cur.map((l, at) => (at === i ? { ...l, ...p } : l)));
@@ -2370,7 +2548,10 @@ function ItemsEditor({
                 style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
               >
                 <option value="">Custom item…</option>
-                {sortedProducts.map((sp) => (
+                {/* Only what is for sale today (Katy, 2026-11-09: "so only
+                    the live ones show"), plus whatever this line already
+                    holds, so an old order still reads as it was written. */}
+                {sortedProducts.filter((sp) => !sp.offMenu || sp.slug === l.slug).map((sp) => (
                   <option key={sp.slug} value={sp.slug}>
                     {sp.name} ({money(sp.price)})
                   </option>
@@ -2392,6 +2573,7 @@ function ItemsEditor({
               {!l.slug && !building && (
                 <input
                   aria-label={aria(`Item ${i + 1} price`)}
+                  autoFocus={l.uid === focusPrice}
                   placeholder="$"
                   inputMode="decimal"
                   value={l.each}
@@ -2507,10 +2689,16 @@ function ItemsEditor({
           );
         })}
       </div>
-      <p style={{ margin: "8px 0 0" }}>
+      <p style={{ margin: "8px 0 0", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <button type="button" onClick={() => setLines((cur) => [...cur, blankLine()])} style={textButton}>
           Another item
         </button>
+        <span className="muted" style={{ fontSize: 13.5 }}>or, at your price:</span>
+        {OPEN_PRICE_ITEMS.map((name) => (
+          <button key={name} type="button" onClick={() => addNamed(name)} style={chipSolid}>
+            {name}
+          </button>
+        ))}
       </p>
     </div>
   );
@@ -2901,6 +3089,15 @@ function PhoneOrderForm({
   const noTax = noTaxWhy !== "";
   const taxWord = taxExempt ? "tax exempt" : thirdParty ? "no tax, third-party order" : "";
   const [taxId, setTaxId] = useState(seed?.taxId ?? "");
+  /** THE CUSTOMER'S PO NUMBER (Katy, 2026-11-09: Tribute and FireKeepers
+      give one with the order; their payables desk matches on it). This
+      order's own, so it is not carried onto "another order for them". */
+  const [poNumber, setPoNumber] = useState(editing?.poNumber ?? "");
+  /** WHERE THE BILL GOES (same day: "need to add billing address for
+      customer"), when it is not where the flowers go. Printed on the
+      invoice; a returning customer's comes along with the rest of WHO. */
+  const [billTo, setBillTo] = useState<BillTo>(seed?.billTo ?? NO_BILL);
+  const [showBill, setShowBill] = useState(!!seed?.billTo);
   /** The orders on this write-up, one or more. */
   const [stops, setStops] = useState<Stop[]>(() => [
     editing ? stopFromOrder(editing) : addTo ? blankStop(carryOver(stopFromOrder(addTo))) : blankStop(),
@@ -2964,6 +3161,8 @@ function PhoneOrderForm({
       taxExempt,
       taxId: taxExempt ? taxId.trim() : "",
       thirdParty,
+      poNumber: poNumber.trim(),
+      billTo: showBill && [billTo.street, billTo.town, billTo.zip].some((v) => v.trim()) ? billTo : undefined,
       name,
       business: business.trim(),
       phone,
@@ -3144,6 +3343,10 @@ function PhoneOrderForm({
                   setBusiness(f.business && f.business !== f.name ? f.business : "");
                   setPhone(f.phone);
                   setEmail(f.email);
+                  // The customer file's address is their own: where a bill goes.
+                  const fileBill = f.street ? { street: [f.street, f.street2].filter(Boolean).join(", "), town: f.town, zip: f.zip } : null;
+                  setBillTo(fileBill ?? NO_BILL);
+                  setShowBill(!!fileBill);
                 }}
                 style={chipDashed}
               >
@@ -3170,6 +3373,11 @@ function PhoneOrderForm({
                   setAccount(c.account === true);
                   setNoTaxWhy(c.taxExempt ? "exempt" : c.thirdParty ? "third" : "");
                   setTaxId(c.taxExempt ? c.taxId ?? "" : "");
+                  // Their billing address, from the newest order that has one.
+                  const pk = phoneKey(c.phone);
+                  const bill = c.billTo ?? contacts.filter((x) => x.billTo && pk && phoneKey(x.phone) === pk).sort((x, y) => y.createdAt - x.createdAt)[0]?.billTo;
+                  setBillTo(bill ?? NO_BILL);
+                  setShowBill(!!bill);
                 }}
                 style={chipSolid}
               >
@@ -3229,6 +3437,34 @@ function PhoneOrderForm({
               style={field}
             />
           </label>
+        )}
+        <div style={{ display: "grid", gap: 14, gridTemplateColumns: "minmax(0, 260px)", marginTop: 12 }}>
+          <label style={{ minWidth: 0 }}>
+            <span style={labelText}>
+              PO number <span className="muted" style={{ fontWeight: 400 }}>(if they gave one)</span>
+            </span>
+            <input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} maxLength={40} autoComplete="off" style={field} />
+          </label>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, padding: "4px 0", marginTop: 10 }}>
+          <input type="checkbox" checked={showBill} onChange={(e) => setShowBill(e.target.checked)} style={radio} />
+          The bill goes to a different address
+        </label>
+        {showBill && (
+          <div style={{ display: "grid", gap: 14, gridTemplateColumns: "2fr 1fr minmax(70px, 110px)", marginTop: 8 }}>
+            <label style={{ minWidth: 0 }}>
+              <span style={labelText}>Billing street</span>
+              <input value={billTo.street} onChange={(e) => setBillTo({ ...billTo, street: e.target.value })} autoComplete="off" style={field} />
+            </label>
+            <label style={{ minWidth: 0 }}>
+              <span style={labelText}>Billing town</span>
+              <input value={billTo.town} onChange={(e) => setBillTo({ ...billTo, town: e.target.value })} autoComplete="off" style={field} />
+            </label>
+            <label style={{ minWidth: 0 }}>
+              <span style={labelText}>Billing zip</span>
+              <input value={billTo.zip} onChange={(e) => setBillTo({ ...billTo, zip: e.target.value })} inputMode="numeric" autoComplete="off" style={field} />
+            </label>
+          </div>
         )}
       </fieldset>
 

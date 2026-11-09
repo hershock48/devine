@@ -140,11 +140,25 @@ export const paidInParts = (o: { payment?: { totalCents: number } | null; topUps
 export const paidByHandOnly = (o: { payment?: { method: string; squarePaymentId?: string } | null; topUps?: { method: string; squarePaymentId?: string }[]; refunds?: { cents: number }[] }): boolean =>
   // Once part of it was given back, the mark is a record, not a slip: no undo.
   !!o.payment && !squareMoney(o) && !(o.refunds ?? []).length;
-export const balanceCents = (o: { subtotal: number; payment?: Paid | null; topUps?: Paid[]; refunds?: { cents: number }[] }): number => {
-  // What was collected, less what was already given back, against the
-  // ticket as it stands now.
+/** Refunds that answered a change to the ticket (a fee taken off, credit
+    moved to another order): the ones that count against what was
+    collected. A KEPT refund (store.ts OrderRefund.kept) is money given
+    back while the ticket stands, a late delivery or a goodwill refund; it
+    is not owed again, so the balance leaves it out. */
+export const ticketRefundedCents = (o: { refunds?: { cents: number; kept?: boolean }[] }): number =>
+  (o.refunds ?? []).reduce((s, r) => s + (r.kept ? 0 : r.cents), 0);
+/** By-hand money that is a paper check, and by-hand money that is credit
+    moved from another order (not new money). */
+export const isCheck = (p: { method: string; via?: string }) => p.method === "other" && p.via === "check";
+export const isCredit = (p: { method: string; via?: string }) => p.method === "other" && p.via === "credit";
+/** How a payment is named on a card, a ticket and a sheet. */
+export const payWord = (p: { method: string; via?: string; checkNumber?: string; note?: string }): string =>
+  isCheck(p) ? `check${p.checkNumber ? ` #${p.checkNumber}` : ""}` : isCredit(p) ? (p.note || "credit from another order").replace(/^Credit/, "credit") : p.method === "other" ? "another way" : p.method;
+export const balanceCents = (o: { subtotal: number; payment?: Paid | null; topUps?: Paid[]; refunds?: { cents: number; kept?: boolean }[] }): number => {
+  // What was collected, less what was already given back against the
+  // ticket, against the ticket as it stands now.
   const sub = Math.round(o.subtotal * 100);
-  const due = sub - collectedCents(o) + refundedCents(o);
+  const due = sub - collectedCents(o) + ticketRefundedCents(o);
   if (o.payment?.method !== "register" || due >= 0) return due;
   // A ring at the register (the webhook's record) is the register's own
   // business: a tip or a rounded-up ring is not money the shop owes back.
@@ -152,7 +166,7 @@ export const balanceCents = (o: { subtotal: number; payment?: Paid | null; topUp
   // off, the customer picks up): the webhook keeps the ticket's total at
   // link time (ticketCents) for exactly this. A ring with no such record
   // owes nothing back, as before. A shortfall after an edit still shows.
-  const lost = Math.max(0, (o.payment.ticketCents ?? sub) - sub) - refundedCents(o);
+  const lost = Math.max(0, (o.payment.ticketCents ?? sub) - sub) - ticketRefundedCents(o);
   // (`|| 0` turns the -0 of a clamped excess into 0, so it prints as $0.00.)
   return Math.max(due, -Math.max(0, lost)) || 0;
 };

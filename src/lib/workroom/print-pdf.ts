@@ -17,7 +17,7 @@ import {
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { balanceCents, clock12, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, refundedCents, type PrintLayout } from "./derive";
+import { balanceCents, clock12, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, refundedCents, type PrintLayout, payWord } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -322,7 +322,7 @@ const paidWord = (o: WorkroomOrder, atPickup: boolean): string => {
     // after the payment, so PAID and the TOTAL agree again.
     const back = refundedCents(o) > 0 ? ` - ${money(refundedCents(o) / 100)} refunded` : "";
     if (paidInParts(o)) return `PAID - in parts - ${money(collectedCents(o) / 100)}${back}`;
-    return `PAID - ${o.payment.method === "other" ? "by hand" : o.payment.method} - ${money(o.payment.totalCents / 100)}${
+    return `PAID - ${o.payment.method === "other" && !o.payment.via ? "by hand" : clean(payWord(o.payment))} - ${money(o.payment.totalCents / 100)}${
       // A website card payment carries the 99 cent ordering fee, which
       // is not a line of the order; said here so PAID and TOTAL agree.
       o.payment.feeCents > 0 ? ` (incl. ${money(o.payment.feeCents / 100)} online fee)` : ""
@@ -382,6 +382,11 @@ function itemsTable(c: Cursor, pen: Pen, o: WorkroomOrder, size: number) {
   if (o.taxExempt && c.fits(size)) {
     c.y -= size * 1.25;
     pen.page.drawText(`TAX EXEMPT - no sales tax${o.taxId ? ` - ID ${o.taxId}` : ""}`, { x: c.x, y: c.y, size: size - 1, font: pen.bold, color: grey });
+  }
+  // The customer's own PO number (2026-11-09), where their office will look for it.
+  if (o.poNumber && c.fits(size)) {
+    c.y -= size * 1.25;
+    pen.page.drawText(clean(`PO ${o.poNumber}`), { x: c.x, y: c.y, size: size - 1, font: pen.bold, color: grey });
   }
   if (o.thirdParty && !o.taxExempt && c.fits(size)) {
     c.y -= size * 1.25;
