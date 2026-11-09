@@ -102,6 +102,7 @@ export default function PayControls({
   handPaid = false,
   squareMoney = true,
   refundedCents = 0,
+  movedCents = 0,
   onPaid,
 }: {
   orderId: string;
@@ -139,6 +140,10 @@ export default function PayControls({
   squareMoney?: boolean;
   /** derive.ts refundedCents: part of the payment already given back. */
   refundedCents?: number;
+  /** Credit moved from this order onto another of the same customer:
+      not a refund, and said apart from one. The caller leaves it out of
+      refundedCents. */
+  movedCents?: number;
   /** Paid: which way, how many cents, and what that leaves. `settled` is
       whether this payment covered everything due; `boardMissed` is the
       charge that went through while the board write failed (said in red
@@ -234,6 +239,7 @@ export default function PayControls({
   const pickScope = (s: "one" | "all") => {
     setScope(s);
     if (part) setPartText(((s === "all" ? batch!.totalCents : total) / 100).toFixed(2));
+    if (mode === "check") setCheckText(((s === "all" ? batch!.totalCents : total) / 100).toFixed(2));
   };
   /* Not while unsure: the retry must resend the same attempt with the
      same amount, so the pane stays exactly as it is (box, figure, scope)
@@ -402,6 +408,7 @@ export default function PayControls({
           ? `Paid in full · ${dollars(collectedCents)} · in parts`
           : `Paid · ${payment.method === "manual" || (payment.method === "other" && !payment.via) ? "marked by hand" : payWord(payment)} · ${dollars(payment.totalCents)}`}
       {refundedCents > 0 ? ` · ${dollars(refundedCents)} refunded` : ""}
+      {movedCents > 0 ? ` · ${dollars(movedCents)} moved to another order` : ""}
       {balanceCents < 0 ? ` · ${dollars(-balanceCents)} ${squareMoney ? "to refund (Square dashboard)" : "to give back"}` : ""}
     </p>
   ) : null;

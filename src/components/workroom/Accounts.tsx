@@ -649,7 +649,8 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       paidInParts={paidInParts(o)}
                       handPaid={paidByHandOnly(o)}
                       squareMoney={squareMoney(o)}
-                      refundedCents={refundedCents(o)}
+                      refundedCents={backCents(o)}
+                      movedCents={movedCents(o)}
                       onPaid={(_m, _c, out) => {
                         setChangeNote(out?.changeCents ? `Change ${money(out.changeCents / 100)} back to the customer (${o.number}).` : "");
                         pull().catch(() => {});

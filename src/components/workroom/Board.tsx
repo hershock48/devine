@@ -189,6 +189,9 @@ const sameCustomer = (a: Order, b: Order): boolean => {
   if (pa || pb) return !!pa && pa === pb;
   return !!a.name.trim() && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
 };
+/** Credit moved from an order onto another one: on its record as a
+    refund with how "transfer", but never money given back. */
+const movedOf = (o: Order) => (o.refunds ?? []).reduce((sum, r) => sum + (r.how === "transfer" ? r.cents : 0), 0);
 /** How one refund reads on a card and a row. */
 const refundLabel = (r: { note: string; how?: string; kept?: boolean }) => (r.how === "transfer" ? r.note : r.kept && r.note ? `Refunded: ${r.note}` : "Refunded");
 
@@ -405,7 +408,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   const unmarkPaid = (id: string) => patchOrder({ id, unmarkPaid: true });
   /** A part of a payment given back (a fee off a ticket the customer
       picked up instead), recorded for the amount owed back. */
-  const markPartRefund = (id: string, cents: number) => patchOrder({ id, refunded: cents });
+  const markPartRefund = (id: string, cents: number, how?: "check") => patchOrder({ id, refunded: cents, ...(how ? { how } : {}) });
   /** The human attestation that the Square refund happened; the workroom
       cannot see refunds on its own (no refund webhook subscribed) and
       should not pretend to. */
@@ -737,7 +740,7 @@ function ClosedList({
     // A billed order paid in part (cash at the counter, the rest on
     // account) files here too; the row says what is still owed.
     if (balanceCents(o) > 0) return `paid ${money(collectedCents(o) / 100)} · ${money(balanceCents(o) / 100)} owed${o.account ? ", on account" : ""}`;
-    return `paid ${money(grossPaidCents(o) / 100)}${refundedCents(o) > 0 ? ` · ${money(refundedCents(o) / 100)} refunded` : ""}`;
+    return `paid ${money(grossPaidCents(o) / 100)}${refundedCents(o) - movedOf(o) > 0 ? ` · ${money((refundedCents(o) - movedOf(o)) / 100)} refunded` : ""}${movedOf(o) > 0 ? ` · ${money(movedOf(o) / 100)} moved to another order` : ""}`;
   };
   return (
     <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0", maxWidth: 720 }}>
@@ -882,7 +885,7 @@ function Bucket({
   onRemove?: (id: string, by: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
-  onPartRefund?: (id: string, cents: number) => Promise<void>;
+  onPartRefund?: (id: string, cents: number, how?: "check") => Promise<void>;
 }) {
   if (orders.length === 0) return null;
   return (
@@ -1346,7 +1349,7 @@ function OrderCard({
   onRemove?: (id: string, by: string) => Promise<void>;
   onEdit?: (o: Order) => void;
   onAddTo?: (o: Order) => void;
-  onPartRefund?: (id: string, cents: number) => Promise<void>;
+  onPartRefund?: (id: string, cents: number, how?: "check") => Promise<void>;
 }) {
   const next = nextMove(o);
   const today = todayISO();
@@ -1677,7 +1680,8 @@ function OrderCard({
         <div style={{ margin: "10px 0 0" }}>
           <p style={{ margin: "0 0 8px", fontSize: 14.5, fontWeight: 700, color: "var(--rose-ink)" }}>
             Paid {money(grossPaidCents(o) / 100)}
-            {refundedCents(o) > 0 ? `, ${money(refundedCents(o) / 100)} refunded` : ""}, then canceled. Refund{" "}
+            {refundedCents(o) - movedOf(o) > 0 ? `, ${money((refundedCents(o) - movedOf(o)) / 100)} refunded` : ""}
+            {movedOf(o) > 0 ? `, ${money(movedOf(o) / 100)} moved to another order` : ""}, then canceled. Refund{" "}
             {refundedCents(o) > 0 ? `the remaining ${money(refundableCents(o) / 100)}` : "it"} from the Square dashboard (Transactions), then mark it here.
           </p>
           {onRefunded && (
@@ -1710,7 +1714,22 @@ function OrderCard({
                 onPartRefund(o.id, -balanceCents(o)).finally(() => setRefunding(false));
               }}
             >
-              {refunding ? "Marking…" : squareMoney(o) ? `Refunded ${money(-balanceCents(o) / 100)} in Square` : `Gave ${money(-balanceCents(o) / 100)} back`}
+              {refunding ? "Marking…" : squareMoney(o) ? `Refunded ${money(-balanceCents(o) / 100)} in Square` : `Gave ${money(-balanceCents(o) / 100)} back in cash`}
+            </button>
+          )}
+          {/* By check is not cash out of the drawer, and the day sheet's
+              drawer count must not be told it was. */}
+          {onPartRefund && !squareMoney(o) && (
+            <button
+              type="button"
+              disabled={refunding}
+              onClick={() => {
+                setRefunding(true);
+                onPartRefund(o.id, -balanceCents(o), "check").finally(() => setRefunding(false));
+              }}
+              style={{ ...textButton, fontSize: 14, marginLeft: 14 }}
+            >
+              Sent a check for it instead
             </button>
           )}
           {/* Or it stays theirs: onto another order they owe on (2026-11-09). */}
@@ -1733,7 +1752,8 @@ function OrderCard({
           paidInParts={paidInParts(o)}
           handPaid={paidByHandOnly(o)}
           squareMoney={squareMoney(o)}
-          refundedCents={refundedCents(o)}
+          refundedCents={refundedCents(o) - movedOf(o)}
+          movedCents={movedOf(o)}
           batch={batch}
           onPaid={(_m, _c, out) => onPaid(out?.changeCents ?? null).catch(() => {})}
         />

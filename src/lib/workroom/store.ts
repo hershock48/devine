@@ -913,6 +913,8 @@ const memoryStore: Store = {
     if (!o?.payment || o.payment.method !== "other" || o.payment.squarePaymentId) return false;
     if ((o.topUps ?? []).some((t) => t.method !== "other" || t.squarePaymentId)) return false;
     if ((o.refunds ?? []).length) return false;
+    // Credit moved here left its mark on another order: never erased.
+    if ([o.payment, ...(o.topUps ?? [])].some((p) => p.via === "credit")) return false;
     o.payment = null;
     delete o.topUps;
     return true;
@@ -1273,11 +1275,17 @@ const postgresStore: Store = {
          WHERE data->>'voided' IS NULL AND (
             status NOT IN ('done', 'canceled')
             OR (status = 'done' AND data->>'payment' IS NULL)
-            OR (status = 'done' AND data->>'payment' IS NOT NULL AND
-                ROUND((data->>'subtotal')::numeric * 100) <>
+            -- derive.ts balanceCents <> 0: still due (kept refunds left
+            -- out), or owed back (every refund counted).
+            OR (status = 'done' AND data->>'payment' IS NOT NULL AND (
+                ROUND((data->>'subtotal')::numeric * 100) >
                   ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
                   + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
-                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0))
+                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0)
+                OR ROUND((data->>'subtotal')::numeric * 100) <
+                  ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
+                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
+                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0)))
             OR created_at >= $1)
          ORDER BY created_at DESC LIMIT 2000
        ) t ORDER BY created_at ASC`,
@@ -1366,8 +1374,8 @@ const postgresStore: Store = {
              SELECT ROUND((data->>'subtotal')::numeric * 100) AS sub,
                     ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
                       + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0) AS collected,
-                    -- kept refunds (money back while the ticket stands) are not owed again
-                    COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0) AS refunded
+                    -- every refund, kept ones too: this guard is the owed-back side (derive.ts balanceCents)
+                    COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0) AS refunded
            )
            SELECT CASE WHEN data->'payment'->>'method' = 'register'
                        THEN LEAST(collected - refunded - sub, GREATEST(0, COALESCE((data->'payment'->>'ticketCents')::numeric, sub) - sub) - refunded)
@@ -1440,11 +1448,12 @@ const postgresStore: Store = {
        SET data = (data - 'payment') - 'topUps'
        WHERE id = $1
          AND data->'payment'->>'method' = 'other'
+         AND COALESCE(data->'payment'->>'via', '') <> 'credit'
          AND COALESCE(data->'payment'->>'squarePaymentId', '') = ''
          AND COALESCE(jsonb_array_length(data->'refunds'), 0) = 0
          AND NOT EXISTS (
            SELECT 1 FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t
-           WHERE t->>'method' <> 'other' OR COALESCE(t->>'squarePaymentId', '') <> ''
+           WHERE t->>'method' <> 'other' OR COALESCE(t->>'squarePaymentId', '') <> '' OR COALESCE(t->>'via', '') = 'credit'
          )
        RETURNING id`,
       [id],

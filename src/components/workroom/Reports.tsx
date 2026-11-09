@@ -189,7 +189,7 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
       // back before.
       const gross = grossPaidCents(o);
       const scale = gross > 0 ? refundableCents(o) / gross : 0;
-      for (const p of payments(o)) {
+      for (const p of [...(o.payment ? [o.payment] : []), ...(o.topUps ?? [])]) {
         const cents = Math.round(p.totalCents * scale);
         if (p.method === "cash" || p.method === "other") {
           refundHand += cents;
@@ -199,9 +199,21 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
     }
   }
   /* THE CHECKS IN THE WINDOW, one by one: the deposit slip. */
-  const checks: { number: string; who: string; checkNumber: string; cents: number; at: number }[] = [];
-  for (const o of live) for (const p of payments(o)) if (p.via === "check" && inWin(p.at, w)) checks.push({ number: o.number, who: o.business || o.name, checkNumber: p.checkNumber ?? "", cents: p.totalCents, at: p.at });
-  checks.sort((a, b) => a.at - b.at);
+  // One check dealt across several orders of an account is ONE check on
+  // the slip: the route gives its shares one timestamp, and that with the
+  // number is the check.
+  const checkMap = new Map<string, { numbers: string[]; who: string; checkNumber: string; cents: number; at: number }>();
+  for (const o of live) {
+    for (const p of payments(o)) {
+      if (p.via !== "check" || !inWin(p.at, w)) continue;
+      const key = `${p.at}|${p.checkNumber ?? ""}`;
+      const cur = checkMap.get(key) ?? { numbers: [], who: o.business || o.name, checkNumber: p.checkNumber ?? "", cents: 0, at: p.at };
+      cur.numbers.push(o.number);
+      cur.cents += p.totalCents;
+      checkMap.set(key, cur);
+    }
+  }
+  const checks = [...checkMap.values()].sort((a, b) => a.at - b.at);
   const cashIn = (byMethod.get("cash")?.cents ?? 0) + walkInCash;
   const cashToCount = cashIn - refundCash;
 
@@ -486,7 +498,7 @@ function SheetView({ view, win, s, day }: { view: View; win: Window; s: Sheet; d
     .filter((m) => s.byMethod.has(m))
     .map((m) => {
       const x = s.byMethod.get(m)!;
-      return [methodWord[m] ?? m, c$(x.cents), `${x.count} payment${x.count === 1 ? "" : "s"}${(m === "card" || m === "web") && x.feeCents > 0 ? ` · includes ${c$(x.feeCents)} in card fees the customers paid` : ""}`];
+      return [methodWord[m] ?? m, c$(x.cents), `${m === "check" ? `${s.checks.length} check${s.checks.length === 1 ? "" : "s"}` : `${x.count} payment${x.count === 1 ? "" : "s"}`}${(m === "card" || m === "web") && x.feeCents > 0 ? ` · includes ${c$(x.feeCents)} in card fees the customers paid` : ""}`];
     });
   if (s.walkInCard > 0 || s.walkInCash > 0) {
     methodRows.push(["Walk-ins rung straight on the register", c$(s.walkInCard + s.walkInCash), `${s.walkIns} ring${s.walkIns === 1 ? "" : "s"} · ${c$(s.walkInCash)} cash, ${c$(s.walkInCard)} card`]);
@@ -536,13 +548,13 @@ function SheetView({ view, win, s, day }: { view: View; win: Window; s: Sheet; d
         {s.checks.length > 0 && (
           <Block title="Checks to deposit" note="Each check recorded in this window, in the order it was taken.">
             <Rows
-              rows={s.checks.map((k) => [`${k.who} · ${k.number}`, c$(k.cents), k.checkNumber ? `check #${k.checkNumber}` : "no check number written"] as [string, string, string])}
+              rows={s.checks.map((k) => [`${k.who} · ${k.numbers.join(", ")}`, c$(k.cents), k.checkNumber ? `check #${k.checkNumber}` : "no check number written"] as [string, string, string])}
               total={[`${s.checks.length} check${s.checks.length === 1 ? "" : "s"}`, c$(s.checks.reduce((a, k) => a + k.cents, 0))]}
             />
           </Block>
         )}
 
-        <Block title="Money out" note="A refund is recorded on the order's card or its finished row, and that record is what is counted here. Money moved from one order to another of the same customer is not money out and is left off.">
+        <Block title="Money out" note="A refund is recorded on the order's card or its finished row, and that record is what is counted here. Money moved from one order to another of the same customer is not money out and is left off. A refund that leaves the ticket as written does not change the sales tax figures on this sheet; if tax went back with it, adjust the return by hand.">
           <Rows
             rows={[
               ["Refunded through Square", c$(s.refundSquare)],
@@ -676,6 +688,15 @@ function Drawer({ day, cashFromSales }: { day: string; cashFromSales: number }) 
     let dead = false;
     setLoaded(false);
     setError("");
+    // Another day: nothing of the last one stays in the boxes, whether or
+    // not this day's count arrives.
+    setSaved(null);
+    setOpening("");
+    setAdded("");
+    setRemoved("");
+    setCounted("");
+    setNote("");
+    setBy("");
     fetch(`/api/workroom/drawer?day=${day}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {

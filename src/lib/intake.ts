@@ -513,6 +513,10 @@ export async function sendRefundEmail(
   /** A part given back (a delivery fee off a ticket picked up instead):
       that amount; left out, the whole refund of a canceled order. */
   partCents?: number,
+  /** How it went back, when the counter said (a refund recorded with its
+      own "how"), and whether it was everything paid on a standing order.
+      Without it the wording follows the payment, as it always did. */
+  opts?: { how?: "square" | "hand" | "check" | "transfer"; all?: boolean },
 ): Promise<void> {
   const mail = shopMail();
   if (!mail || !o.email) {
@@ -521,9 +525,13 @@ export async function sendRefundEmail(
   }
   const transport = mail.transport;
   const amount = money((partCents ?? refundableCents(o)) / 100);
-  const part = partCents !== undefined;
+  const part = partCents !== undefined && !opts?.all;
   const how =
-    o.payment?.method === "card"
+    opts?.how === "check"
+      ? "By check from the shop."
+      : opts?.how === "hand"
+        ? "In cash at the shop."
+        : o.payment?.method === "card"
       ? "Back to the card you paid with. Allow a few business days for your bank to show it."
       : o.payment?.method === "cash" || (part && !squareMoney(o))
         ? "In cash at the shop."

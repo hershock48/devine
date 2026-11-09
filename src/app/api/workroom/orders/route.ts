@@ -193,7 +193,7 @@ async function parseBody(p: Record<string, unknown>, cache: PriceCache = { stemP
       taxId: taxExempt ? str(p.taxId, 40) : "",
       thirdParty,
       poNumber: str(p.poNumber, 40),
-      ...(billTo ? { billTo } : {}),
+      billTo: billTo ?? undefined,
       name,
       business: str(p.business, 120),
       phone: str(p.phone, 40),
@@ -443,7 +443,7 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as {
-    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; refund?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
+    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; refund?: unknown; how?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
     void?: unknown; unvoid?: unknown; by?: unknown;
   };
   const id = typeof p.id === "string" ? p.id : "";
@@ -577,9 +577,15 @@ export async function PATCH(req: Request) {
     const how = r.how === "square" || r.how === "hand" || r.how === "check" ? r.how : squareMoney(o) ? "square" : "hand";
     const reason = str(r.reason, 120);
     if (!reason) return NextResponse.json({ error: "Say what the refund is for (late delivery, wrong flowers, the delivery fee)." }, { status: 400 });
-    const written = await getStore().addKeptRefund(id, { at: Date.now(), cents, how, note: reason, kept: true });
+    const now = Date.now();
+    if ((o.refunds ?? []).some((x) => x.kept && x.cents === cents && x.note === reason && now - x.at < 60_000)) {
+      return NextResponse.json({ error: "That refund was recorded a moment ago (another screen, or a second tap). Reload and look at the card; record it again in a minute if it really is a second one." }, { status: 409 });
+    }
+    const written = await getStore().addKeptRefund(id, { at: now, cents, how, note: reason, kept: true });
     if (!written) return NextResponse.json({ error: "That did not record: it may already be on the order. Reload the board and look at the card." }, { status: 409 });
-    if (o.email) await sendRefundEmail(o, cents);
+    // The note says where the money really went (review, 2026-11-09: a
+    // card-paid order refunded in cash told the customer to watch their card).
+    if (o.email) await sendRefundEmail(o, cents, { how, all: cents === left });
     return NextResponse.json({ ok: true });
   }
   if (typeof p.refunded === "number") {
@@ -594,12 +600,12 @@ export async function PATCH(req: Request) {
     if (cents > owedBack) return NextResponse.json({ error: owedBack > 0 ? `Only ${(owedBack / 100).toFixed(2)} is owed back on this order.` : "Nothing is owed back on this order." }, { status: 409 });
     // Where the money went back from: Square for a card, cash or register
     // payment; by hand (cash or a check) for a by-hand mark.
-    const how = squareMoney(o) ? "square" : "hand";
-    const written = await getStore().addOrderRefund(id, { at: Date.now(), cents, how, note: how === "square" ? "Refunded from the Square dashboard" : "Given back by hand" });
+    const how = squareMoney(o) ? "square" : p.how === "check" ? "check" : "hand";
+    const written = await getStore().addOrderRefund(id, { at: Date.now(), cents, how, note: how === "square" ? "Refunded from the Square dashboard" : how === "check" ? "Given back by check" : "Given back in cash" });
     if (!written) return NextResponse.json({ error: "That refund is already recorded, or more than is owed back. Reload the board and look at the card." }, { status: 409 });
     // The customer hears that it is done (Kevin, 2026-10-14), for a part
     // as for the whole.
-    if (o.email) await sendRefundEmail(o, cents);
+    if (o.email) await sendRefundEmail(o, cents, { how });
     return NextResponse.json({ ok: true });
   }
   // UNDO A BY-HAND MARK (Katy, 2026-10-15: two account orders marked "Paid

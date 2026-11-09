@@ -126,7 +126,7 @@ export default function RefundControl({
           What it is for
           <input value={reason} onChange={(e) => setReason(e.target.value)} disabled={busy} maxLength={120} aria-label="What the refund is for" style={{ ...field, flex: "1 1 220px", width: "auto", padding: "6px 10px" }} />
         </label>
-        <span style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <span style={{ display: "flex", gap: "0 14px", flexWrap: "wrap" }}>
           {REASONS.map((w) => (
             <button key={w} type="button" disabled={busy} onClick={() => setReason(w)} style={chip}>
               {w}

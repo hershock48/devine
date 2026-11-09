@@ -157,7 +157,17 @@ export async function POST(req: Request) {
     };
     try {
       if (feeAppended) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
-      await record(payment);
+      // recordOnce knows its own mark (this request's timestamp), so a
+      // retry cannot land twice. Credit has already left its order by
+      // here, so it gets three tries before anyone is asked to fix it.
+      for (let tries = 0; ; tries++) {
+        try {
+          await record(payment);
+          break;
+        } catch (e) {
+          if (method !== "credit" || tries >= 2) throw e;
+        }
+      }
     } catch (err) {
       if (method !== "credit") throw err;
       console.error(`[devine] credit left its order but did not land on ${order.number}:`, err);

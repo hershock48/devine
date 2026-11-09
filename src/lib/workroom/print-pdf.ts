@@ -17,7 +17,7 @@ import {
 import type { WorkroomOrder } from "./store";
 import { site } from "@/lib/site";
 import { LOGO_PNG_BASE64 } from "./logo-png";
-import { balanceCents, clock12, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, refundedCents, type PrintLayout, payWord } from "./derive";
+import { balanceCents, clock12, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, paidInParts, refundableCents, refundedCents, type PrintLayout, payWord, givenBackCents } from "./derive";
 
 /** Decoded once; pdf-lib still embeds it per document. */
 const LOGO_PNG = Buffer.from(LOGO_PNG_BASE64, "base64");
@@ -309,7 +309,7 @@ const paidWord = (o: WorkroomOrder, atPickup: boolean): string => {
     // the one refund figure (refundableCents), so the ticket in the file
     // says what the Square refund has to be.
     if (o.status === "canceled") {
-      const back = refundedCents(o) > 0 ? `, ${money(refundedCents(o) / 100)} refunded` : "";
+      const back = givenBackCents(o) > 0 ? `, ${money(givenBackCents(o) / 100)} refunded` : "";
       return `CANCELED - ${money(grossPaidCents(o) / 100)} paid${o.payment.refundedAt ? ", refunded" : `${back}, ${money(refundableCents(o) / 100)} to be refunded`}`;
     }
     // Paid in part (Kevin, 2026-10-14: some cash now, the rest on a card
@@ -320,7 +320,7 @@ const paidWord = (o: WorkroomOrder, atPickup: boolean): string => {
     }
     // Part given back (a delivery fee off a ticket picked up instead): said
     // after the payment, so PAID and the TOTAL agree again.
-    const back = refundedCents(o) > 0 ? ` - ${money(refundedCents(o) / 100)} refunded` : "";
+    const back = givenBackCents(o) > 0 ? ` - ${money(givenBackCents(o) / 100)} refunded` : "";
     if (paidInParts(o)) return `PAID - in parts - ${money(collectedCents(o) / 100)}${back}`;
     return `PAID - ${o.payment.method === "other" && !o.payment.via ? "by hand" : clean(payWord(o.payment))} - ${money(o.payment.totalCents / 100)}${
       // A website card payment carries the 99 cent ordering fee, which

@@ -856,7 +856,11 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       // Less what was given back by hand in the window (a fee off a ticket
       // picked up instead): that money is not in the till either. A Square
       // refund is Square's own figure and is left to its summary.
-      const handBack = orders.reduce((sum, o) => sum + (o.refunds ?? []).filter((r) => ((r.how as string) === "hand" || (r.how as string) === "check") && inMs(r.at)).reduce((s, r) => s + r.cents, 0), 0);
+      const handBack = orders
+        // Only orders the by-hand figure counted in: a cash refund on a
+        // card order is not by-hand money going back.
+        .filter((o) => [o.payment, ...(o.topUps ?? [])].every((p) => !p || p.method === "other"))
+        .reduce((sum, o) => sum + (o.refunds ?? []).filter((r) => ((r.how as string) === "hand" || (r.how as string) === "check") && inMs(r.at)).reduce((s, r) => s + r.cents, 0), 0);
       const handMarkedCents = handMarked.reduce((sum, o) => sum + handPays(o).reduce((s, p) => s + p.totalCents, 0), 0) - handBack;
 
       /* orders */

@@ -215,7 +215,9 @@ export async function POST(req: Request) {
           await getStore().setOrderPayment(workroomOrderId, record);
         } else if (order && order.payment && order.status !== "hold") {
           const known = order.payment.squarePaymentId === payment.id || (order.topUps ?? []).some((t) => t.squarePaymentId === payment.id);
-          const byHand = order.payment.method === "other" && !order.payment.squarePaymentId;
+          // A bare "Paid another way" mark only: a check keeps its number,
+          // and credit moved from another order keeps its other half.
+          const byHand = order.payment.method === "other" && !order.payment.squarePaymentId && !order.payment.via;
           if (known) {
             // already on the order
           } else if (byHand && order.payment.totalCents === record.totalCents && !(order.topUps ?? []).length) {
