@@ -34,6 +34,8 @@ export default function RefundControl({
   refundableCents,
   deliveryCents,
   square,
+  settled,
+  cashOnly,
   onDone,
 }: {
   orderId: string;
@@ -44,12 +46,24 @@ export default function RefundControl({
   deliveryCents: number;
   /** derive.ts squareMoney: Square holds some of this order's money. */
   square: boolean;
+  /** Nothing still due on the order: the delivery fee can come off the
+      ticket and be marked refunded in one go. */
+  settled: boolean;
+  /** Every payment on it was cash: a refund comes out of the drawer. */
+  cashOnly: boolean;
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [amountText, setAmountText] = useState("");
   const [reason, setReason] = useState("");
-  const [how, setHow] = useState<How>(square ? "square" : "hand");
+  const [how, setHow] = useState<How>(cashOnly ? "hand" : square ? "square" : "hand");
+  /** THE DELIVERY FEE COMES OFF THE TICKET (second review, 2026-11-10).
+      Refunding the fee is a change to the order (the 2026-10-15 rule:
+      "refund a delivery off of an order"), not a kindness beside it. Done
+      as a change, the fee cannot be given back here and then again when
+      someone takes it off the ticket. True while the amount is the fee
+      the chip filled. */
+  const [feeOff, setFeeOff] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (refundableCents <= 0) return null;
@@ -76,6 +90,29 @@ export default function RefundControl({
     setBusy(true);
     setError("");
     try {
+      if (feeOff && cents === deliveryCents) {
+        // Two steps the board already knows: the fee comes off the ticket,
+        // then what the ticket lost is marked given back.
+        const patch = (body: Record<string, unknown>) =>
+          fetch("/api/workroom/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: orderId, ...body }) }).then(async (x) => ({ ok: x.ok, d: (await x.json().catch(() => null)) as { error?: string } | null }));
+        const off = await patch({ deliveryFee: 0 });
+        if (!off.ok) {
+          setError(off.d?.error || "The fee did not come off the ticket. Nothing was recorded.");
+          return;
+        }
+        const back = await patch({ refunded: cents, how, reason: reason.trim() });
+        if (!back.ok) {
+          setError(`${back.d?.error || "The refund did not record."} The fee is off the ticket; the card now shows it as money to return, and it can be marked there.`);
+          onDone();
+          return;
+        }
+        setOpen(false);
+        setAmountText("");
+        setReason("");
+        setFeeOff(false);
+        onDone();
+        return;
+      }
       const r = await fetch("/api/workroom/orders", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -102,17 +139,18 @@ export default function RefundControl({
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", fontSize: 14.5 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           Amount going back
-          <input value={amountText} onChange={(e) => setAmountText(e.target.value)} inputMode="decimal" disabled={busy} aria-label="Refund amount, in dollars" placeholder="$" style={{ ...field, width: 110, padding: "6px 10px" }} />
+          <input value={amountText} onChange={(e) => { setAmountText(e.target.value); setFeeOff(false); }} inputMode="decimal" disabled={busy} aria-label="Refund amount, in dollars" placeholder="$" style={{ ...field, width: 110, padding: "6px 10px" }} />
         </label>
-        <button type="button" disabled={busy} onClick={() => setAmountText((refundableCents / 100).toFixed(2))} style={chip}>
+        <button type="button" disabled={busy} onClick={() => { setAmountText((refundableCents / 100).toFixed(2)); setFeeOff(false); }} style={chip}>
           All of it ({money(refundableCents / 100)})
         </button>
-        {deliveryCents > 0 && deliveryCents <= refundableCents && (
+        {settled && deliveryCents > 0 && deliveryCents <= refundableCents && (
           <button
             type="button"
             disabled={busy}
             onClick={() => {
               setAmountText((deliveryCents / 100).toFixed(2));
+              setFeeOff(true);
               if (!reason.trim()) setReason("Delivery fee");
             }}
             style={chip}
@@ -142,7 +180,10 @@ export default function RefundControl({
             ["hand", "Cash from the drawer"],
             ["check", "A check we wrote"],
           ] as [How, string][]
-        ).map(([v, label]) => (
+        )
+          // Not offered where Square holds none of the order's money.
+          .filter(([v]) => v !== "square" || square)
+          .map(([v, label]) => (
           <label key={v} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <input type="radio" name={`refund-how-${orderId}`} checked={how === v} disabled={busy} onChange={() => setHow(v)} />
             {label}
@@ -150,7 +191,7 @@ export default function RefundControl({
         ))}
       </fieldset>
       <span className="muted" style={{ fontSize: 13.5 }}>
-        This records the refund for the books and tells the customer by email if we have theirs. It does not move money:{" "}
+        {feeOff && cents === deliveryCents ? "This takes the delivery fee off the ticket, records it as refunded" : "This records the refund for the books"} and tells the customer by email if we have theirs. It does not move money:{" "}
         {how === "square" ? "make the refund in the Square dashboard (Transactions) as well." : how === "hand" ? "the cash comes out of the drawer, and the day sheet takes it off the cash to count." : "write and send the check as usual."}
       </span>
       {(error || (amountText && problem)) && (

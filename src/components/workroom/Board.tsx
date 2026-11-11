@@ -193,14 +193,16 @@ const sameCustomer = (a: Order, b: Order): boolean => {
     refund with how "transfer", but never money given back. */
 const movedOf = (o: Order) => (o.refunds ?? []).reduce((sum, r) => sum + (r.how === "transfer" ? r.cents : 0), 0);
 /** How one refund reads on a card and a row. */
-const refundLabel = (r: { note: string; how?: string; kept?: boolean }) => (r.how === "transfer" ? r.note : r.kept && r.note ? `Refunded: ${r.note}` : "Refunded");
+const refundLabel = (r: { note: string; how?: string; kept?: boolean }) =>
+  r.how === "transfer" ? r.note : r.note && !/^(Refunded from|Given back)/.test(r.note) ? `Refunded: ${r.note}` : "Refunded";
 
 /** Refund some or all of a paid order, from its card or its finished row. */
 function CardRefund({ o }: { o: Order }) {
   const { refresh } = useContext(BoardCtx);
   if (o.status === "canceled" || !o.payment || o.payment.refundedAt || balanceCents(o) < 0 || refundableCents(o) <= 0) return null;
   const delivery = o.lines.filter(isDeliveryLine).reduce((sum, l) => sum + Math.round(l.each * l.qty * 100), 0);
-  return <RefundControl orderId={o.id} number={o.number} refundableCents={refundableCents(o)} deliveryCents={delivery} square={squareMoney(o)} onDone={refresh} />;
+  const cashOnly = [o.payment, ...(o.topUps ?? [])].every((p) => !p || p.method === "cash");
+  return <RefundControl orderId={o.id} number={o.number} refundableCents={refundableCents(o)} deliveryCents={delivery} square={squareMoney(o)} settled={balanceCents(o) === 0} cashOnly={cashOnly} onDone={refresh} />;
 }
 /** Move an overpaid order's credit onto another order the same customer owes on. */
 function CardCredit({ o }: { o: Order }) {
@@ -1704,6 +1706,14 @@ function OrderCard({
               ? `Refund ${money(-balanceCents(o) / 100)} from the Square dashboard (Transactions), then mark it here.`
               : `Give ${money(-balanceCents(o) / 100)} back (cash or a check), then mark it here.`}
           </p>
+          {/* Money already went back on this order for its own reason: said
+              here, so the same money is not handed over twice. */}
+          {(o.refunds ?? []).some((r) => r.kept) && (
+            <p style={{ margin: "0 0 8px", fontSize: 14 }}>
+              {money((o.refunds ?? []).filter((r) => r.kept).reduce((sum, r) => sum + r.cents, 0) / 100)} already went back on this order (
+              {(o.refunds ?? []).filter((r) => r.kept).map((r) => r.note).join(", ")}). If this is that same money, put the ticket back as it was instead of refunding it again.
+            </p>
+          )}
           {onPartRefund && (
             <button
               type="button"
@@ -3250,6 +3260,12 @@ function PhoneOrderForm({
               setName(e.target.value);
               // Typing again reopens the suggestions: a wrong pick must not
               // be sticky.
+              // A different customer typed over a picked one: the picked
+              // one's billing address does not ride along.
+              if (picked) {
+                setBillTo(NO_BILL);
+                setShowBill(false);
+              }
               setPicked(null);
               setTyped((t) => ({ ...t, name: true }));
             }}
@@ -3275,6 +3291,12 @@ function PhoneOrderForm({
             value={phone}
             onChange={(e) => {
               setPhone(e.target.value);
+              // A different customer typed over a picked one: the picked
+              // one's billing address does not ride along.
+              if (picked) {
+                setBillTo(NO_BILL);
+                setShowBill(false);
+              }
               setPicked(null);
               setTyped((t) => ({ ...t, phone: true }));
             }}

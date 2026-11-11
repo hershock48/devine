@@ -22,6 +22,30 @@ import { getStore, type OrderPayment, type WorkroomLine, type WorkroomOrder } fr
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** The Accounts tab's rule for "the same customer", for the server: the
+    business when either order has one, else the phone (ui.tsx phoneKey:
+    the last ten digits, seven at least), else the name. A walk-in is
+    nobody. Credit only ever moves between two orders this calls the same. */
+const phoneKey = (v: string) => {
+  const d = v.replace(/\D/g, "");
+  return d.length >= 7 ? d.slice(-10) : "";
+};
+function sameCustomer(a: WorkroomOrder, b: WorkroomOrder): boolean {
+  if (a.quick || b.quick) return false;
+  const ba = (a.business ?? "").trim().toLowerCase();
+  const bb = (b.business ?? "").trim().toLowerCase();
+  if (ba || bb) return !!ba && ba === bb;
+  const pa = phoneKey(a.phone);
+  const pb = phoneKey(b.phone);
+  if (pa || pb) return !!pa && pa === pb;
+  return !!a.name.trim() && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+}
+/** A check by this number is already on the order: a second tap, a second
+    screen, or the same check keyed again. Its own guard, because a by-hand
+    payment has no Square id to be recognized by and may now run over what
+    is due, so a repeat would land as credit instead of being refused. */
+const hasCheck = (o: WorkroomOrder, n: string) => !!n && [o.payment, ...(o.topUps ?? [])].some((q) => !!q && q.via === "check" && q.checkNumber === n);
+
 /** How far over what is due a by-hand payment may run, in cents: enough
     for a real overpayment, not enough for a slipped decimal point. */
 const OVER_LIMIT_CENTS = 500_000;
@@ -112,7 +136,10 @@ export async function POST(req: Request) {
   // to another order of theirs"). A by-hand payment may run over what is
   // due: the extra sits on this order as credit, and the card offers to
   // move it onto another order. A card or cash charge never runs over.
-  const mayRunOver = (method === "check" || method === "manual") && amountCents !== undefined && amountCents <= dueCents + OVER_LIMIT_CENTS;
+  // Not onto an order first rung on the register: its balance never
+  // shows an excess (a tip is the register's business), so the credit
+  // would be on record and on no screen.
+  const mayRunOver = (method === "check" || method === "manual") && order.payment?.method !== "register" && amountCents !== undefined && amountCents <= dueCents + OVER_LIMIT_CENTS;
   if (amountCents !== undefined && amountCents > dueCents && !mayRunOver) {
     return NextResponse.json({ error: `That is more than what is due (${(dueCents / 100).toFixed(2)}).` }, { status: 400 });
   }
@@ -129,6 +156,9 @@ export async function POST(req: Request) {
   // account, an unlinked register ring). Records the fact and touches
   // nothing else; deliberately works even with Square unconfigured.
   if (method === "manual" || method === "check" || method === "credit") {
+    if (method === "check" && hasCheck(order, checkNumber)) {
+      return NextResponse.json({ error: `Check #${checkNumber} is already recorded on ${order.number}. If this is a different check, give it its own number.` }, { status: 409 });
+    }
     const at = Date.now();
     let cents = payCents;
     let note = "";
@@ -139,6 +169,18 @@ export async function POST(req: Request) {
       const src = fromId && fromId !== order.id ? await store.getOrder(fromId) : null;
       if (!src) return NextResponse.json({ error: "Pick the order the credit comes from." }, { status: 400 });
       if (src.voided || src.status === "canceled") return NextResponse.json({ error: `${src.number} is ${src.voided ? "removed" : "canceled"}; its money is refunded, not moved.` }, { status: 409 });
+      if (!sameCustomer(src, order)) return NextResponse.json({ error: `${src.number} and ${order.number} are not the same customer's orders, so credit does not move between them.` }, { status: 409 });
+      // A MOVE THAT STOPPED HALFWAY (the credit left its order and the
+      // write here failed): the same tap again finishes it. Known by the
+      // transfer on the source naming this order with no credit payment of
+      // the same instant here.
+      const here = [order.payment, ...(order.topUps ?? [])];
+      const orphan = (src.refunds ?? []).find((x) => x.how === "transfer" && x.note === `Applied to order ${order.number}` && !here.some((q) => !!q && q.via === "credit" && q.at === x.at));
+      if (orphan) {
+        if (feeAppended) await store.setOrderLines(order.id, ticketLines, ticketSubtotal);
+        await record({ at: orphan.at, method: "other", via: "credit", note: `Credit from order ${src.number}`, squarePaymentId: "", totalCents: orphan.cents, feeCents: 0 });
+        return NextResponse.json({ ok: true, finished: true });
+      }
       const credit = src.payment ? -balanceCents(src) : 0;
       if (credit <= 0) return NextResponse.json({ error: `${src.number} has no credit on it.` }, { status: 409 });
       if (amountCents !== undefined && amountCents > credit) return NextResponse.json({ error: `Only ${(credit / 100).toFixed(2)} of credit is on ${src.number}.` }, { status: 400 });
@@ -171,7 +213,7 @@ export async function POST(req: Request) {
     } catch (err) {
       if (method !== "credit") throw err;
       console.error(`[devine] credit left its order but did not land on ${order.number}:`, err);
-      return NextResponse.json({ error: `The credit left its order but did not land on ${order.number}. Mark ${order.number} "Paid another way" for ${(cents / 100).toFixed(2)} so the two agree.` }, { status: 500 });
+      return NextResponse.json({ error: `The credit left its order but did not land on ${order.number}. Tap Move again now and it will finish. If this box has closed, write down both order numbers and ${(cents / 100).toFixed(2)}, and tell Glazed Web.` }, { status: 500 });
     }
     return NextResponse.json({ ok: true, payment });
   }
@@ -331,6 +373,7 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual" | "che
     if (o.voided) return NextResponse.json({ error: `${o.number} was removed as written up twice; take it out of the group first.` }, { status: 409 });
     if (o.status === "canceled") return NextResponse.json({ error: `${o.number} is canceled; take it out of the group first.` }, { status: 409 });
     if (o.status === "hold") return NextResponse.json({ error: `${o.number} is on hold; finish it first.` }, { status: 409 });
+    if (method === "check" && hasCheck(o, checkNumber)) return NextResponse.json({ error: `Check #${checkNumber} is already recorded on ${o.number}. If this is a different check, give it its own number.` }, { status: 409 });
     if (o.payment) {
       const due = balanceCents(o);
       if (due <= 0) return NextResponse.json({ error: `${o.number} is already paid.` }, { status: 409 });
@@ -352,7 +395,7 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual" | "che
   // A by-hand payment may run over (one check for a little more than the
   // account owes): the extra sits on the last order as credit.
   const over = amountCents !== undefined && amountCents > dueCents ? amountCents - dueCents : 0;
-  if (over > 0 && !((method === "check" || method === "manual") && over <= OVER_LIMIT_CENTS)) {
+  if (over > 0 && !((method === "check" || method === "manual") && over <= OVER_LIMIT_CENTS && parts[parts.length - 1].o.payment?.method !== "register")) {
     return NextResponse.json({ error: `That is more than what is due on those orders (${(dueCents / 100).toFixed(2)}).` }, { status: 400 });
   }
   // A PART PAYMENT ON THE GROUP (Kevin, 2026-10-14) is dealt out in order,

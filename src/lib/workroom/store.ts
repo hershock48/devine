@@ -1275,17 +1275,22 @@ const postgresStore: Store = {
          WHERE data->>'voided' IS NULL AND (
             status NOT IN ('done', 'canceled')
             OR (status = 'done' AND data->>'payment' IS NULL)
-            -- derive.ts balanceCents <> 0: still due (kept refunds left
-            -- out), or owed back (every refund counted).
+            -- derive.ts balanceCents <> 0: still due, or owed back while
+            -- the shop still holds something (kept refunds are left out of
+            -- the ticket's side and counted in what is held).
             OR (status = 'done' AND data->>'payment' IS NOT NULL AND (
                 ROUND((data->>'subtotal')::numeric * 100) >
                   ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
                   + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
                   - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0)
-                OR ROUND((data->>'subtotal')::numeric * 100) <
+                OR (ROUND((data->>'subtotal')::numeric * 100) <
                   ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
                   + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
-                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0)))
+                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0)
+                  AND
+                  ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
+                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
+                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0) > 0)))
             OR created_at >= $1)
          ORDER BY created_at DESC LIMIT 2000
        ) t ORDER BY created_at ASC`,
@@ -1374,12 +1379,15 @@ const postgresStore: Store = {
              SELECT ROUND((data->>'subtotal')::numeric * 100) AS sub,
                     ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
                       + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0) AS collected,
-                    -- every refund, kept ones too: this guard is the owed-back side (derive.ts balanceCents)
-                    COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0) AS refunded
+                    -- refunds against the ticket (a kept one is money back while the ticket stands)
+                    COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0) AS refunded,
+                    -- everything that went back, kept or not
+                    COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0) AS back
            )
+           -- owed back by the ticket, never more than the shop still holds (derive.ts balanceCents)
            SELECT CASE WHEN data->'payment'->>'method' = 'register'
-                       THEN LEAST(collected - refunded - sub, GREATEST(0, COALESCE((data->'payment'->>'ticketCents')::numeric, sub) - sub) - refunded)
-                       ELSE collected - refunded - sub END
+                       THEN LEAST(collected - refunded - sub, GREATEST(0, collected - back), GREATEST(0, COALESCE((data->'payment'->>'ticketCents')::numeric, sub) - sub) - refunded)
+                       ELSE LEAST(collected - refunded - sub, GREATEST(0, collected - back)) END
            FROM m)
        RETURNING id`,
       [id, JSON.stringify([r]), r.cents],

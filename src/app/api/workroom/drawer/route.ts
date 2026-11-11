@@ -54,6 +54,15 @@ export async function PUT(req: Request) {
     by,
     at: Date.now(),
   };
+  // Two screens closing the same day: the one that saves second is told,
+  // instead of quietly replacing the first one's figures. `baseAt` is the
+  // saved count the screen was looking at (null: none yet).
+  if (p.baseAt === null || typeof p.baseAt === "number") {
+    const cur = await getStore().getDrawerCount(p.day);
+    if ((cur?.at ?? null) !== p.baseAt) {
+      return NextResponse.json({ error: cur ? `This day's count was saved by ${cur.by} on another screen since this one loaded. Reload to see it, then change it.` : "This day's count changed on another screen. Reload and try again.", count: cur }, { status: 409 });
+    }
+  }
   await getStore().setDrawerCount(count);
   return NextResponse.json({ ok: true, count });
 }

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import PrintButton from "@/components/workroom/PrintButton";
 import { addressOneLine, site } from "@/lib/site";
 import { isWorkroomAuthed } from "@/lib/workroom/auth";
-import { grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, payWord, refundedCents, zipFeeCentsToAppend } from "@/lib/workroom/derive";
+import { collectedCents, isDeliveryLine, isTaxLine, owedNowCents, payWord, ticketRefundedCents, zipFeeCentsToAppend } from "@/lib/workroom/derive";
 import { getStore, type WorkroomOrder } from "@/lib/workroom/store";
 
 /**
@@ -62,7 +62,19 @@ export default async function InvoicePage({ searchParams }: { searchParams: Prom
       </>
     );
   }
-  const orders = [...found].sort((a, b) => a.createdAt - b.createdAt);
+  // ONE CUSTOMER TO A SHEET. The Accounts tab only ever sends one
+  // account's orders; a hand-built link that mixes two must not print one
+  // customer's orders under the other's name. The newest order names the
+  // customer, and anything that is not theirs is left off and said so.
+  const custKey = (o: WorkroomOrder) => {
+    const biz = (o.business ?? "").trim().toLowerCase();
+    const ph = o.phone.replace(/[^0-9]/g, "");
+    return biz ? `b:${biz}` : ph.length >= 7 ? `p:${ph.slice(-10)}` : `n:${o.name.trim().toLowerCase()}`;
+  };
+  const sorted = [...found].sort((a, b) => a.createdAt - b.createdAt);
+  const leadKey = custKey(sorted[sorted.length - 1]);
+  const orders = sorted.filter((o) => custKey(o) === leadKey);
+  const leftOff = sorted.length - orders.length;
   const statement = sp.statement === "1" || orders.length > 1;
   // The newest order names the customer and carries the freshest bill-to.
   const newest = [...orders].sort((a, b) => b.createdAt - a.createdAt);
@@ -88,6 +100,11 @@ export default async function InvoicePage({ searchParams }: { searchParams: Prom
       <p className="no-print" style={{ margin: "0 0 18px", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
         <PrintButton label={statement ? "Print this statement" : "Print this invoice"} />
         <a href="/workroom/accounts">Back to Accounts</a>
+        {leftOff > 0 && (
+          <span role="status" style={{ fontWeight: 600 }}>
+            {leftOff} order{leftOff === 1 ? "" : "s"} belonging to another customer {leftOff === 1 ? "was" : "were"} left off this sheet.
+          </span>
+        )}
       </p>
 
       <header style={{ display: "flex", justifyContent: "space-between", gap: 24, flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -197,8 +214,11 @@ export default async function InvoicePage({ searchParams }: { searchParams: Prom
                   {o.lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l)).map((l) => `${l.qty} x ${l.name}`).join(", ")}
                   {o.recipient && o.recipient !== o.name ? ` (for ${o.recipient})` : ""}
                 </td>
-                <td style={{ ...td, ...num }}>{money(o.subtotal)}</td>
-                <td style={{ ...td, ...num }}>{c$(grossPaidCents(o) - refundedCents(o))}</td>
+                {/* Total less Paid is Owed, on every row: the fee a
+                    delivery ticket gains at its first payment is in the
+                    total, and Paid is what counts against the ticket. */}
+                <td style={{ ...td, ...num }}>{c$(Math.round(o.subtotal * 100) + zipFeeCentsToAppend(o))}</td>
+                <td style={{ ...td, ...num }}>{c$(Math.max(0, collectedCents(o) - ticketRefundedCents(o)))}</td>
                 <td style={{ ...td, ...num, fontWeight: 700 }}>{c$(owedOn(o))}</td>
               </tr>
             ))}

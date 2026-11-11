@@ -164,14 +164,18 @@ export const balanceCents = (o: { subtotal: number; payment?: Paid | null; topUp
   // What was collected, less what was already given back against the
   // ticket, against the ticket as it stands now.
   const sub = Math.round(o.subtotal * 100);
-  // STILL DUE leaves kept refunds out: a kindness is not owed again.
-  // OWED BACK counts every refund, kept ones too: money that already went
-  // back is never owed back a second time when the ticket later shrinks.
-  // (Review, 2026-11-09: a delivery fee refunded as kept and then also
-  // taken off the ticket was offered for refund twice, and for moving to
-  // another order as credit that did not exist.)
+  // A KEPT REFUND IS NOT THE TICKET'S BUSINESS, either way (two reviews,
+  // 2026-11-09 and -10). It is not owed again, and it does not soak up a
+  // later change either: $20 back for a late delivery, then an item taken
+  // off, and the item's money is still owed back. What caps the owed-back
+  // side is what the shop still holds: nothing is ever owed back past
+  // what was collected less everything that already went back, so refunds
+  // can never total more than was paid. (The delivery fee is refunded by
+  // taking it off the ticket, Refund.tsx, so it cannot be given back once
+  // as a kept refund and again as a change.)
   const forward = sub - collectedCents(o) + ticketRefundedCents(o);
-  const due = forward >= 0 ? forward : Math.min(0, sub - collectedCents(o) + refundedCents(o));
+  const held = Math.max(0, collectedCents(o) - refundedCents(o));
+  const due = forward >= 0 ? forward : Math.max(forward, -held) || 0;
   if (o.payment?.method !== "register" || due >= 0) return due;
   // A ring at the register (the webhook's record) is the register's own
   // business: a tip or a rounded-up ring is not money the shop owes back.
@@ -179,7 +183,7 @@ export const balanceCents = (o: { subtotal: number; payment?: Paid | null; topUp
   // off, the customer picks up): the webhook keeps the ticket's total at
   // link time (ticketCents) for exactly this. A ring with no such record
   // owes nothing back, as before. A shortfall after an edit still shows.
-  const lost = Math.max(0, (o.payment.ticketCents ?? sub) - sub) - refundedCents(o);
+  const lost = Math.max(0, (o.payment.ticketCents ?? sub) - sub) - ticketRefundedCents(o);
   // (`|| 0` turns the -0 of a clamped excess into 0, so it prints as $0.00.)
   return Math.max(due, -Math.max(0, lost)) || 0;
 };

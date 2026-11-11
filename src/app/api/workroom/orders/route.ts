@@ -443,7 +443,7 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as {
-    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; refund?: unknown; how?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
+    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; refund?: unknown; how?: unknown; reason?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
     void?: unknown; unvoid?: unknown; by?: unknown;
   };
   const id = typeof p.id === "string" ? p.id : "";
@@ -549,11 +549,6 @@ export async function PATCH(req: Request) {
   // (Kevin, 2026-10-14): once, on the mark that actually transitions, so
   // a second tap or an order already stamped sends nothing. Best-effort
   // after the stamp is safely stored.
-  // PART OF IT GIVEN BACK (Katy, 2026-10-15: "refund a delivery off of an
-  // order... we did it off Square but I also want to run it through our
-  // system so they match up"). The shop refunds in Square; this records
-  // that it did, for the amount the card said was owed back, so the
-  // balance returns to zero and the order leaves "Money to return".
   // A REFUND WHILE THE TICKET STANDS (Katy, 2026-11-09: "how can she
   // refund? full or partial or even refunding delivery. She does it on
   // Square, but wants to do it for her workroom for her books"). The
@@ -575,6 +570,9 @@ export async function PATCH(req: Request) {
     const left = refundableCents(o);
     if (cents > left) return NextResponse.json({ error: left > 0 ? `Only ${(left / 100).toFixed(2)} of what was paid is left to refund.` : "Everything paid on this order has already gone back." }, { status: 409 });
     const how = r.how === "square" || r.how === "hand" || r.how === "check" ? r.how : squareMoney(o) ? "square" : "hand";
+    // "Through Square" is only true where Square holds some of the money;
+    // on a check or a by-hand order the day sheet would file it wrong.
+    if (how === "square" && !squareMoney(o)) return NextResponse.json({ error: "None of this order's money went through Square (it was paid by check or by hand), so the refund is cash or a check." }, { status: 400 });
     const reason = str(r.reason, 120);
     if (!reason) return NextResponse.json({ error: "Say what the refund is for (late delivery, wrong flowers, the delivery fee)." }, { status: 400 });
     const now = Date.now();
@@ -588,6 +586,11 @@ export async function PATCH(req: Request) {
     if (o.email) await sendRefundEmail(o, cents, { how, all: cents === left });
     return NextResponse.json({ ok: true });
   }
+  // PART OF IT GIVEN BACK (Katy, 2026-10-15: "refund a delivery off of an
+  // order... we did it off Square but I also want to run it through our
+  // system so they match up"). The shop refunds in Square; this records
+  // that it did, for the amount the card said was owed back, so the
+  // balance returns to zero and the order leaves "Money to return".
   if (typeof p.refunded === "number") {
     if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
     const o = await getStore().getOrder(id);
@@ -600,8 +603,11 @@ export async function PATCH(req: Request) {
     if (cents > owedBack) return NextResponse.json({ error: owedBack > 0 ? `Only ${(owedBack / 100).toFixed(2)} is owed back on this order.` : "Nothing is owed back on this order." }, { status: 409 });
     // Where the money went back from: Square for a card, cash or register
     // payment; by hand (cash or a check) for a by-hand mark.
-    const how = squareMoney(o) ? "square" : p.how === "check" ? "check" : "hand";
-    const written = await getStore().addOrderRefund(id, { at: Date.now(), cents, how, note: how === "square" ? "Refunded from the Square dashboard" : how === "check" ? "Given back by check" : "Given back in cash" });
+    // Said by the counter when it knows (cash out of the drawer on a cash
+    // order, a check): the day sheet's drawer count depends on it.
+    const how = p.how === "check" ? "check" : p.how === "hand" ? "hand" : squareMoney(o) ? "square" : "hand";
+    const why = str(p.reason, 120);
+    const written = await getStore().addOrderRefund(id, { at: Date.now(), cents, how, note: why || (how === "square" ? "Refunded from the Square dashboard" : how === "check" ? "Given back by check" : "Given back in cash") });
     if (!written) return NextResponse.json({ error: "That refund is already recorded, or more than is owed back. Reload the board and look at the card." }, { status: 409 });
     // The customer hears that it is done (Kevin, 2026-10-14), for a part
     // as for the whole.
@@ -645,7 +651,8 @@ export async function PATCH(req: Request) {
     // not so.
     if (o.status !== "canceled") return NextResponse.json({ error: "Only a canceled order is marked refunded." }, { status: 409 });
     const changed = await getStore().markOrderRefunded(id);
-    if (changed && o?.email) await sendRefundEmail(o);
+    // Everything had already gone back: nothing to tell the customer.
+    if (changed && o?.email && refundableCents(o) > 0) await sendRefundEmail(o);
     return NextResponse.json({ ok: true });
   }
 

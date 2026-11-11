@@ -128,7 +128,11 @@ const dateInWin = (iso: string, w: Window) => (w.days.length === 0 ? false : w.d
     NOT new money: the overpayment was counted when it was taken, on the
     order it was taken on. Every money-in figure here reads this list. */
 const payments = (o: Order): Payment[] => [...(o.payment ? [o.payment] : []), ...(o.topUps ?? [])].filter((p) => p.via !== "credit");
-const methodWord: Record<string, string> = { web: "Card, on the website", card: "Card, at the board", cash: "Cash", check: "Checks", register: "Rung on the register", other: "By hand (transfer, marked paid)" };
+const cashOnly = (o: Order) => {
+  const all = [...(o.payment ? [o.payment] : []), ...(o.topUps ?? [])];
+  return all.length > 0 && all.every((p) => p.method === "cash");
+};
+const methodWord: Record<string, string> = { web: "Card, on the website", card: "Card, at the board", cash: "Cash", check: "Checks", register: "Rung on the register", other: "By hand (bank transfer, marked paid)" };
 /** The row a payment lands on. A website order's checkout card is its
     own line, since the counter's terminal never saw it: that is the
     first payment, written in the same request as the order (api/order),
@@ -176,12 +180,17 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
       refundCount += 1;
       if (r.how === "hand") { refundHand += r.cents; refundCash += r.cents; }
       else if (r.how === "check") refundHand += r.cents;
-      else refundSquare += r.cents;
+      else {
+        refundSquare += r.cents;
+        // A cash order's money is in Square's books and in the drawer:
+        // its refund comes out of the drawer whichever button said so.
+        if (cashOnly(o)) refundCash += r.cents;
+      }
     }
     // A whole refund (a canceled order marked refunded) goes back the way
     // it came: a card or register ring through Square; cash or a by-hand
     // mark by hand, and cash out of the drawer.
-    if (o.payment?.refundedAt && inWin(o.payment.refundedAt, w)) {
+    if (o.payment?.refundedAt && inWin(o.payment.refundedAt, w) && refundableCents(o) > 0) {
       refundCount += 1;
       // Each payment that made the order up goes back its own way ($40
       // cash then $60 card: $40 by hand from the drawer, $60 through
@@ -206,7 +215,9 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
   for (const o of live) {
     for (const p of payments(o)) {
       if (p.via !== "check" || !inWin(p.at, w)) continue;
-      const key = `${p.at}|${p.checkNumber ?? ""}`;
+      // By its number and who wrote it, so one check keyed in two goes
+      // is still one check; an unnumbered one by the moment it was taken.
+      const key = p.checkNumber ? `n:${(o.business || o.name).trim().toLowerCase()}|${p.checkNumber}` : `t:${p.at}`;
       const cur = checkMap.get(key) ?? { numbers: [], who: o.business || o.name, checkNumber: p.checkNumber ?? "", cents: 0, at: p.at };
       cur.numbers.push(o.number);
       cur.cents += p.totalCents;
@@ -738,7 +749,7 @@ function Drawer({ day, cashFromSales }: { day: string; cashFromSales: number }) 
       const res = await fetch("/api/workroom/drawer", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ day, openingCents: o, addedCents: a, removedCents: r, countedCents: k, note, by: by.trim().toUpperCase() }),
+        body: JSON.stringify({ day, openingCents: o, addedCents: a, removedCents: r, countedCents: k, note, by: by.trim().toUpperCase(), baseAt: saved?.at ?? null }),
       });
       const d = (await res.json().catch(() => null)) as { ok?: boolean; count?: DrawerCount; error?: string } | null;
       if (!res.ok || !d?.ok) setError(d?.error || "The count did not save.");

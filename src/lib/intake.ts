@@ -526,16 +526,17 @@ export async function sendRefundEmail(
   const transport = mail.transport;
   const amount = money((partCents ?? refundableCents(o)) / 100);
   const part = partCents !== undefined && !opts?.all;
+  // How it went back, when the counter said; otherwise by how it was paid.
   const how =
     opts?.how === "check"
       ? "By check from the shop."
       : opts?.how === "hand"
         ? "In cash at the shop."
         : o.payment?.method === "card"
-      ? "Back to the card you paid with. Allow a few business days for your bank to show it."
-      : o.payment?.method === "cash" || (part && !squareMoney(o))
-        ? "In cash at the shop."
-        : "The way you paid.";
+          ? "Back to the card you paid with. Allow a few business days for your bank to show it."
+          : o.payment?.method === "cash" || (part && !squareMoney(o))
+            ? "In cash at the shop."
+            : "The way you paid.";
   const subject = `Your refund from ${site.shortName}, order ${o.number}`;
   await transport
     .sendMail({

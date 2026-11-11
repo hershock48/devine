@@ -340,6 +340,9 @@ export default function PayControls({
       } catch {
         // The request may have arrived and charged. Not "did not go
         // through": the attempt id stays, and Charge again settles it.
+        if (method === "check" || method === "manual") {
+          throw new Error("The connection dropped, so this may or may not have been recorded. Reload and look at the order before recording it again.");
+        }
         setUnsure(true);
         throw new Error("The connection dropped after the charge was sent, so the card MAY have been charged. Tap Charge once more: if it went through, it will say so and not charge twice.");
       }
