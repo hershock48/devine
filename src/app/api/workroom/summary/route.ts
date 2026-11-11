@@ -3,7 +3,8 @@ import { saleInstantMs } from "@/lib/workroom/derive";
 import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
 import { square, type SquareConfig } from "@/lib/square/client";
 import { resolveSquare } from "@/lib/square/oauth";
-import { getStore } from "@/lib/workroom/store";
+import { REPORT_MAX_ROWS, REPORT_PAGE_ROWS } from "@/lib/workroom/report-rows";
+import { getStore, type PageMark } from "@/lib/workroom/store";
 
 /**
  * The dashboard's money numbers, for any window: totals, count, cash split,
@@ -86,17 +87,32 @@ async function fromSquare(cfg: SquareConfig, beginMs: number, endMs: number): Pr
   return { rows, truncated: !!cursor };
 }
 
-async function fromStored(beginMs: number, endMs: number): Promise<PaymentRow[]> {
-  const days = Math.ceil((Date.now() - beginMs) / 86_400_000) + 2;
-  const sales = await getStore().listSquareSales(Math.max(1, days));
+/**
+ * The stored rings for a window, every one of them: read a page at a time
+ * (money and moment only, no lines) until the store has no more. It used
+ * to read the store's newest 5,000 and stop, so a busy register's year
+ * read low with `truncated` still false. The ceiling here is the report
+ * sheets' own, and reaching it is said (truncated), like Square's.
+ */
+async function fromStored(beginMs: number, endMs: number): Promise<{ rows: PaymentRow[]; truncated: boolean }> {
+  const days = Math.max(1, Math.ceil((Date.now() - beginMs) / 86_400_000) + 2);
+  const store = getStore();
   const rows: PaymentRow[] = [];
-  for (const s of sales) {
-    // paidAt is Square's own stamp; a row that somehow lacks one falls back
-    // to when the webhook landed, which is seconds later in practice.
-    const ms = saleInstantMs(s.paidAt, s.createdAt);
-    if (ms >= beginMs && ms < endMs) rows.push({ ms, cents: s.totalCents, cash: s.source === "CASH" });
+  let mark: PageMark | null = null;
+  let seen = 0;
+  for (;;) {
+    const page = await store.listSaleMoney(days, mark, Math.min(REPORT_PAGE_ROWS, REPORT_MAX_ROWS - seen));
+    for (const s of page.rows) {
+      // paidAt is Square's own stamp; a row that somehow lacks one falls
+      // back to when the webhook landed, which is seconds later in practice.
+      const ms = saleInstantMs(s.paidAt, s.createdAt);
+      if (ms >= beginMs && ms < endMs) rows.push({ ms, cents: s.totalCents, cash: s.source === "CASH" });
+    }
+    seen += page.rows.length;
+    if (!page.next) return { rows, truncated: false };
+    if (seen >= REPORT_MAX_ROWS) return { rows, truncated: true };
+    mark = page.next;
   }
-  return rows;
 }
 
 function summarize(rows: PaymentRow[], edges: number[]): WindowSummary {
@@ -174,13 +190,19 @@ export async function GET(req: Request) {
       cur = c.rows;
       prev = p.rows;
     } else {
-      [cur, prev] = await Promise.all([fromStored(begin, end), fromStored(prevBegin, prevEnd)]);
+      const [c, p] = await Promise.all([fromStored(begin, end), fromStored(prevBegin, prevEnd)]);
+      truncated = c.truncated || p.truncated;
+      cur = c.rows;
+      prev = p.rows;
     }
   } catch (err) {
     // Square down is a degraded dashboard, not a dead one.
     console.error("summary: Square unreachable, serving stored sales", err);
     source = "stored";
-    [cur, prev] = await Promise.all([fromStored(begin, end), fromStored(prevBegin, prevEnd)]);
+    const [c, p] = await Promise.all([fromStored(begin, end), fromStored(prevBegin, prevEnd)]);
+    truncated = c.truncated || p.truncated;
+    cur = c.rows;
+    prev = p.rows;
   }
 
   return NextResponse.json({

@@ -1,8 +1,10 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, VarietyGate } from "@/components/workroom/ui";
-import { consumption, HISTORY_DAYS, isoDate, lotCosting, mondayOf, normalizeVariety, saleInstantMs } from "@/lib/workroom/derive";
+import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, ShortLedger, VarietyGate } from "@/components/workroom/ui";
+import { consumption, isoDate, lotCosting, mondayOf, normalizeVariety, saleInstantMs } from "@/lib/workroom/derive";
+import { readList, readSmall, shortLists } from "@/lib/workroom/ledger-read";
+import type { LedgerOrder as LedgerOrderRow, LedgerSale as LedgerSaleRow } from "@/lib/workroom/report-rows";
 import PlantsSection from "@/components/workroom/Plants";
 
 /**
@@ -40,14 +42,18 @@ type Variety = { name: string; stemsPerBunch: number | null };
 
 /* The cooler ledger, fetched only when the composer opens: the order sheet
    answers "how much do I buy?" and the honest inputs to that are what is on
-   hand now and what last week actually used. Shapes are the structural
-   subsets derive.ts computes with, so these columns and the Inventory tab
-   can never disagree on a number. */
+   hand now and what last week actually used. The rows are the ones the
+   Inventory tab reads, from the same route (api/workroom/reports) and
+   whole, so these columns and that tab can never disagree on a number: on
+   hand is every buy less everything ever made from it, and a list that
+   stopped at the board's count left the oldest made orders in the cooler. */
 type LedgerEvent = { id: string; kind: string; date: string; variety: string; stems: number; cost: number; createdAt: number };
-type LedgerOrder = { id: string; status: string; date: string; lines: { slug: string | null; qty: number }[] };
-type LedgerSale = { id: string; paidAt: string; createdAt: number; workroomOrderId?: string; lines: { slug: string | null; qty: number }[] };
+type LedgerOrder = LedgerOrderRow;
+/** workroomOrderId stays in the type for derive.ts; the route only sends
+    rings that belong to no board order. */
+type LedgerSale = LedgerSaleRow & { workroomOrderId?: string };
 type LedgerRecipe = { slug: string; parts: { variety: string; stems: number }[] };
-type Ledger = { events: LedgerEvent[]; orders: LedgerOrder[]; sales: LedgerSale[]; recipes: LedgerRecipe[] };
+type Ledger = { events: LedgerEvent[]; orders: LedgerOrder[]; sales: LedgerSale[]; recipes: LedgerRecipe[]; short: string };
 
 const blankLine = (): Line => ({ variety: "", qty: "1", unit: "bunch", unitPrice: "", stemsPerBunch: "", note: "" });
 
@@ -100,11 +106,25 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
   useEffect(() => {
     if (!open || !authed || ledger) return;
     let dead = false;
-    fetch(`/api/workroom/stems?days=${HISTORY_DAYS}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (dead || !d) return;
-        setLedger({ events: d.events ?? [], orders: d.orders ?? [], sales: d.squareSales ?? [], recipes: d.recipes ?? [] });
+    // All three lists whole, and only then the columns: on hand worked out
+    // from half a ledger would be a wrong number shown as a right one.
+    Promise.all([
+      readList<LedgerOrder>("ledger-orders"),
+      readList<LedgerSale>("ledger-sales"),
+      readList<LedgerEvent>("events"),
+      readSmall<{ recipes?: LedgerRecipe[] }>("book"),
+    ])
+      .then(([o, s, e, book]) => {
+        if (dead) return;
+        setLedger({
+          // The pages come newest first; orders and events are walked
+          // oldest first, as they always were.
+          events: [...e.rows].reverse(),
+          orders: [...o.rows].reverse(),
+          sales: s.rows,
+          recipes: book.recipes ?? [],
+          short: shortLists([{ name: "orders", truncated: o.truncated }, { name: "register rings", truncated: s.truncated }, { name: "stem entries", truncated: e.truncated }]),
+        });
       })
       .catch(() => {});
     return () => {
@@ -305,6 +325,7 @@ export default function WeeklyOrderScreen({ initialAuthed }: { initialAuthed: bo
     <>
       <h1>Weekly order</h1>
       <MemoryWarning backend={backend} />
+      <ShortLedger lists={ledger?.short ?? ""} then="The on hand and used last week columns may be off." />
       <p className="lede" style={{ margin: "4px 0 18px" }}>
         The prebook and the receiving log, for flowers and for plants. Build the list, read it to
         the rep the way you always order, and when the truck comes one tap logs every line into the

@@ -7,6 +7,14 @@ import { getStore, newId, normalizeVariety, SHRINK_REASONS, type StemEvent } fro
  * every recipe — the tracker computes its numbers in the browser from raw
  * rows, because the whole quarter of a flower shop's entries is smaller than
  * one product photo. DELETE removes a mis-keyed row.
+ *
+ * NO SCREEN ADDS UP THIS GET ANY MORE (2026-11-11). Its orders, register
+ * sales and stem events are the store's capped lists (the newest 2,000,
+ * 5,000 and 5,000), which read low once a ledger passes them. The
+ * dashboard, the inventory and the weekly order sheet now read the same
+ * ledgers whole from api/workroom/reports. The GET stays as it was for a
+ * tab left open across the deploy that moved them; nothing new should
+ * read a figure off it.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
