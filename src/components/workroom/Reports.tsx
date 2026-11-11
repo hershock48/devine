@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseDollars } from "@/components/workroom/PayControls";
 import { Block, Rows, Scroll, Tiles, c$, csv$, downloadCsv, table, td, tdR, tdTotal, tdTotalR, thL, thR, whoOf, type ReportOrder, type ReportPayment } from "@/components/workroom/report-parts";
 import CustomersView, { SPANS, type Span } from "@/components/workroom/ReportsCustomers";
@@ -12,6 +12,7 @@ import {
   balanceCents,
   grossPaidCents,
   isDeliveryLine,
+  isSetupLine,
   isoDate,
   isTaxLine,
   isUntaxedLine,
@@ -231,11 +232,14 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
      theirs. Items are the taxable lines (not delivery, not the tax line);
      exempt and third-party orders are listed apart. */
   const taxOn = (set: Order[]) => {
-    let taxable = 0, tax = 0, exempt = 0, third = 0, delivery = 0;
+    let taxable = 0, tax = 0, exempt = 0, third = 0, delivery = 0, setup = 0;
     for (const o of set) {
       if (o.status === "canceled") continue;
       const items = o.lines.filter((l) => !isUntaxedLine(l)).reduce((s, l) => s + Math.round(l.each * l.qty * 100), 0);
       delivery += o.lines.filter(isDeliveryLine).reduce((s, l) => s + Math.round(l.each * l.qty * 100), 0);
+      // Setup and installation (weddings, services): not taxed, and its
+      // own row, so gross sales is every dollar on the tickets before tax.
+      setup += o.lines.filter(isSetupLine).reduce((s, l) => s + Math.round(l.each * l.qty * 100), 0);
       if (o.taxExempt) exempt += items;
       else if (o.thirdParty) third += items;
       else {
@@ -243,7 +247,7 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
         tax += o.lines.filter(isTaxLine).reduce((s, l) => s + Math.round(l.each * l.qty * 100), 0);
       }
     }
-    return { taxable, tax, exempt, third, delivery, count: set.filter((o) => o.status !== "canceled").length };
+    return { taxable, tax, exempt, third, delivery, setup, count: set.filter((o) => o.status !== "canceled").length };
   };
   const paidIn = live.filter((o) => o.payment && inWin(o.payment.at, w));
   const taxPaid = taxOn(paidIn);
@@ -334,7 +338,8 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
     }
     return d;
   };
-  for (const o of written) dayRow(o.createdAt).written += 1;
+  // Canceled orders are left out, as on the Orders written tile.
+  for (const o of written) if (o.status !== "canceled") dayRow(o.createdAt).written += 1;
   for (const j of journal) dayRow(j.at)[j.kind] += j.cents;
   for (const r of refundsList) dayRow(r.at).back += r.cents;
   const perDay = w.days.map((iso) => ({ iso, ...(dayOf.get(iso) ?? { written: 0, card: 0, cash: 0, check: 0, other: 0, back: 0 }) }));
@@ -343,7 +348,7 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
      with money still to collect, and tomorrow at a glance. */
   const writtenLive = written.filter((o) => o.status !== "canceled");
   const writtenCents = writtenLive.reduce((sum, o) => sum + Math.round(o.subtotal * 100), 0);
-  const stillOpenList = dated.filter((o) => o.status !== "canceled" && o.status !== "done");
+  const stillOpenList = dated.filter((o) => o.status !== "canceled" && o.status !== "done" && o.status !== "out");
   const owedOut = live.filter((o) => o.status === "done" && !o.account && balanceCents(o) > 0).sort((a, b) => a.date.localeCompare(b.date));
   const nextDay = w.days.length === 1 ? shiftDay(w.days[0], 1) : "";
   const tomorrowOrders = nextDay ? live.filter((o) => o.date === nextDay && o.status !== "canceled") : [];
@@ -463,9 +468,18 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
   // Last month's two headline figures, for "up on October" beside this month's.
   const prev = useMemo(() => {
     if (view !== "month") return null;
-    const pw = windowFor("month", shiftMonth(month, -1));
+    let pw = windowFor("month", shiftMonth(month, -1));
+    const name = dayAt(pw.days[0]).toLocaleDateString("en-US", { month: "long" });
+    // The month in progress is held against last month AT THE SAME POINT:
+    // ten days of November against all of October would always read "down".
+    const inProgress = month === monthOf(todayISO());
+    if (inProgress) {
+      const dayOfMonth = Number(todayISO().slice(8, 10));
+      const [y, m] = pw.days[0].split("-").map(Number);
+      pw = { ...pw, endMs: Math.min(pw.endMs, new Date(y, m - 1, dayOfMonth + 1).getTime()), days: pw.days.filter((iso) => Number(iso.slice(8, 10)) <= dayOfMonth) };
+    }
     const p = compute(orders, sales, pw, maps);
-    return { label: dayAt(pw.days[0]).toLocaleDateString("en-US", { month: "long" }), takenCents: p.takenCents, written: p.written.filter((o) => o.status !== "canceled").length };
+    return { label: inProgress ? `${name} at this point` : name, takenCents: p.takenCents, written: p.written.filter((o) => o.status !== "canceled").length };
   }, [view, month, orders, sales, maps]);
 
   if (!authed) {
@@ -486,6 +500,11 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
       <style>{`@media print { header, nav, .no-print { display: none !important; } .sheet { max-width: none !important; } body { background: #fff; } }`}</style>
       <h1>Reports</h1>
       <MemoryWarning backend={backend} />
+      {orders.length >= 2000 && (
+        <p role="status" style={{ margin: "0 0 12px", fontWeight: 600, color: "var(--rose-ink)" }}>
+          These sheets read the board&rsquo;s newest 2,000 orders, and there are more than that on file now. Figures for the oldest months may be short. Tell Glazed Web.
+        </p>
+      )}
       <div className="no-print" style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", margin: "0 0 16px" }}>
         <div role="group" aria-label="Sheet" style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: 2 }}>
           {(["day", "month", "customers"] as View[]).map((v) => (
@@ -503,7 +522,7 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
         {view === "day" ? (
           <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
             <button type="button" onClick={() => setDay((d) => shiftDay(d, -1))} style={{ ...textButton, fontSize: 14 }} aria-label="The day before">‹</button>
-            <input type="date" value={day} max={todayISO()} onChange={(e) => isDay(e.target.value) && setDay(e.target.value)} aria-label="Day" style={{ padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 2, font: "inherit", fontSize: 14, background: "var(--paper)" }} />
+            <input type="date" value={day} max={todayISO()} onChange={(e) => isDay(e.target.value) && e.target.value <= todayISO() && setDay(e.target.value)} aria-label="Day" style={{ padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 2, font: "inherit", fontSize: 14, background: "var(--paper)" }} />
             <button type="button" disabled={day >= todayISO()} onClick={() => setDay((d) => shiftDay(d, 1))} style={{ ...textButton, fontSize: 14 }} aria-label="The day after">›</button>
             {day !== todayISO() && <button type="button" onClick={() => setDay(todayISO())} style={{ ...textButton, fontSize: 13.5 }}>Today</button>}
           </span>
@@ -555,12 +574,19 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
 }
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+/** For a spreadsheet cell: 24-hour HH:MM, no locale spacing to trip Excel. */
+const clockCsv = (ms: number) => {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
 const dayShort = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const statusWord: Record<string, string> = { new: "not confirmed", confirmed: "to make", made: "made, not out", out: "out for delivery", done: "done" };
 /** "12% up on October", or nothing when there is no earlier figure to compare with. */
 const versus = (cur: number, was: number | undefined, label: string) => (was && was > 0 ? `${Math.abs(Math.round(((cur - was) / was) * 100))}% ${cur >= was ? "up on" : "down on"} ${label}` : undefined);
 
 function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sheet; day: string; prev: { label: string; takenCents: number; written: number } | null }) {
+  /** The window in words: looking back at an earlier day, it is not "today". */
+  const when = view === "month" ? "this month" : day === todayISO() ? "today" : "that day";
   const methodRows: [string, string, string?][] = ["web", "card", "cash", "check", "register", "other"]
     .filter((m) => s.byMethod.has(m))
     .map((m) => {
@@ -580,8 +606,9 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
     ["Tax-exempt sales (items)", c$(t.exempt), "schools, churches, certificate holders"],
     ["Third-party sales (items)", c$(t.third), "Tribute and the like bill the tax themselves"],
     ["Delivery charges (not taxed)", c$(t.delivery)],
+    ...(t.setup > 0 ? ([["Setup and installation (not taxed)", c$(t.setup)]] as [string, string][]) : []),
   ];
-  const taxTotal = (t: Sheet["taxPaid"]): [string, string] => ["Gross sales, before tax", c$(t.taxable + t.exempt + t.third + t.delivery)];
+  const taxTotal = (t: Sheet["taxPaid"]): [string, string] => ["Gross sales, before tax", c$(t.taxable + t.exempt + t.third + t.delivery + t.setup)];
   const written = s.written.filter((o) => o.status !== "canceled");
   const stamp = view === "day" ? day : win.days[0]?.slice(0, 7) ?? "";
   const checksCents = s.checks.reduce((a, k) => a + k.cents, 0);
@@ -594,13 +621,13 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
     downloadCsv(
       `devine-payments-${stamp}.csv`,
       ["Date", "Time", "Order", "Customer", "How", "Amount"],
-      s.journal.map((j) => [isoDate(new Date(j.at)), clock(j.at), j.number, j.who, j.how, csv$(j.cents)]),
+      s.journal.map((j) => [isoDate(new Date(j.at)), clockCsv(j.at), j.number, j.who, j.how, csv$(j.cents)]),
     );
   const downloadRefunds = () =>
     downloadCsv(
       `devine-refunds-${stamp}.csv`,
       ["Date", "Time", "Order", "Customer", "How it went back", "What for", "Amount"],
-      s.refundsList.map((r) => [isoDate(new Date(r.at)), clock(r.at), r.number, r.who, r.how, r.reason, csv$(r.cents)]),
+      s.refundsList.map((r) => [isoDate(new Date(r.at)), clockCsv(r.at), r.number, r.who, r.how, r.reason, csv$(r.cents)]),
     );
   const downloadOrders = () =>
     downloadCsv(
@@ -622,7 +649,8 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
           csv$(tax),
           csv$(total),
           csv$(payments(o).reduce((a, p) => a + p.totalCents, 0)),
-          csv$((o.refunds ?? []).filter((r) => r.how !== "transfer").reduce((a, r) => a + r.cents, 0)),
+          // A canceled order refunded whole gave back everything it still held.
+          csv$((o.refunds ?? []).filter((r) => r.how !== "transfer").reduce((a, r) => a + r.cents, 0) + (o.payment?.refundedAt ? refundableCents(o) : 0)),
           csv$(o.status === "canceled" ? 0 : Math.max(0, balanceCents(o))),
           o.account ? "yes" : "",
           o.status,
@@ -657,7 +685,7 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
           { label: "Orders written", value: String(written.length), sub: view === "month" ? versus(written.length, prev?.written, prev?.label ?? "") ?? `${c$(s.writtenCents)} in tickets` : `${c$(s.writtenCents)} in tickets` },
           { label: "Average order", value: written.length ? c$(Math.round(s.writtenCents / written.length)) : c$(0), sub: view === "month" ? `${c$(s.writtenCents)} in tickets` : undefined },
           ...(view === "day" && s.tomorrow
-            ? [{ label: "Tomorrow", value: `${s.tomorrow.count} order${s.tomorrow.count === 1 ? "" : "s"}`, sub: s.tomorrow.count ? `${s.tomorrow.deliveries} deliver${s.tomorrow.deliveries === 1 ? "y" : "ies"}, ${s.tomorrow.count - s.tomorrow.deliveries} pickup${s.tomorrow.count - s.tomorrow.deliveries === 1 ? "" : "s"}` : "nothing on the board yet" }]
+            ? [{ label: day === todayISO() ? "Tomorrow" : "The day after", value: `${s.tomorrow.count} order${s.tomorrow.count === 1 ? "" : "s"}`, sub: s.tomorrow.count ? `${s.tomorrow.deliveries} deliver${s.tomorrow.deliveries === 1 ? "y" : "ies"}, ${s.tomorrow.count - s.tomorrow.deliveries} pickup${s.tomorrow.count - s.tomorrow.deliveries === 1 ? "" : "s"}` : "nothing on the board yet" }]
             : []),
           ...(view === "month" && busiestTaken > 0 ? [{ label: "Busiest day", value: dayAt(busiest.iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), sub: `${c$(busiestTaken)} taken` }] : []),
         ]}
@@ -709,7 +737,7 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
           <Rows
             rows={[
               ["Written", String(s.written.length), `${s.quick.length} quick sale${s.quick.length === 1 ? "" : "s"} · ${s.written.filter((o) => o.source === "web").length} from the website · ${s.canceled.length} canceled`],
-              [`Dated ${view === "day" ? "today" : "this month"}`, String(dated.length), `${deliveries.length} deliver${deliveries.length === 1 ? "y" : "ies"}, ${dated.length - deliveries.length} pickup${dated.length - deliveries.length === 1 ? "" : "s"}`],
+              [`Dated ${when}`, String(dated.length), `${deliveries.length} deliver${deliveries.length === 1 ? "y" : "ies"}, ${dated.length - deliveries.length} pickup${dated.length - deliveries.length === 1 ? "" : "s"}`],
               ["Out the door", String(done.length)],
               ["Still open", String(stillOpen.length)],
             ]}
@@ -717,14 +745,14 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
         </Block>
 
         <Block
-          title={`Sales tax · orders paid ${view === "day" ? "today" : "this month"}`}
+          title={`Sales tax · orders paid ${when}`}
           note={`${s.taxPaid.count} order${s.taxPaid.count === 1 ? "" : "s"} took their first payment in this window (the cash basis).`}
         >
           <Rows rows={taxRows(s.taxPaid)} total={taxTotal(s.taxPaid)} />
         </Block>
 
         <Block
-          title={`Sales tax · orders written ${view === "day" ? "today" : "this month"}`}
+          title={`Sales tax · orders written ${when}`}
           note={`${s.taxWritten.count} order${s.taxWritten.count === 1 ? "" : "s"} were written in this window, paid or not (the accrual basis). Use one basis or the other for the return, not both.`}
         >
           <Rows rows={taxRows(s.taxWritten)} total={taxTotal(s.taxWritten)} />
@@ -755,7 +783,7 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
         {/* THE DAY, LINE BY LINE: what the totals above are made of, to lay
             beside Square's own list and the deposit slip. */}
         {view === "day" && (
-          <Block title="Every payment today" note="In the order it was taken. The lines add up to Taken." wide>
+          <Block title={`Every payment ${when}`} note="In the order it was taken. The lines add up to Taken." wide>
             {s.journal.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>Nothing taken.</p>
             ) : (
@@ -792,7 +820,7 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
         )}
 
         {s.refundsList.length > 0 && (
-          <Block title={view === "day" ? "Every refund today" : "Every refund this month"} note="With what each was for, as it was recorded. The lines add up to Money out." wide>
+          <Block title={`Every refund ${when}`} note="With what each was for, as it was recorded. The lines add up to Money out." wide>
             <Scroll label="Refunds">
               <table style={{ ...table, minWidth: 560 }}>
                 <thead>
@@ -827,13 +855,13 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
         )}
 
         {view === "day" && s.stillOpenList.length > 0 && (
-          <Block title="Not out the door yet" note="Today's work that is not finished, so nothing is left behind at closing.">
+          <Block title="Not out the door yet" note="The day's work that has not left the shop, so nothing is left behind at closing.">
             <Rows rows={s.stillOpenList.map((o) => [`${o.number} · ${whoOf(o)}`, statusWord[o.status] ?? o.status, o.fulfillment === "delivery" ? `delivery${o.recipient ? ` to ${o.recipient}` : ""}` : "pickup"] as [string, string, string])} />
           </Block>
         )}
 
         {view === "day" && s.owedOut.length > 0 && (
-          <Block title="Out the door, not paid" note="Finished orders with money still to collect that are not on a house account, whatever day they went out.">
+          <Block title="Out the door, not paid" note={`Finished orders with money still to collect that are not on a house account, whatever day they went out.${s.owedOut.length > 30 ? " The oldest 30 are listed; the total is all of them." : ""}`}>
             <Rows
               rows={s.owedOut.slice(0, 30).map((o) => [`${o.number} · ${whoOf(o)}`, c$(owedNowCents(o)), `${o.date}${o.phone ? ` · ${o.phone}` : ""}`] as [string, string, string])}
               total={[`${s.owedOut.length} order${s.owedOut.length === 1 ? "" : "s"}`, c$(s.owedOut.reduce((a, o) => a + owedNowCents(o), 0))]}
@@ -874,7 +902,7 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
                   ))}
                   <tr>
                     <td style={tdTotal}>Month</td>
-                    <td style={tdTotalR}>{s.written.length}</td>
+                    <td style={tdTotalR}>{written.length}</td>
                     <td style={tdTotalR}>{c$(s.perDay.reduce((a, d) => a + d.card, 0))}</td>
                     <td style={tdTotalR}>{c$(s.perDay.reduce((a, d) => a + d.cash, 0))}</td>
                     <td style={tdTotalR}>{c$(s.perDay.reduce((a, d) => a + d.check, 0))}</td>
@@ -977,6 +1005,11 @@ function Drawer({ day, cashFromSales, checksCents }: { day: string; cashFromSale
   const [loaded, setLoaded] = useState(false);
   /** The day the opening float was carried from, when it was. */
   const [carried, setCarried] = useState("");
+  /** The count did not load: nothing is saved over what cannot be seen. */
+  const [loadFailed, setLoadFailed] = useState(false);
+  /** The day on the screen now, for an answer that arrives after it changed. */
+  const dayNow = useRef(day);
+  dayNow.current = day;
 
   useEffect(() => {
     let dead = false;
@@ -993,10 +1026,12 @@ function Drawer({ day, cashFromSales, checksCents }: { day: string; cashFromSale
     setNote("");
     setBy("");
     setCarried("");
+    setLoadFailed(false);
     fetch(`/api/workroom/drawer?day=${day}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (dead) return;
+        if (!d) setLoadFailed(true);
         const c = (d?.count as DrawerCount | null) ?? null;
         const before = (d?.prev as DrawerCount | null) ?? null;
         setSaved(c);
@@ -1017,7 +1052,9 @@ function Drawer({ day, cashFromSales, checksCents }: { day: string; cashFromSale
         setLoaded(true);
       })
       .catch(() => {
-        if (!dead) setLoaded(true);
+        if (dead) return;
+        setLoadFailed(true);
+        setLoaded(true);
       });
     return () => {
       dead = true;
@@ -1039,7 +1076,9 @@ function Drawer({ day, cashFromSales, checksCents }: { day: string; cashFromSale
 
   async function save() {
     if (bad) return setError("One of the amounts did not read as money. Use figures like 150 or 150.00.");
-    if (leftTooMuch) return setError("More is being left in the drawer than was counted. Check the two figures.");
+    if (loadFailed) return setError("This day's count did not load, so it cannot be saved over. Reload the page first.");
+    if (leftTooMuch) return setError("More is being left in the drawer than was counted. If cash was added to bring it back up to the float, put that under Cash put in.");
+    const forDay = day;
     if (!isInitials(by)) return setError("Your initials, two or three letters, so the count has a name on it.");
     setBusy(true);
     setError("");
@@ -1050,6 +1089,8 @@ function Drawer({ day, cashFromSales, checksCents }: { day: string; cashFromSale
         body: JSON.stringify({ day, openingCents: o, addedCents: a, removedCents: r, countedCents: k, leftCents: l, note, by: by.trim().toUpperCase(), baseAt: saved?.at ?? null }),
       });
       const d = (await res.json().catch(() => null)) as { ok?: boolean; count?: DrawerCount; error?: string } | null;
+      // The day was changed while this was saving: the answer is not this day's.
+      if (dayNow.current !== forDay) return;
       if (!res.ok || !d?.ok) setError(d?.error || "The count did not save.");
       else {
         setSaved(d.count ?? null);
@@ -1074,6 +1115,11 @@ function Drawer({ day, cashFromSales, checksCents }: { day: string; cashFromSale
         <p className="muted" style={{ margin: 0 }}>Reading the count…</p>
       ) : (
         <div style={{ display: "grid", gap: 8 }}>
+          {loadFailed && (
+            <p role="alert" style={{ margin: 0, fontWeight: 600, color: "var(--rose-ink)", fontSize: 14 }}>
+              This day&rsquo;s count did not load. Reload the page before typing a count in.
+            </p>
+          )}
           <label style={line}>
             Opening float (the cash it started with)
             <input value={opening} onChange={(e) => { setOpening(e.target.value); setCarried(""); }} inputMode="decimal" placeholder="0.00" aria-label="Opening float, in dollars" style={box} />

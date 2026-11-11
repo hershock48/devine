@@ -38,6 +38,9 @@ export async function PUT(req: Request) {
   }
   const p = (raw ?? {}) as Record<string, unknown>;
   if (!isDay(p.day)) return NextResponse.json({ error: "Which day?" }, { status: 400 });
+  // Not a day that has not come (a slipped year would later hand its float
+  // to a real day). A day's grace, because the server's clock is UTC.
+  if (p.day > new Date(Date.now() + 36 * 3_600_000).toISOString().slice(0, 10)) return NextResponse.json({ error: "That day has not come yet." }, { status: 400 });
   const openingCents = cents(p.openingCents);
   const addedCents = cents(p.addedCents);
   const removedCents = cents(p.removedCents);
@@ -49,9 +52,11 @@ export async function PUT(req: Request) {
   const leftCents = p.leftCents === null || p.leftCents === undefined ? null : cents(p.leftCents);
   if (p.leftCents !== null && p.leftCents !== undefined && leftCents === null) return NextResponse.json({ error: "One of the amounts did not read as money." }, { status: 400 });
   if (leftCents !== null && (countedCents === null || leftCents > countedCents)) {
-    return NextResponse.json({ error: countedCents === null ? "Count the drawer before saying what stays in it." : "More is being left in the drawer than was counted." }, { status: 400 });
+    return NextResponse.json({ error: countedCents === null ? "Count the drawer before saying what stays in it." : "More is being left in the drawer than was counted. If cash was added to bring it back up to the float, put that under cash put in." }, { status: 400 });
   }
-  const by = typeof p.by === "string" ? p.by.trim().toUpperCase().slice(0, 3) : "";
+  // Checked whole, not clipped first: "KEVIN" is refused, not stored as KEV
+  // (the orders route's rule for initials).
+  const by = typeof p.by === "string" ? p.by.trim().toUpperCase() : "";
   if (!/^[A-Z]{2,3}$/.test(by)) return NextResponse.json({ error: "Your initials, two or three letters, so the count has a name on it." }, { status: 400 });
   const count: DrawerCount = {
     day: p.day,

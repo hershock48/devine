@@ -58,6 +58,8 @@ type Row = {
   everCents: number;
   firstAt: number;
   lastAt: number;
+  /** Of the period's spend, what was put on a house account. */
+  accountCents: number;
   /** An order dated today or later: something is coming up. */
   upcoming: boolean;
   owed: number;
@@ -77,7 +79,7 @@ export default function CustomersView({ orders, span }: { orders: ReportOrder[];
     const sales = orders.filter((o) => o.status !== "canceled" && o.status !== "hold" && !o.quick && (o.name.trim() || o.business?.trim()));
     for (const o of sales) {
       const key = keyOf(o);
-      const cur: Row = rows.get(key) ?? { key, label: "", phone: "", email: "", account: false, orders: 0, cents: 0, everOrders: 0, everCents: 0, firstAt: Infinity, lastAt: 0, upcoming: false, owed: 0, all: [] };
+      const cur: Row = rows.get(key) ?? { key, label: "", phone: "", email: "", account: false, orders: 0, cents: 0, accountCents: 0, everOrders: 0, everCents: 0, firstAt: Infinity, lastAt: 0, upcoming: false, owed: 0, all: [] };
       const cents = Math.round(o.subtotal * 100);
       cur.everOrders += 1;
       cur.everCents += cents;
@@ -92,6 +94,7 @@ export default function CustomersView({ orders, span }: { orders: ReportOrder[];
       if (o.createdAt >= from) {
         cur.orders += 1;
         cur.cents += cents;
+        if (o.account) cur.accountCents += cents;
       }
       if (o.date >= today) cur.upcoming = true;
       if (o.account) cur.account = true;
@@ -103,7 +106,7 @@ export default function CustomersView({ orders, span }: { orders: ReportOrder[];
     const inSpan = all.filter((r) => r.orders > 0);
     const total = inSpan.reduce((s, r) => s + r.cents, 0);
     const orderCount = inSpan.reduce((s, r) => s + r.orders, 0);
-    const accounts = inSpan.filter((r) => r.account);
+    const accounts = inSpan.filter((r) => r.accountCents > 0);
 
     // WHERE THE FLOWERS GO: the places delivered to most, in the period.
     const places = new Map<string, { label: string; count: number; cents: number }>();
@@ -131,7 +134,7 @@ export default function CustomersView({ orders, span }: { orders: ReportOrder[];
       inSpan,
       total,
       orderCount,
-      accounts: { count: accounts.length, cents: accounts.reduce((s, r) => s + r.cents, 0) },
+      accounts: { count: accounts.length, cents: accounts.reduce((s, r) => s + r.accountCents, 0) },
       fresh: all.filter((r) => r.firstAt >= from).sort((a, b) => b.firstAt - a.firstAt),
       quiet: all.filter((r) => r.everOrders >= 2 && r.lastAt < now - 90 * DAY && !r.upcoming).sort((a, b) => b.everCents - a.everCents).slice(0, 25),
       repeat: inSpan.filter((r) => r.everOrders >= 2).length,
@@ -168,13 +171,14 @@ export default function CustomersView({ orders, span }: { orders: ReportOrder[];
           { label: "What they spent", value: c$(data.total), sub: data.inSpan.length ? `${c$(Math.round(data.total / data.inSpan.length))} a customer` : undefined },
           { label: "Average order", value: data.orderCount ? c$(Math.round(data.total / data.orderCount)) : c$(0), sub: `${data.orderCount} order${data.orderCount === 1 ? "" : "s"}` },
           { label: "House accounts", value: c$(data.accounts.cents), sub: `${data.accounts.count} account${data.accounts.count === 1 ? "" : "s"}${data.total > 0 ? `, ${Math.round((data.accounts.cents / data.total) * 100)}% of the spend` : ""}` },
-          { label: "First-time customers", value: String(data.fresh.length) },
+          // On "everything on file" every customer is new to the file: not a figure.
+          ...(span === "all" ? [] : [{ label: "New customers", value: String(data.fresh.length), sub: "first order on file is in this period" }]),
         ]}
       />
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "minmax(0, 1fr)" }}>
         <Block
           title={q ? "Customers found" : `Top customers · ${sort === "spend" ? "by what they spent" : sort === "orders" ? "by how often they order" : "most recent first"}`}
-          note={q ? "A search looks through everyone on file. Tap a name for their orders." : "The top 25. Tap a name for their orders. Spend is ticket totals with tax and delivery; canceled orders and quick sales are left out."}
+          note={q ? "A search looks through everyone on file, and its figures are everything on file, not only this period. Tap a name for their orders." : "The top 25. Tap a name for their orders. Spend is ticket totals with tax and delivery; canceled orders and quick sales are left out."}
         >
           <div className="no-print" style={{ margin: "0 0 10px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", fontSize: 14 }}>
             <input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find a customer: name, phone or email" aria-label="Find a customer" style={{ ...field, maxWidth: 300, padding: "6px 10px" }} />

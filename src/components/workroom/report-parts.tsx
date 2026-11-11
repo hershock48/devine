@@ -52,7 +52,7 @@ export const whoOf = (o: { business?: string; name: string; quick?: boolean }) =
 
 export const kicker: React.CSSProperties = { fontSize: 12.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", margin: "0 0 6px" };
 export const table: React.CSSProperties = { borderCollapse: "collapse", width: "100%", fontSize: 14.5 };
-export const td: React.CSSProperties = { padding: "5px 8px 5px 0", borderBottom: "1px solid var(--line)" };
+export const td: React.CSSProperties = { padding: "5px 8px 5px 0", borderBottom: "1px solid var(--line)", overflowWrap: "anywhere" };
 export const tdR: React.CSSProperties = { ...td, textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
 export const tdTotal: React.CSSProperties = { ...td, fontWeight: 700, borderBottom: 0 };
 export const tdTotalR: React.CSSProperties = { ...tdR, fontWeight: 700, borderBottom: 0 };
@@ -132,7 +132,7 @@ export function downloadCsv(filename: string, header: string[], rows: (string | 
     const s = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const text = "﻿" + [header, ...rows].map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
+  const text = String.fromCharCode(0xfeff) + [header, ...rows].map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
   const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
   const a = document.createElement("a");
   a.href = url;
@@ -140,7 +140,7 @@ export function downloadCsv(filename: string, header: string[], rows: (string | 
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 /** Cents as a plain number for a spreadsheet cell. */
 export const csv$ = (cents: number) => Number((cents / 100).toFixed(2));
