@@ -9,35 +9,10 @@ import { money } from "@/components/workroom/ui";
  * and add up alike.
  */
 
-export type ReportLine = { slug: string | null; name: string; qty: number; each: number };
-export type ReportPayment = { at: number; method: string; via?: string; checkNumber?: string; note?: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number };
-export type ReportOrder = {
-  id: string;
-  number: string;
-  source: "web" | "phone";
-  status: string;
-  fulfillment: "delivery" | "pickup";
-  name: string;
-  business?: string;
-  phone: string;
-  email?: string;
-  recipient?: string;
-  company?: string;
-  occasion?: string;
-  zip: string;
-  date: string;
-  lines: ReportLine[];
-  subtotal: number;
-  createdAt: number;
-  payment?: ReportPayment | null;
-  topUps?: ReportPayment[];
-  refunds?: { at: number; cents: number; how?: "square" | "hand" | "check" | "transfer"; note?: string; kept?: boolean }[];
-  account?: boolean;
-  taxExempt?: boolean;
-  thirdParty?: boolean;
-  quick?: boolean;
-  poNumber?: string;
-};
+/* The order as the sheets read it is defined beside the function that
+   makes it (lib/workroom/report-rows.ts), so the server's rows and the
+   sheets' type are one thing. */
+export type { ReportLine, ReportOrder, ReportPayment, ReportSale } from "@/lib/workroom/report-rows";
 
 /** Cents as dollars; a negative figure reads "−$8.95", not "$-8.95". */
 export const c$ = (cents: number) => (cents < 0 ? `−${money(-cents / 100)}` : money(cents / 100));

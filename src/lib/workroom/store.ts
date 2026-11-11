@@ -1,5 +1,6 @@
 import "server-only";
 import { balanceCents, refundableCents } from "./derive";
+import { REPORT_PAGE_BYTES, toReportOrder, toReportSale, type ReportOrder, type ReportSale } from "./report-rows";
 import type { Category, Product } from "@/lib/catalog";
 
 /**
@@ -621,6 +622,14 @@ type Store = {
       silently left the board in August, still unmade. Open orders never age
       off; only finished ones do. */
   listOrders(days: number): Promise<WorkroomOrder[]>;
+  /** FOR THE REPORT SHEETS: the same orders listOrders means (every open
+      one, and closed ones from the last `days`), with no count cap, a page
+      at a time and cut down to what a sheet adds up (report-rows.ts).
+      Newest first; `before` is the last page's `next`, and a null `next`
+      means that was the last page. The board's list stops at a fixed
+      count and drops the oldest past it, which is right for a board and
+      wrong for a month's books. */
+  listReportOrders(days: number, before: PageMark | null, limit: number): Promise<ReportPage<ReportOrder>>;
   getOrder(id: string): Promise<WorkroomOrder | null>;
   /** By the DV number the ticket carries, for matching a register ring's
       typed note. Number collisions do not exist (date + random). */
@@ -693,6 +702,11 @@ type Store = {
   deleteQuote(id: string): Promise<void>;
   upsertSquareSale(s: SquareSale): Promise<void>;
   listSquareSales(days: number): Promise<SquareSale[]>;
+  /** FOR THE REPORT SHEETS: the register rings of the last `days` that
+      belong to no board order (the walk-ins; a linked ring is counted
+      through its order), paged like listReportOrders and without the
+      lines. */
+  listReportSales(days: number, before: PageMark | null, limit: number): Promise<ReportPage<ReportSale>>;
   upsertVariety(v: Variety): Promise<void>;
   listVarieties(): Promise<Variety[]>;
   deleteVariety(name: string): Promise<void>;
@@ -821,24 +835,73 @@ function bag(): Bag {
 
 const cutoff = (days: number) => Date.now() - days * 86_400_000;
 
+/** A place in a newest-first list: the last row of the page just read.
+    The next page is everything older, by when it was written and then by
+    id, so two rows written in the same millisecond are never skipped or
+    read twice. */
+export type PageMark = { at: number; id: string };
+export type ReportPage<T> = { rows: T[]; next: PageMark | null };
+
+/** Ids compare by code unit here and under COLLATE "C" in Postgres: the
+    same order in both backends. */
+const olderThan = (at: number, id: string, mark: PageMark | null) => !mark || at < mark.at || (at === mark.at && id < mark.id);
+const newestFirst = (a: { createdAt: number; id: string }, b: { createdAt: number; id: string }) =>
+  b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+
+/**
+ * One page from rows already filtered and sorted newest first. The caller
+ * hands over one row more than `limit` when there is one, which is how the
+ * page knows it is not the last. A page also closes early at
+ * REPORT_PAGE_BYTES (it always carries at least one row), and the mark is
+ * the last row actually sent, so nothing between two pages is lost. Both
+ * backends cut their pages here.
+ */
+function cutPage<S, T>(found: S[], limit: number, mark: (s: S) => PageMark, slim: (s: S) => T): ReportPage<T> {
+  const rows: T[] = [];
+  let bytes = 0;
+  let last: S | null = null;
+  for (const s of found.slice(0, limit)) {
+    const row = slim(s);
+    const size = Buffer.byteLength(JSON.stringify(row)) + 1;
+    if (rows.length > 0 && bytes + size > REPORT_PAGE_BYTES) break;
+    rows.push(row);
+    bytes += size;
+    last = s;
+  }
+  return { rows, next: last && rows.length < found.length ? mark(last) : null };
+}
+
+/** The orders a list means: not removed, and either still open or written
+    in the last `days`. listOrders and listReportOrders both read it. */
+const onFile = (days: number) => {
+  // Done-but-unpaid counts as open for aging: it is a receivable, and a
+  // receivable that quietly leaves the board after 60 days disappears at
+  // exactly the moment it most needs seeing. It ages off when paid.
+  // ...and so does a done order whose edit left a balance after a payment.
+  const open = (o: WorkroomOrder) =>
+    (o.status !== "done" && o.status !== "canceled") || (o.status === "done" && (!o.payment || balanceCents(o) !== 0));
+  const since = cutoff(days);
+  // A removed order (written up twice) is off every list; getOrder and
+  // getOrderByNumber still find it, so its number stays retired and
+  // Put it back can reach it.
+  return (o: WorkroomOrder) => !o.voided && (open(o) || o.createdAt >= since);
+};
+
 const memoryStore: Store = {
   backend: "memory",
   async createOrder(o) {
     bag().orders.set(o.id, o);
   },
   async listOrders(days) {
-    // Done-but-unpaid counts as open for aging: it is a receivable, and a
-    // receivable that quietly leaves the board after 60 days disappears at
-    // exactly the moment it most needs seeing. It ages off when paid.
-    // ...and so does a done order whose edit left a balance after a payment.
-    const open = (o: WorkroomOrder) =>
-      (o.status !== "done" && o.status !== "canceled") || (o.status === "done" && (!o.payment || balanceCents(o) !== 0));
-    // A removed order (written up twice) is off every list; getOrder and
-    // getOrderByNumber still find it, so its number stays retired and
-    // Put it back can reach it.
-    return [...bag().orders.values()]
-      .filter((o) => !o.voided && (open(o) || o.createdAt >= cutoff(days)))
-      .sort((a, b) => a.createdAt - b.createdAt);
+    return [...bag().orders.values()].filter(onFile(days)).sort((a, b) => a.createdAt - b.createdAt);
+  },
+  async listReportOrders(days, before, limit) {
+    const found = [...bag().orders.values()]
+      .filter(onFile(days))
+      .filter((o) => olderThan(o.createdAt, o.id, before))
+      .sort(newestFirst)
+      .slice(0, limit + 1);
+    return cutPage(found, limit, (o) => ({ at: o.createdAt, id: o.id }), toReportOrder);
   },
   async getOrder(id) {
     return bag().orders.get(id) ?? null;
@@ -1000,6 +1063,14 @@ const memoryStore: Store = {
     return [...bag().squareSales.values()]
       .filter((s) => s.createdAt >= cutoff(days))
       .sort((a, b) => b.createdAt - a.createdAt);
+  },
+  async listReportSales(days, before, limit) {
+    const since = cutoff(days);
+    const found = [...bag().squareSales.values()]
+      .filter((s) => !s.workroomOrderId && s.createdAt >= since && olderThan(s.createdAt, s.id, before))
+      .sort(newestFirst)
+      .slice(0, limit + 1);
+    return cutPage(found, limit, (s) => ({ at: s.createdAt, id: s.id }), toReportSale);
   },
   async upsertVariety(v) {
     bag().varieties.set(v.name, v);
@@ -1259,6 +1330,38 @@ async function pgPool(): Promise<PgPool> {
   return g.__devinePgPool!;
 }
 
+/**
+ * WHICH ORDERS A LIST MEANS, in SQL: the memory store's onFile, word for
+ * word. Not removed, and either still open or written since $1. The
+ * board's list and the report sheets' pages both read this one copy, so
+ * the two can never disagree about which orders are on file.
+ *
+ * Done-but-unpaid ages like open (see the memory copy's note): the
+ * payment key is absent until money lands, so data->'payment' IS NULL is
+ * the unpaid test, and it holds for rows written before the payment field
+ * existed.
+ */
+const ORDERS_ON_FILE = `data->>'voided' IS NULL AND (
+            status NOT IN ('done', 'canceled')
+            OR (status = 'done' AND data->>'payment' IS NULL)
+            -- derive.ts balanceCents <> 0: still due, or owed back while
+            -- the shop still holds something (kept refunds are left out of
+            -- the ticket's side and counted in what is held).
+            OR (status = 'done' AND data->>'payment' IS NOT NULL AND (
+                ROUND((data->>'subtotal')::numeric * 100) >
+                  ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
+                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
+                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0)
+                OR (ROUND((data->>'subtotal')::numeric * 100) <
+                  ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
+                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
+                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0)
+                  AND
+                  ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
+                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
+                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0) > 0)))
+            OR created_at >= $1)`;
+
 const postgresStore: Store = {
   backend: "postgres",
   async createOrder(o) {
@@ -1282,31 +1385,32 @@ const postgresStore: Store = {
     const r = await pool.query(
       `SELECT data FROM (
          SELECT data, created_at FROM workroom_orders
-         WHERE data->>'voided' IS NULL AND (
-            status NOT IN ('done', 'canceled')
-            OR (status = 'done' AND data->>'payment' IS NULL)
-            -- derive.ts balanceCents <> 0: still due, or owed back while
-            -- the shop still holds something (kept refunds are left out of
-            -- the ticket's side and counted in what is held).
-            OR (status = 'done' AND data->>'payment' IS NOT NULL AND (
-                ROUND((data->>'subtotal')::numeric * 100) >
-                  ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
-                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
-                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0)
-                OR (ROUND((data->>'subtotal')::numeric * 100) <
-                  ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
-                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
-                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f WHERE COALESCE(f->>'kept', 'false') <> 'true'), 0)
-                  AND
-                  ((data->'payment'->>'totalCents')::numeric - (data->'payment'->>'feeCents')::numeric)
-                  + COALESCE((SELECT SUM((t->>'totalCents')::numeric - (t->>'feeCents')::numeric) FROM jsonb_array_elements(COALESCE(data->'topUps', '[]'::jsonb)) t), 0)
-                  - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0) > 0)))
-            OR created_at >= $1)
+         WHERE ${ORDERS_ON_FILE}
          ORDER BY created_at DESC LIMIT 2000
        ) t ORDER BY created_at ASC`,
       [cutoff(days)],
     );
     return r.rows.map((row) => row.data as WorkroomOrder);
+  },
+  async listReportOrders(days, before, limit) {
+    const pool = await pgPool();
+    // No count cap: the caller pages until `next` is null. Newest first,
+    // then by id, and the next page starts strictly below the last row
+    // sent. One more row than the page is asked for, so the page knows
+    // whether another follows.
+    const r = await pool.query(
+      `SELECT id, created_at, data FROM workroom_orders
+       WHERE ${ORDERS_ON_FILE}
+         AND ($2::bigint IS NULL OR created_at < $2::bigint OR (created_at = $2::bigint AND id COLLATE "C" < $3::text))
+       ORDER BY created_at DESC, id COLLATE "C" DESC LIMIT $4`,
+      [cutoff(days), before?.at ?? null, before?.id ?? "", limit + 1],
+    );
+    return cutPage(
+      r.rows,
+      limit,
+      (row) => ({ at: Number(row.created_at), id: row.id as string }),
+      (row) => toReportOrder(row.data as WorkroomOrder),
+    );
   },
   async getOrder(id) {
     const pool = await pgPool();
@@ -1599,6 +1703,23 @@ const postgresStore: Store = {
       [cutoff(days)],
     );
     return r.rows.map((row) => row.data as SquareSale);
+  },
+  async listReportSales(days, before, limit) {
+    const pool = await pgPool();
+    // The memory copy's rule: no order id on the ring (absent or empty).
+    const r = await pool.query(
+      `SELECT id, created_at, data FROM square_sales
+       WHERE created_at >= $1 AND COALESCE(data->>'workroomOrderId', '') = ''
+         AND ($2::bigint IS NULL OR created_at < $2::bigint OR (created_at = $2::bigint AND id COLLATE "C" < $3::text))
+       ORDER BY created_at DESC, id COLLATE "C" DESC LIMIT $4`,
+      [cutoff(days), before?.at ?? null, before?.id ?? "", limit + 1],
+    );
+    return cutPage(
+      r.rows,
+      limit,
+      (row) => ({ at: Number(row.created_at), id: row.id as string }),
+      (row) => toReportSale(row.data as SquareSale),
+    );
   },
   async upsertVariety(v) {
     const pool = await pgPool();

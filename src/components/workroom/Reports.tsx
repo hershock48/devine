@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseDollars } from "@/components/workroom/PayControls";
-import { Block, Rows, Scroll, Tiles, c$, csv$, downloadCsv, table, td, tdR, tdTotal, tdTotalR, thL, thR, whoOf, type ReportOrder, type ReportPayment } from "@/components/workroom/report-parts";
+import { Block, Rows, Scroll, Tiles, c$, csv$, downloadCsv, table, td, tdR, tdTotal, tdTotalR, thL, thR, whoOf, type ReportOrder, type ReportPayment, type ReportSale } from "@/components/workroom/report-parts";
 import CustomersView, { SPANS, type Span } from "@/components/workroom/ReportsCustomers";
 import type { Category, Product } from "@/lib/catalog";
 import { useCategories, useProducts } from "@/components/CatalogContext";
 import { site } from "@/lib/site";
+import { REPORT_MAX_ROWS } from "@/lib/workroom/report-rows";
 import {
   HISTORY_DAYS,
   balanceCents,
@@ -54,7 +55,12 @@ import { InitialsInput, MemoryWarning, PinGate, field, isInitials, money, phoneK
  *
  * EVERY FIGURE IS DERIVED from two ledgers the board already keeps: the
  * orders (with their payments, top-ups and refunds) and the Square rings
- * the webhook stored. A card or cash payment taken on a card IS a Square
+ * the webhook stored. The sheets read both WHOLE from their own route
+ * (api/workroom/reports), a page at a time, once when the screen opens
+ * and again at Refresh or on coming back to the tab. The board's polling
+ * list stops at a fixed count, which shorted the older months. If the
+ * route ever stops short it says so, and the sheet says so in turn.
+ * A card or cash payment taken on a card IS a Square
  * ring, so such rings are counted once, through the order; only rings
  * that match no order (a walk-in rung straight on the register) are
  * added as their own line. The sheet never estimates: a number it cannot
@@ -66,7 +72,28 @@ import { InitialsInput, MemoryWarning, PinGate, field, isInitials, money, phoneK
 
 type Order = ReportOrder;
 type Payment = ReportPayment;
-type Sale = { id: string; workroomOrderId?: string; source: string; totalCents: number; paidAt: string; createdAt: number };
+/** workroomOrderId stays in the type for the guards below; the reports
+    route only sends rings that have none. */
+type Sale = ReportSale & { workroomOrderId?: string };
+
+class Locked extends Error {}
+/** One whole list from the reports route: page after page until the route
+    says there is no next one. `truncated` is the route's own word that it
+    stopped with rows still on file. */
+async function readList<T>(list: "orders" | "sales", onCount?: (n: number) => void): Promise<{ rows: T[]; truncated: boolean; backend: string | null }> {
+  const rows: T[] = [];
+  let after = "";
+  for (;;) {
+    const r = await fetch(`/api/workroom/reports?list=${list}&days=${HISTORY_DAYS}${after ? `&after=${encodeURIComponent(after)}` : ""}`, { cache: "no-store" });
+    if (r.status === 401) throw new Locked();
+    if (!r.ok) throw new Error("The figures did not load.");
+    const d = (await r.json()) as { rows?: T[]; next?: string | null; truncated?: boolean; backend?: string };
+    for (const row of d.rows ?? []) rows.push(row);
+    onCount?.(rows.length);
+    if (!d.next) return { rows, truncated: !!d.truncated, backend: d.backend ?? null };
+    after = d.next;
+  }
+}
 
 type View = "day" | "month" | "customers";
 type Window = { beginMs: number; endMs: number; label: string; days: string[] };
@@ -428,32 +455,55 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
   const [backend, setBackend] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
+  /** Which list the route stopped short on (its own flag), in words; empty
+      when it sent everything on file. */
+  const [truncated, setTruncated] = useState("");
+  /** Orders read so far, shown while a long file is still coming in. */
+  const [reading, setReading] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [readAt, setReadAt] = useState(0);
+  const pulling = useRef(false);
+  const lastRead = useRef(0);
 
   const pull = useCallback(async () => {
+    // One read at a time: a second tap on Refresh waits for the first.
+    if (pulling.current) return;
+    pulling.current = true;
+    setBusy(true);
     try {
-      // One request: the stems route carries the orders and the stored
-      // Square rings together (the dashboard reads it the same way).
-      const s = await fetch(`/api/workroom/stems?days=${HISTORY_DAYS}`, { cache: "no-store" });
-      if (s.status === 401) {
-        setAuthed(false);
-        return;
-      }
-      if (!s.ok) throw new Error("The figures did not load.");
-      const sd = await s.json();
-      setOrders(sd.orders ?? []);
-      setSales(sd.squareSales ?? []);
-      setBackend(sd.backend ?? null);
+      // Both lists whole, and only then the sheet: a sheet added up from
+      // half the orders would be a wrong sheet shown as a right one.
+      const [o, s] = await Promise.all([readList<Order>("orders", setReading), readList<Sale>("sales")]);
+      // The pages come newest first; the sheets list oldest first.
+      setOrders(o.rows.reverse());
+      setSales(s.rows);
+      setTruncated([o.truncated ? "orders" : "", s.truncated ? "register rings" : ""].filter(Boolean).join(` and the newest ${REPORT_MAX_ROWS.toLocaleString("en-US")} `));
+      setBackend(o.backend);
       setLoaded(true);
+      lastRead.current = Date.now();
+      setReadAt(lastRead.current);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The figures did not load.");
+      if (err instanceof Locked) setAuthed(false);
+      else setError(err instanceof Error ? err.message : "The figures did not load.");
+    } finally {
+      pulling.current = false;
+      setBusy(false);
+      setReading(0);
     }
   }, []);
+  // Read once when the screen opens, not on a timer: a year of orders is
+  // too much to send every minute. Coming back to the tab reads again when
+  // the figures are more than a minute old, so a sheet left open through
+  // the afternoon is current at closing. Refresh reads on demand.
   useEffect(() => {
     if (!authed) return;
     pull();
-    const t = setInterval(pull, 60_000);
-    return () => clearInterval(t);
+    const back = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastRead.current > 60_000) pull();
+    };
+    document.addEventListener("visibilitychange", back);
+    return () => document.removeEventListener("visibilitychange", back);
   }, [authed, pull]);
 
   const win = useMemo(() => windowFor(view === "month" ? "month" : "day", view === "month" ? month : day), [view, day, month]);
@@ -500,9 +550,9 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
       <style>{`@media print { header, nav, .no-print { display: none !important; } .sheet { max-width: none !important; } body { background: #fff; } }`}</style>
       <h1>Reports</h1>
       <MemoryWarning backend={backend} />
-      {orders.length >= 2000 && (
+      {truncated && (
         <p role="status" style={{ margin: "0 0 12px", fontWeight: 600, color: "var(--rose-ink)" }}>
-          These sheets read the board&rsquo;s newest 2,000 orders, and there are more than that on file now. Figures for the oldest months may be short. Tell Glazed Web.
+          These sheets read the newest {REPORT_MAX_ROWS.toLocaleString("en-US")} {truncated}, and there are more than that on file now. Figures for the oldest months may be short. Tell Glazed Web.
         </p>
       )}
       <div className="no-print" style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", margin: "0 0 16px" }}>
@@ -545,7 +595,12 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
         <button type="button" className="btn" onClick={() => window.print()} disabled={monthLocked || !loaded}>
           Print this sheet
         </button>
-        <button type="button" onClick={() => pull()} style={{ ...textButton, fontSize: 13.5 }}>Refresh</button>
+        <button type="button" onClick={() => pull()} disabled={busy} style={{ ...textButton, fontSize: 13.5 }}>{busy && loaded ? "Reading…" : "Refresh"}</button>
+        {loaded && readAt > 0 && (
+          <span className="muted" style={{ fontSize: 13 }}>
+            Figures read at {new Date(readAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+          </span>
+        )}
         {error && <span role="alert" style={{ color: "var(--rose-ink)", fontWeight: 600 }}>{error}</span>}
       </div>
 
@@ -565,7 +620,7 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
           <p aria-live="polite" style={{ color: "var(--rose-ink)", fontWeight: 600, minHeight: "1.4em", maxWidth: 420 }}>{ownerHint}</p>
         </>
       ) : !loaded ? (
-        <p className="muted" aria-live="polite">Adding it up…</p>
+        <p className="muted" aria-live="polite">Adding it up…{reading > 0 ? ` ${reading.toLocaleString("en-US")} orders read so far.` : ""}</p>
       ) : (
         view === "customers" ? <CustomersView orders={orders} span={span} /> : <SheetView view={view} win={win} s={sheet} day={day} prev={prev} />
       )}
