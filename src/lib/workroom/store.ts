@@ -1,6 +1,19 @@
 import "server-only";
-import { balanceCents, refundableCents } from "./derive";
-import { REPORT_PAGE_BYTES, toReportOrder, toReportSale, type ReportOrder, type ReportSale } from "./report-rows";
+import { balanceCents, emailKey, phoneKey, refundableCents } from "./derive";
+import {
+  earlierSightings,
+  REPORT_PAGE_BYTES,
+  toLedgerOrder,
+  toLedgerSale,
+  toReportOrder,
+  toReportSale,
+  type EarlierSightings,
+  type LedgerOrder,
+  type LedgerSale,
+  type ReportOrder,
+  type ReportSale,
+  type SaleMoney,
+} from "./report-rows";
 import type { Category, Product } from "@/lib/catalog";
 
 /**
@@ -630,6 +643,15 @@ type Store = {
       count and drops the oldest past it, which is right for a board and
       wrong for a month's books. */
   listReportOrders(days: number, before: PageMark | null, limit: number): Promise<ReportPage<ReportOrder>>;
+  /** FOR THE STEM ARITHMETIC (inventory, weekly order): the same orders
+      on file less the canceled ones, paged the same way, each cut down to
+      its id, status, date and lines (report-rows.ts LedgerOrder). */
+  listLedgerOrders(days: number, before: PageMark | null, limit: number): Promise<ReportPage<LedgerOrder>>;
+  /** FOR THE DASHBOARD'S RETURNING TILE: the first sighting, before the
+      last `days`, of each phone and email that is on an order on file now
+      (report-rows.ts earlierSightings). No count cap: it is one grouped
+      read, and what comes back is bounded by the customers on file. */
+  listEarlierSightings(days: number): Promise<EarlierSightings>;
   getOrder(id: string): Promise<WorkroomOrder | null>;
   /** By the DV number the ticket carries, for matching a register ring's
       typed note. Number collisions do not exist (date + random). */
@@ -688,6 +710,12 @@ type Store = {
   deleteOrdersBefore(ts: number): Promise<number>;
   addStemEvent(e: StemEvent): Promise<void>;
   listStemEvents(days: number): Promise<StemEvent[]>;
+  /** FOR THE STEM ARITHMETIC: every stem event logged in the last `days`,
+      with no count cap, paged like listReportOrders. The lot walk prices a
+      toss from the oldest buy still open, so a ledger short of its oldest
+      buys prices every later toss wrong; listStemEvents stops at a fixed
+      count and is left for the callers that want a recent handful. */
+  listStemEventsPage(days: number, before: PageMark | null, limit: number): Promise<ReportPage<StemEvent>>;
   /** Mis-keyed counts happen at 7am. A delete, not an edit: retyping five
       fields beats an edit UI nobody will maintain. */
   deleteStemEvent(id: string): Promise<void>;
@@ -707,6 +735,13 @@ type Store = {
       through its order), paged like listReportOrders and without the
       lines. */
   listReportSales(days: number, before: PageMark | null, limit: number): Promise<ReportPage<ReportSale>>;
+  /** FOR THE STEM ARITHMETIC: the same unlinked rings, WITH their lines
+      (report-rows.ts LedgerSale), paged the same way. */
+  listLedgerSales(days: number, before: PageMark | null, limit: number): Promise<ReportPage<LedgerSale>>;
+  /** FOR THE DASHBOARD'S REGISTER FIGURES when Square cannot be asked:
+      every ring of the last `days`, linked to an order or not, as its
+      money and its moment only, paged the same way. */
+  listSaleMoney(days: number, before: PageMark | null, limit: number): Promise<ReportPage<SaleMoney>>;
   upsertVariety(v: Variety): Promise<void>;
   listVarieties(): Promise<Variety[]>;
   deleteVariety(name: string): Promise<void>;
@@ -903,6 +938,25 @@ const memoryStore: Store = {
       .slice(0, limit + 1);
     return cutPage(found, limit, (o) => ({ at: o.createdAt, id: o.id }), toReportOrder);
   },
+  async listLedgerOrders(days, before, limit) {
+    const found = [...bag().orders.values()]
+      .filter(onFile(days))
+      .filter((o) => o.status !== "canceled" && olderThan(o.createdAt, o.id, before))
+      .sort(newestFirst)
+      .slice(0, limit + 1);
+    return cutPage(found, limit, (o) => ({ at: o.createdAt, id: o.id }), toLedgerOrder);
+  },
+  async listEarlierSightings(days) {
+    const since = cutoff(days);
+    // A customer is whoever listOrderContacts would name: not canceled,
+    // not a quick sale's "Walk-in", not a removed order.
+    const customers = [...bag().orders.values()].filter((o) => o.status !== "canceled" && !o.quick && !o.voided);
+    return earlierSightings(
+      customers.filter((o) => o.createdAt < since).map((o) => ({ phone: o.phone, email: o.email, first: o.createdAt })),
+      customers.filter(onFile(days)),
+      { phone: phoneKey, email: emailKey },
+    );
+  },
   async getOrder(id) {
     return bag().orders.get(id) ?? null;
   },
@@ -1025,6 +1079,14 @@ const memoryStore: Store = {
       .filter((e) => e.createdAt >= cutoff(days))
       .sort((a, b) => a.createdAt - b.createdAt);
   },
+  async listStemEventsPage(days, before, limit) {
+    const since = cutoff(days);
+    const found = [...bag().stems.values()]
+      .filter((e) => e.createdAt >= since && olderThan(e.createdAt, e.id, before))
+      .sort(newestFirst)
+      .slice(0, limit + 1);
+    return cutPage(found, limit, (e) => ({ at: e.createdAt, id: e.id }), (e) => e);
+  },
   async deleteStemEvent(id) {
     bag().stems.delete(id);
   },
@@ -1068,6 +1130,22 @@ const memoryStore: Store = {
     const since = cutoff(days);
     const found = [...bag().squareSales.values()]
       .filter((s) => !s.workroomOrderId && s.createdAt >= since && olderThan(s.createdAt, s.id, before))
+      .sort(newestFirst)
+      .slice(0, limit + 1);
+    return cutPage(found, limit, (s) => ({ at: s.createdAt, id: s.id }), toReportSale);
+  },
+  async listLedgerSales(days, before, limit) {
+    const since = cutoff(days);
+    const found = [...bag().squareSales.values()]
+      .filter((s) => !s.workroomOrderId && s.createdAt >= since && olderThan(s.createdAt, s.id, before))
+      .sort(newestFirst)
+      .slice(0, limit + 1);
+    return cutPage(found, limit, (s) => ({ at: s.createdAt, id: s.id }), toLedgerSale);
+  },
+  async listSaleMoney(days, before, limit) {
+    const since = cutoff(days);
+    const found = [...bag().squareSales.values()]
+      .filter((s) => s.createdAt >= since && olderThan(s.createdAt, s.id, before))
       .sort(newestFirst)
       .slice(0, limit + 1);
     return cutPage(found, limit, (s) => ({ at: s.createdAt, id: s.id }), toReportSale);
@@ -1362,6 +1440,26 @@ const ORDERS_ON_FILE = `data->>'voided' IS NULL AND (
                   - COALESCE((SELECT SUM((f->>'cents')::numeric) FROM jsonb_array_elements(COALESCE(data->'refunds', '[]'::jsonb)) f), 0) > 0)))
             OR created_at >= $1)`;
 
+/**
+ * WHERE A PAGE STARTS, in SQL: strictly below the last row sent, by when
+ * it was written and then by id (the memory store's olderThan). $2 is the
+ * mark's moment or null for the first page, $3 its id. One copy for every
+ * paged list.
+ *
+ * NO INDEX BEHIND IT, ON PURPOSE (weighed 2026-11-11 on 30,000 orders). An
+ * index on (created_at DESC, id COLLATE "C" DESC) answers a page in 2 ms
+ * against 78 ms when the planner is forced onto it, but the planner does
+ * not choose it: it guesses that `data->>'voided' IS NULL` keeps one row in
+ * two hundred, so it expects to walk the whole index for a page and scans
+ * the table instead. The index would be a lock on the busiest table at
+ * every cold start for no gain; the scan is 60 to 80 ms a page at that
+ * size and a few ms at the shop's. If a ledger ever outgrows that, the
+ * fix is the index together with statistics on that expression.
+ */
+const PAGE_BELOW = `($2::bigint IS NULL OR created_at < $2::bigint OR (created_at = $2::bigint AND id COLLATE "C" < $3::text))`;
+const PAGE_ORDER = `ORDER BY created_at DESC, id COLLATE "C" DESC LIMIT $4`;
+const pageMark = (row: Record<string, unknown>): PageMark => ({ at: Number(row.created_at), id: row.id as string });
+
 const postgresStore: Store = {
   backend: "postgres",
   async createOrder(o) {
@@ -1401,15 +1499,54 @@ const postgresStore: Store = {
     const r = await pool.query(
       `SELECT id, created_at, data FROM workroom_orders
        WHERE ${ORDERS_ON_FILE}
-         AND ($2::bigint IS NULL OR created_at < $2::bigint OR (created_at = $2::bigint AND id COLLATE "C" < $3::text))
-       ORDER BY created_at DESC, id COLLATE "C" DESC LIMIT $4`,
+         AND ${PAGE_BELOW}
+       ${PAGE_ORDER}`,
       [cutoff(days), before?.at ?? null, before?.id ?? "", limit + 1],
     );
-    return cutPage(
-      r.rows,
-      limit,
-      (row) => ({ at: Number(row.created_at), id: row.id as string }),
-      (row) => toReportOrder(row.data as WorkroomOrder),
+    return cutPage(r.rows, limit, pageMark, (row) => toReportOrder(row.data as WorkroomOrder));
+  },
+  async listLedgerOrders(days, before, limit) {
+    const pool = await pgPool();
+    // The orders on file less the canceled ones. Only the keys a ledger
+    // row is made of leave the database; toLedgerOrder still makes the
+    // row, so both backends hand over one shape.
+    const r = await pool.query(
+      `SELECT id, created_at,
+              jsonb_build_object('id', id, 'status', data->'status', 'date', data->'date', 'createdAt', created_at, 'lines', data->'lines') AS data
+       FROM workroom_orders
+       WHERE ${ORDERS_ON_FILE} AND status <> 'canceled'
+         AND ${PAGE_BELOW}
+       ${PAGE_ORDER}`,
+      [cutoff(days), before?.at ?? null, before?.id ?? "", limit + 1],
+    );
+    return cutPage(r.rows, limit, pageMark, (row) => toLedgerOrder(row.data as WorkroomOrder));
+  },
+  async listEarlierSightings(days) {
+    const pool = await pgPool();
+    // The memory copy's two lists: who was a customer before the ledger's
+    // first day (grouped here, so a regular of ten years is one row), and
+    // the phones and emails on file now. The keys are made in JS by the
+    // one rule (derive.ts), never by a second copy of it in SQL.
+    const customer = `status <> 'canceled' AND COALESCE(data->>'quick', 'false') <> 'true'`;
+    const [older, onFile] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(data->>'phone', '') AS phone, COALESCE(data->>'email', '') AS email, MIN(created_at) AS first
+         FROM workroom_orders
+         WHERE ${customer} AND data->>'voided' IS NULL AND created_at < $1
+         GROUP BY 1, 2`,
+        [cutoff(days)],
+      ),
+      pool.query(
+        `SELECT DISTINCT COALESCE(data->>'phone', '') AS phone, COALESCE(data->>'email', '') AS email
+         FROM workroom_orders
+         WHERE ${customer} AND ${ORDERS_ON_FILE}`,
+        [cutoff(days)],
+      ),
+    ]);
+    return earlierSightings(
+      older.rows.map((row) => ({ phone: row.phone as string, email: row.email as string, first: Number(row.first) })),
+      onFile.rows.map((row) => ({ phone: row.phone as string, email: row.email as string })),
+      { phone: phoneKey, email: emailKey },
     );
   },
   async getOrder(id) {
@@ -1642,6 +1779,17 @@ const postgresStore: Store = {
     );
     return r.rows.map((row) => row.data as StemEvent);
   },
+  async listStemEventsPage(days, before, limit) {
+    const pool = await pgPool();
+    const r = await pool.query(
+      `SELECT id, created_at, data FROM workroom_stems
+       WHERE created_at >= $1
+         AND ${PAGE_BELOW}
+       ${PAGE_ORDER}`,
+      [cutoff(days), before?.at ?? null, before?.id ?? "", limit + 1],
+    );
+    return cutPage(r.rows, limit, pageMark, (row) => row.data as StemEvent);
+  },
   async deleteStemEvent(id) {
     const pool = await pgPool();
     await pool.query(`DELETE FROM workroom_stems WHERE id = $1`, [id]);
@@ -1710,16 +1858,33 @@ const postgresStore: Store = {
     const r = await pool.query(
       `SELECT id, created_at, data FROM square_sales
        WHERE created_at >= $1 AND COALESCE(data->>'workroomOrderId', '') = ''
-         AND ($2::bigint IS NULL OR created_at < $2::bigint OR (created_at = $2::bigint AND id COLLATE "C" < $3::text))
-       ORDER BY created_at DESC, id COLLATE "C" DESC LIMIT $4`,
+         AND ${PAGE_BELOW}
+       ${PAGE_ORDER}`,
       [cutoff(days), before?.at ?? null, before?.id ?? "", limit + 1],
     );
-    return cutPage(
-      r.rows,
-      limit,
-      (row) => ({ at: Number(row.created_at), id: row.id as string }),
-      (row) => toReportSale(row.data as SquareSale),
+    return cutPage(r.rows, limit, pageMark, (row) => toReportSale(row.data as SquareSale));
+  },
+  async listLedgerSales(days, before, limit) {
+    const pool = await pgPool();
+    const r = await pool.query(
+      `SELECT id, created_at, data FROM square_sales
+       WHERE created_at >= $1 AND COALESCE(data->>'workroomOrderId', '') = ''
+         AND ${PAGE_BELOW}
+       ${PAGE_ORDER}`,
+      [cutoff(days), before?.at ?? null, before?.id ?? "", limit + 1],
     );
+    return cutPage(r.rows, limit, pageMark, (row) => toLedgerSale(row.data as SquareSale));
+  },
+  async listSaleMoney(days, before, limit) {
+    const pool = await pgPool();
+    const r = await pool.query(
+      `SELECT id, created_at, data - 'lines' AS data FROM square_sales
+       WHERE created_at >= $1
+         AND ${PAGE_BELOW}
+       ${PAGE_ORDER}`,
+      [cutoff(days), before?.at ?? null, before?.id ?? "", limit + 1],
+    );
+    return cutPage(r.rows, limit, pageMark, (row) => toReportSale(row.data as SquareSale));
   },
   async upsertVariety(v) {
     const pool = await pgPool();

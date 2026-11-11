@@ -8,8 +8,8 @@ import type { Category, Product } from "@/lib/catalog";
 import { useCategories, useProducts } from "@/components/CatalogContext";
 import { site } from "@/lib/site";
 import { REPORT_MAX_ROWS } from "@/lib/workroom/report-rows";
+import { Locked, readList, shortLists } from "@/lib/workroom/ledger-read";
 import {
-  HISTORY_DAYS,
   balanceCents,
   grossPaidCents,
   isDeliveryLine,
@@ -75,25 +75,6 @@ type Payment = ReportPayment;
 /** workroomOrderId stays in the type for the guards below; the reports
     route only sends rings that have none. */
 type Sale = ReportSale & { workroomOrderId?: string };
-
-class Locked extends Error {}
-/** One whole list from the reports route: page after page until the route
-    says there is no next one. `truncated` is the route's own word that it
-    stopped with rows still on file. */
-async function readList<T>(list: "orders" | "sales", onCount?: (n: number) => void): Promise<{ rows: T[]; truncated: boolean; backend: string | null }> {
-  const rows: T[] = [];
-  let after = "";
-  for (;;) {
-    const r = await fetch(`/api/workroom/reports?list=${list}&days=${HISTORY_DAYS}${after ? `&after=${encodeURIComponent(after)}` : ""}`, { cache: "no-store" });
-    if (r.status === 401) throw new Locked();
-    if (!r.ok) throw new Error("The figures did not load.");
-    const d = (await r.json()) as { rows?: T[]; next?: string | null; truncated?: boolean; backend?: string };
-    for (const row of d.rows ?? []) rows.push(row);
-    onCount?.(rows.length);
-    if (!d.next) return { rows, truncated: !!d.truncated, backend: d.backend ?? null };
-    after = d.next;
-  }
-}
 
 type View = "day" | "month" | "customers";
 type Window = { beginMs: number; endMs: number; label: string; days: string[] };
@@ -477,7 +458,7 @@ export default function Reports({ initialAuthed, initialOwner }: { initialAuthed
       // The pages come newest first; the sheets list oldest first.
       setOrders(o.rows.reverse());
       setSales(s.rows);
-      setTruncated([o.truncated ? "orders" : "", s.truncated ? "register rings" : ""].filter(Boolean).join(` and the newest ${REPORT_MAX_ROWS.toLocaleString("en-US")} `));
+      setTruncated(shortLists([{ name: "orders", truncated: o.truncated }, { name: "register rings", truncated: s.truncated }]));
       setBackend(o.backend);
       setLoaded(true);
       lastRead.current = Date.now();
