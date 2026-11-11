@@ -67,10 +67,11 @@ export default function Products({ initialAuthed, initialOwner }: { initialAuthe
   const [find, setFind] = useState("");
   /** OLD DESIGNS OUT OF THE WAY (Katy, 2026-11-09: "be able to hide old
       items, not delete, but maybe grey them out so they don't show up, so
-      only the live ones show"). A design off the menu is kept (old orders
+      only the live ones show"). A design marked old is kept (past orders
       and reports still name it) but leaves this list until asked for, and
       shows greyed when it is. A search always looks through all of them,
-      so an old one can be found and put back. */
+      so an old one can be found and brought back. Old is its own state:
+      a design that is only off the website stays here and at the counter. */
   const [showOff, setShowOff] = useState(false);
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState("");
@@ -103,7 +104,7 @@ export default function Products({ initialAuthed, initialOwner }: { initialAuthe
     if (!cat) return [];
     const q = find.trim().toLowerCase();
     const list = [...cat.products].sort((a, b) => a.name.localeCompare(b.name));
-    if (!q) return showOff ? list : list.filter((p) => !p.offMenu);
+    if (!q) return showOff ? list : list.filter((p) => !p.retired);
     const catNames = new Map(cat.categories.map((c) => [c.slug, c.name.toLowerCase()]));
     return list.filter((p) => p.name.toLowerCase().includes(q) || p.slug.includes(q) || p.cats.some((c) => (catNames.get(c) ?? c).includes(q)));
   }, [cat, find, showOff]);
@@ -194,12 +195,12 @@ export default function Products({ initialAuthed, initialOwner }: { initialAuthe
               style={{ ...field, maxWidth: 420, margin: "10px 0 14px" }}
             />
             {(() => {
-              const off = cat.products.filter((p) => p.offMenu).length;
+              const off = cat.products.filter((p) => p.retired).length;
               if (off === 0 || find.trim()) return null;
               return (
                 <p style={{ margin: "-6px 0 14px", fontSize: 14 }}>
                   <button type="button" onClick={() => setShowOff((v) => !v)} aria-pressed={showOff} style={{ ...textButton, fontSize: 14 }}>
-                    {showOff ? `Hide the ${off} that ${off === 1 ? "is" : "are"} off the menu` : `Show the ${off} that ${off === 1 ? "is" : "are"} off the menu`}
+                    {showOff ? `Hide the ${off} old one${off === 1 ? "" : "s"}` : `Show the ${off} old one${off === 1 ? "" : "s"}`}
                   </button>
                 </p>
               );
@@ -382,29 +383,40 @@ function DesignRow({ p, cat, onChanged, onError }: { p: Product; cat: Catalog; o
   const [open, setOpen] = useState(false);
   const [moving, setMoving] = useState(false);
   const names = new Map(cat.categories.map((c) => [c.slug, c.name]));
-  /** Off the menu, or back on it, without opening the form. */
-  async function toggleMenu() {
+  /** WHERE A DESIGN SHOWS, one control, without opening the form: on the
+      website; at the counter only (off the website, still in the write-up's
+      item list); or old (kept, and hidden from the workroom's lists too). */
+  const where: "on" | "counter" | "old" = p.retired ? "old" : p.offMenu ? "counter" : "on";
+  async function setWhere(to: "on" | "counter" | "old") {
+    if (to === where) return;
     setMoving(true);
-    const r = await call("PATCH", { slug: p.slug, offMenu: !p.offMenu });
+    const r = await call("PATCH", { slug: p.slug, ...(to === "on" ? { offMenu: false, retired: false } : to === "counter" ? { offMenu: true, retired: false } : { retired: true }) });
     setMoving(false);
     if (!r.ok) onError(String(r.data?.error ?? "That did not save."));
-    else onChanged(p.offMenu ? `${p.name} is back on the menu.` : `${p.name} is off the menu. It is kept, and out of this list until you ask to see the ones off the menu.`);
+    else
+      onChanged(
+        to === "on"
+          ? `${p.name} is on the website.`
+          : to === "counter"
+            ? `${p.name} is off the website. It can still be written up at the counter.`
+            : `${p.name} is marked old. It is kept, and out of this list and the order form until you ask to see the old ones.`,
+      );
   }
   return (
-    <li className="panel" style={{ padding: "10px 12px", ...(p.offMenu ? { background: "transparent", borderStyle: "dashed" } : {}) }}>
+    <li className="panel" style={{ padding: "10px 12px", ...(p.retired ? { background: "transparent", borderStyle: "dashed" } : {}) }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ width: 56, height: 56, overflow: "hidden", borderRadius: 6, background: "var(--line)", flex: "0 0 auto", display: "grid", placeItems: "center" }}>
-          <span style={{ width: 56, height: 56, display: "block", ...(p.offMenu ? { filter: "grayscale(1)", opacity: 0.55 } : {}) }} className="product-thumb">
+          <span style={{ width: 56, height: 56, display: "block", ...(p.retired ? { filter: "grayscale(1)", opacity: 0.55 } : {}) }} className="product-thumb">
             <ProductImage p={p} />
           </span>
         </span>
         <span style={{ flex: "1 1 220px" }}>
-          <strong className={p.offMenu ? "muted" : undefined}>{p.name}</strong> <span style={{ whiteSpace: "nowrap" }} className={p.offMenu ? "muted" : undefined}>{money(p.price)}</span>
+          <strong className={p.retired ? "muted" : undefined}>{p.name}</strong> <span style={{ whiteSpace: "nowrap" }} className={p.retired ? "muted" : undefined}>{money(p.price)}</span>
           {p.regularPrice ? <span className="muted" style={{ whiteSpace: "nowrap" }}> (on sale, was {money(p.regularPrice)})</span> : null}
           <br />
           <span className="muted" style={{ fontSize: 13.5 }}>
             {p.cats.length ? p.cats.map((c) => names.get(c) ?? c).join(", ") : "on no shelf"}
-            {p.offMenu ? " · off the menu" : ""}
+            {p.retired ? " · old, hidden from the order form" : p.offMenu ? " · counter only, off the website" : ""}
             {!p.desc || p.desc.startsWith("PLACEHOLDER") ? " · needs a description" : ""}
           </span>
         </span>
@@ -413,9 +425,17 @@ function DesignRow({ p, cat, onChanged, onError }: { p: Product; cat: Catalog; o
             See it on the site
           </a>
         )}
-        <button type="button" disabled={moving} onClick={toggleMenu} style={{ ...textButton, fontSize: 13.5 }}>
-          {moving ? "Saving…" : p.offMenu ? "Put it back on the menu" : "Take it off the menu"}
-        </button>
+        <select
+          value={where}
+          disabled={moving}
+          onChange={(e) => setWhere(e.target.value as "on" | "counter" | "old")}
+          aria-label={`Where ${p.name} shows`}
+          style={{ ...field, width: "auto", padding: "6px 8px", fontSize: 13.5 }}
+        >
+          <option value="on">On the website</option>
+          <option value="counter">Counter only</option>
+          <option value="old">Old: hidden</option>
+        </select>
         <button type="button" className="btn" onClick={() => setOpen((o) => !o)}>
           {open ? "Close" : "Edit"}
         </button>

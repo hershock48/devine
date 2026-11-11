@@ -147,6 +147,12 @@ export async function PATCH(req: Request) {
     if (p.offMenu === true) next.offMenu = true;
     else delete next.offMenu;
   }
+  // Old (catalog.ts retired): always off the website as well, and a design
+  // put back on the website is not old any more.
+  if (p.retired === true) {
+    next.retired = true;
+    next.offMenu = true;
+  } else if (p.retired === false || p.offMenu === false) delete next.retired;
   if (p.noSubs !== undefined) {
     if (p.noSubs === true) next.noSubs = true;
     else delete next.noSubs;

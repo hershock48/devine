@@ -1386,7 +1386,10 @@ function OrderCard({
             : o.status === "out"
               ? "3px solid var(--green)"
               : "3px solid transparent",
-        opacity: o.status === "canceled" ? 0.55 : 1,
+        // Dimmed only when nothing is left to do. A canceled order still
+        // holding money is the card that most needs reading (it sits in
+        // Money to return), and at 55% its text failed contrast.
+        opacity: o.status === "canceled" && (!o.payment || !!o.payment.refundedAt) ? 0.55 : 1,
         // Delivery on a warm wash, pickup on a green one (globals.css), with
         // the word beside the number so the colour is never the only cue.
         background: o.fulfillment === "delivery" ? "var(--wash-delivery)" : "var(--wash-pickup)",
@@ -2578,10 +2581,12 @@ function ItemsEditor({
                 style={{ ...field, flex: "2 1 180px", minWidth: 0, width: "auto" }}
               >
                 <option value="">Custom item…</option>
-                {/* Only what is for sale today (Katy, 2026-11-09: "so only
-                    the live ones show"), plus whatever this line already
-                    holds, so an old order still reads as it was written. */}
-                {sortedProducts.filter((sp) => !sp.offMenu || sp.slug === l.slug).map((sp) => (
+                {/* Not the old ones (Katy, 2026-11-09: "so only the live
+                    ones show"), except whatever this line already holds, so
+                    an old order still reads as it was written. A design that
+                    is only off the website stays: the counter still sells it
+                    (catalog.ts offMenu, the 2026-10-14 rule). */}
+                {sortedProducts.filter((sp) => !sp.retired || sp.slug === l.slug).map((sp) => (
                   <option key={sp.slug} value={sp.slug}>
                     {sp.name} ({money(sp.price)})
                   </option>

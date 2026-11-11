@@ -49,6 +49,14 @@ export type Product = {
       orders keep their lines, and the workroom's write-up can still sell it
       at the counter. Delete the flag to put it back. */
   offMenu?: boolean;
+  /** AN OLD DESIGN (Katy, 2026-11-09: "be able to hide old items, not
+      delete, but maybe grey them out so they don't show up, so only the
+      live ones show"). Kept, so past orders and reports still name it, but
+      out of the workroom's own lists: the Products tab until asked for, and
+      the write-up's item list. Old is always off the website too. This is
+      not offMenu, which only means off the website: a design can be off
+      the website and still sold at the counter (the chocolates). */
+  retired?: boolean;
 };
 
 export type Category = {

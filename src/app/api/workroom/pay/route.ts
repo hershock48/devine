@@ -46,6 +46,11 @@ function sameCustomer(a: WorkroomOrder, b: WorkroomOrder): boolean {
     is due, so a repeat would land as credit instead of being refused. */
 const hasCheck = (o: WorkroomOrder, n: string) => !!n && [o.payment, ...(o.topUps ?? [])].some((q) => !!q && q.via === "check" && q.checkNumber === n);
 
+/** A check with no number, recorded on this order in the last minute: a
+    repeat of it has nothing else to be known by. */
+const bareCheckJustNow = (o: WorkroomOrder) => [o.payment, ...(o.topUps ?? [])].some((q) => !!q && q.via === "check" && !q.checkNumber && Date.now() - q.at < 60_000);
+const BARE_CHECK_AGAIN = (n: string) => `A check with no number was recorded on ${n} a moment ago. If this is a second check, type its number, or wait a minute.`;
+
 /** How far over what is due a by-hand payment may run, in cents: enough
     for a real overpayment, not enough for a slipped decimal point. */
 const OVER_LIMIT_CENTS = 500_000;
@@ -159,6 +164,7 @@ export async function POST(req: Request) {
     if (method === "check" && hasCheck(order, checkNumber)) {
       return NextResponse.json({ error: `Check #${checkNumber} is already recorded on ${order.number}. If this is a different check, give it its own number.` }, { status: 409 });
     }
+    if (method === "check" && !checkNumber && bareCheckJustNow(order)) return NextResponse.json({ error: BARE_CHECK_AGAIN(order.number) }, { status: 409 });
     const at = Date.now();
     let cents = payCents;
     let note = "";
@@ -373,6 +379,7 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual" | "che
     if (o.voided) return NextResponse.json({ error: `${o.number} was removed as written up twice; take it out of the group first.` }, { status: 409 });
     if (o.status === "canceled") return NextResponse.json({ error: `${o.number} is canceled; take it out of the group first.` }, { status: 409 });
     if (o.status === "hold") return NextResponse.json({ error: `${o.number} is on hold; finish it first.` }, { status: 409 });
+    if (method === "check" && !checkNumber && bareCheckJustNow(o)) return NextResponse.json({ error: BARE_CHECK_AGAIN(o.number) }, { status: 409 });
     if (method === "check" && hasCheck(o, checkNumber)) return NextResponse.json({ error: `Check #${checkNumber} is already recorded on ${o.number}. If this is a different check, give it its own number.` }, { status: 409 });
     if (o.payment) {
       const due = balanceCents(o);
