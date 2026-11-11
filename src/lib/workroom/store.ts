@@ -123,6 +123,10 @@ export type DrawerCount = {
   removedCents: number;
   /** null until someone counts. */
   countedCents: number | null;
+  /** What stays in the drawer for the next day (2026-11-10): the rest of
+      the count is the cash to bank, and this is the next day's opening
+      float. Absent or null when nobody said. */
+  leftCents?: number | null;
   note: string;
   by: string;
   at: number;
@@ -652,6 +656,8 @@ type Store = {
       refunded whole. True when written. */
   addKeptRefund(id: string, r: OrderRefund): Promise<boolean>;
   getDrawerCount(day: string): Promise<DrawerCount | null>;
+  /** The newest count before a day: where that day's opening float comes from. */
+  getDrawerCountBefore(day: string): Promise<DrawerCount | null>;
   setDrawerCount(d: DrawerCount): Promise<void>;
   /** The pay route appends the delivery-fee line when it charges a
       delivery ticket that never carried one, so the ticket's rows and its
@@ -890,6 +896,10 @@ const memoryStore: Store = {
   },
   async getDrawerCount(day) {
     return bag().drawer?.get(day) ?? null;
+  },
+  async getDrawerCountBefore(day) {
+    const before = [...(bag().drawer?.values() ?? [])].filter((d) => d.day < day).sort((a, b) => b.day.localeCompare(a.day));
+    return before[0] ?? null;
   },
   async setDrawerCount(d) {
     const b = bag();
@@ -1415,6 +1425,11 @@ const postgresStore: Store = {
   async getDrawerCount(day) {
     const pool = await pgPool();
     const r = await pool.query(`SELECT data FROM workroom_drawer WHERE day = $1`, [day]);
+    return r.rows.length ? (r.rows[0].data as DrawerCount) : null;
+  },
+  async getDrawerCountBefore(day) {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_drawer WHERE day < $1 ORDER BY day DESC LIMIT 1`, [day]);
     return r.rows.length ? (r.rows[0].data as DrawerCount) : null;
   },
   async setDrawerCount(d) {

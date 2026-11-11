@@ -22,7 +22,10 @@ export async function GET(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const day = new URL(req.url).searchParams.get("day");
   if (!isDay(day)) return NextResponse.json({ error: "Which day?" }, { status: 400 });
-  return NextResponse.json({ count: await getStore().getDrawerCount(day) });
+  // `prev` is the newest count before this day: its "left in the drawer"
+  // is this day's opening float until someone says otherwise.
+  const [count, prev] = await Promise.all([getStore().getDrawerCount(day), getStore().getDrawerCountBefore(day)]);
+  return NextResponse.json({ count, prev });
 }
 
 export async function PUT(req: Request) {
@@ -42,6 +45,12 @@ export async function PUT(req: Request) {
   if (openingCents === null || addedCents === null || removedCents === null || (p.countedCents !== null && p.countedCents !== undefined && countedCents === null)) {
     return NextResponse.json({ error: "One of the amounts did not read as money." }, { status: 400 });
   }
+  // What stays in the drawer for tomorrow; never more than was counted.
+  const leftCents = p.leftCents === null || p.leftCents === undefined ? null : cents(p.leftCents);
+  if (p.leftCents !== null && p.leftCents !== undefined && leftCents === null) return NextResponse.json({ error: "One of the amounts did not read as money." }, { status: 400 });
+  if (leftCents !== null && (countedCents === null || leftCents > countedCents)) {
+    return NextResponse.json({ error: countedCents === null ? "Count the drawer before saying what stays in it." : "More is being left in the drawer than was counted." }, { status: 400 });
+  }
   const by = typeof p.by === "string" ? p.by.trim().toUpperCase().slice(0, 3) : "";
   if (!/^[A-Z]{2,3}$/.test(by)) return NextResponse.json({ error: "Your initials, two or three letters, so the count has a name on it." }, { status: 400 });
   const count: DrawerCount = {
@@ -50,6 +59,7 @@ export async function PUT(req: Request) {
     addedCents,
     removedCents,
     countedCents,
+    leftCents,
     note: typeof p.note === "string" ? p.note.trim().slice(0, 300) : "",
     by,
     at: Date.now(),
