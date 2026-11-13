@@ -586,9 +586,17 @@ type TakeBackable = {
   topUps?: { at: number; method: string; via?: string; rung?: boolean; totalCents: number }[];
   refunds?: unknown[];
   voided?: unknown;
+  status?: string;
 };
+/** Credit moved from another order is on this one. The board's Undo mark
+    is refused then (orders route, unmarkPaid), so Take back is offered in
+    its place, for the check or mark beside the credit. */
+export const creditOn = (o: { payment?: { via?: string } | null; topUps?: { via?: string }[] }): boolean =>
+  [o.payment, ...(o.topUps ?? [])].some((q) => q?.via === "credit");
 export function takeBackablePayments<O extends TakeBackable>(o: O): NonNullable<O["payment"]>[] {
-  if (o.voided || !o.payment || o.payment.refundedAt || (o.refunds ?? []).length) return [];
+  // A canceled order's money goes back through a refund (Refunded in
+  // Square, Mark refunded), which tells the customer and dates it.
+  if (o.voided || o.status === "canceled" || !o.payment || o.payment.refundedAt || (o.refunds ?? []).length) return [];
   return [o.payment, ...(o.topUps ?? [])].filter(
     (p): p is NonNullable<O["payment"]> => !!p && (p.method === "cash" || p.method === "other") && p.via !== "credit" && !p.rung && p.totalCents > 0,
   );
@@ -606,9 +614,14 @@ export function takeBackPayment<O extends TakeBackable & { reversedPayments?: un
   const left = all.filter((_, k) => k !== i);
   const next = { ...o, reversedPayments: [...(o.reversedPayments ?? []), { ...target, reversed: mark }] } as O;
   // The first payment left becomes the payment, so "paid" still means it.
+  // Not a register ring when anything else is left: a ring as the payment
+  // brings in the register's own balance rule (balanceCents) and moves the
+  // order's paid date, which a top-up ring never did.
   if (left.length) {
-    (next as TakeBackable).payment = left[0];
-    if (left.length > 1) (next as TakeBackable).topUps = left.slice(1);
+    const h = Math.max(0, left.findIndex((p) => p.method !== "register"));
+    const rest = left.filter((_, k) => k !== h);
+    (next as TakeBackable).payment = left[h];
+    if (rest.length) (next as TakeBackable).topUps = rest;
     else delete (next as TakeBackable).topUps;
   } else {
     delete (next as TakeBackable).payment;

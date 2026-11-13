@@ -6,7 +6,7 @@ import { useProducts } from "@/components/CatalogContext";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate, RemoveDuplicate } from "@/components/workroom/ui";
-import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, payWord, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeCentsToAppend, takeBackablePayments } from "@/lib/workroom/derive";
+import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, payWord, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeCentsToAppend, takeBackablePayments, creditOn } from "@/lib/workroom/derive";
 import PayControls, { ApplyCredit, CashTendered, ReversedNote, TakeBack, changeFor } from "@/components/workroom/PayControls";
 import RefundControl from "@/components/workroom/Refund";
 
@@ -851,7 +851,7 @@ function ClosedList({
                 </p>
               )}
               <ReversedNote reversed={o.reversedPayments ?? []} />
-              {!paidByHandOnly(o) && <ClosedTakeBack o={o} />}
+              {(!paidByHandOnly(o) || creditOn(o)) && <ClosedTakeBack o={o} />}
               {o.cardMessage && <p style={{ margin: 0, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{o.cardMessage}&rdquo;</p>}
               {o.notes && <p className="muted" style={{ margin: 0, overflowWrap: "anywhere" }}>{o.notes}</p>}
             </div>
@@ -1786,7 +1786,7 @@ function OrderCard({
           corner, so its answer stays on screen while the card changes. The
           by-hand-only undo above covers an order paid only by hand. */}
       <ReversedNote reversed={o.reversedPayments ?? []} />
-      {!paidByHandOnly(o) && <ClosedTakeBack o={o} />}
+      {(!paidByHandOnly(o) || creditOn(o)) && <ClosedTakeBack o={o} />}
 
       {/* Keyed by status so a half-finished cancel confirm or initials
           prompt resets when the 30s poll brings a new status underneath. */}

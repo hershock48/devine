@@ -309,6 +309,8 @@ export default function PayControls({
      the rest still due. A walk-in pays in full, so there it is refused. */
   const tenderedCents = mode === "cash" ? parseDollars(tendered) : null;
   const shortCash = tenderedCents !== null && tenderedCents > 0 && tenderedCents < charge ? tenderedCents : null;
+  // "0" typed in Cash given is nothing handed over, not "the whole amount".
+  const noCash = tenderedCents === 0 && charge > 0;
 
   async function pay(method: "card" | "cash" | "manual" | "check") {
     setBusy(true);
@@ -637,8 +639,13 @@ export default function PayControls({
                 : "Less than the sale. Take the rest in cash or by card, or change the sale."}
             </p>
           )}
+          {noCash && (
+            <p role="status" style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 600, color: "var(--rose-ink)" }}>
+              Nothing given, so there is nothing to record. Type what was handed over, or clear the box.
+            </p>
+          )}
           <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-            <button type="button" className="btn btn--solid" disabled={busy || !!partError || (shortCash !== null && !partPay)} onClick={() => pay("cash")}>
+            <button type="button" className="btn btn--solid" disabled={busy || !!partError || noCash || (shortCash !== null && !partPay)} onClick={() => pay("cash")}>
               {busy ? "Recording…" : shortCash !== null ? `Record ${dollars(shortCash)} cash · ${dollars(amount - shortCash)} stays due` : `Record ${dollars(charge)} cash`}
             </button>
             <button type="button" disabled={busy || unsure} onClick={close} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
@@ -780,30 +787,33 @@ export function ReversedNote({ reversed }: { reversed: ReversedLine[] }) {
  */
 export function TakeBack({ orderId, number, payments, onDone }: { orderId: string; number: string; payments: TakeBackPayment[]; onDone: () => void }) {
   const [open, setOpen] = useState(false);
-  const [pick, setPick] = useState(0);
+  // Picked by the payment itself, not its place in the list: the board
+  // re-reads every 30 seconds and the list can change under the radio.
+  const [pickAt, setPickAt] = useState<number | null>(null);
   const [by, setBy] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState<{ cents: number; square: number } | null>(null);
-  if (done) {
-    return (
-      <p role="status" style={{ margin: "6px 0 0", fontSize: 14, fontWeight: 600 }}>
-        {dollars(done.cents)} taken back. {number} owes it again.
-        {done.square ? ` It was also recorded in Square as cash: refund ${dollars(done.square)} of that sale in the Square dashboard (Transactions, the sale, Issue refund), so Square's books match. No cash moves.` : ""}
-      </p>
-    );
-  }
-  if (!payments.length) return null;
+  const doneNote = done && (
+    <p role="status" style={{ margin: "6px 0 0", fontSize: 14, fontWeight: 600 }}>
+      {dollars(done.cents)} taken back. {number} owes it again.
+      {done.square ? ` It was also recorded in Square as cash: refund ${dollars(done.square)} of that sale in the Square dashboard (Transactions, the sale, Issue refund), so Square's books match. No cash moves.` : ""}
+    </p>
+  );
+  if (!payments.length) return doneNote || null;
   if (!open) {
     return (
-      <p style={{ margin: "4px 0 0" }}>
-        <button type="button" onClick={() => setOpen(true)} style={{ ...textButton, fontSize: 13, color: "var(--muted)" }}>
-          Recorded a payment by mistake? Take it back
-        </button>
-      </p>
+      <>
+        {doneNote}
+        <p style={{ margin: "4px 0 0" }}>
+          <button type="button" onClick={() => { setDone(null); setPickAt(null); setOpen(true); }} style={{ ...textButton, fontSize: 13, color: "var(--muted)" }}>
+            Recorded a payment by mistake? Take it back
+          </button>
+        </p>
+      </>
     );
   }
-  const p = payments[Math.min(pick, payments.length - 1)];
+  const p = payments.find((q) => q.at === pickAt) ?? payments[0];
   async function go() {
     if (!isInitials(by)) return setError("Your initials, two or three letters, so it has a name on it.");
     setBusy(true);
@@ -818,6 +828,8 @@ export function TakeBack({ orderId, number, payments, onDone }: { orderId: strin
       if (!r.ok || !d?.ok) setError(d?.error || "That did not change.");
       else {
         setDone({ cents: p.totalCents, square: Number(d.squareRefund) || 0 });
+        setOpen(false);
+        setBy("");
         onDone();
       }
     } catch {
@@ -832,9 +844,9 @@ export function TakeBack({ orderId, number, payments, onDone }: { orderId: strin
       {payments.length > 1 ? (
         <fieldset style={{ border: 0, padding: 0, margin: 0, display: "grid", gap: 6, fontSize: 14.5 }}>
           <legend style={{ padding: 0, marginBottom: 4, fontWeight: 600 }}>Which one</legend>
-          {payments.map((q, i) => (
-            <label key={`${q.at}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="radio" name={`take-back-${orderId}`} checked={pick === i} disabled={busy} onChange={() => setPick(i)} />
+          {payments.map((q) => (
+            <label key={`${q.at}-${q.method}-${q.totalCents}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="radio" name={`take-back-${orderId}`} checked={q.at === p.at} disabled={busy} onChange={() => setPickAt(q.at)} />
               {dollars(q.totalCents)} {kindOf(q)}, recorded {whenShort(q.at)}
             </label>
           ))}

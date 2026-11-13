@@ -387,6 +387,10 @@ export type Quote = {
  * one of ours (matched by SKU at ingest); null means an item we do not
  * manage, which still counts as revenue but cannot decrement a recipe.
  */
+/** The keys only payment paths write. An edit (replaceOrder) keeps them as
+    the row holds them. */
+const MONEY_KEYS = ["payment", "topUps", "refunds", "reversedPayments"] as const;
+
 export type SquareSaleLine = {
   slug: string | null;
   name: string;
@@ -665,8 +669,14 @@ type Store = {
   claimForPrint(ids: string[], at: number): Promise<string[]>;
   /** The whole row, rewritten: editing an order that is on hold or not yet
       made (2026-10-12). The route decides what may be edited; the store
-      just writes what it is handed, id and all. */
+      writes what it is handed, EXCEPT the money (payment, topUps, refunds,
+      reversedPayments), which is kept as the row holds it at the moment of
+      writing. An edit never carries money, and a payment, refund or
+      take-back landing while the edit was being read must not be undone. */
   replaceOrder(o: WorkroomOrder): Promise<void>;
+  /** Square payment ids of every payment taken back as recorded by mistake.
+      The Dashboard leaves them out of what was taken. */
+  takenBackSquarePaymentIds(): Promise<string[]>;
   /** Takes one payment off an order as recorded by mistake (derive.ts
       takeBackPayment says which may go and builds the new order). Written
       only if the order is still exactly as it was read, so two screens, or
@@ -945,7 +955,16 @@ const memoryStore: Store = {
     if (o) Object.assign(o, patch);
   },
   async replaceOrder(o) {
-    bag().orders.set(o.id, o);
+    const cur = bag().orders.get(o.id);
+    const next: WorkroomOrder = { ...o };
+    for (const k of MONEY_KEYS) {
+      if (cur && cur[k] !== undefined) (next as Record<string, unknown>)[k] = cur[k];
+      else delete (next as Record<string, unknown>)[k];
+    }
+    bag().orders.set(o.id, next);
+  },
+  async takenBackSquarePaymentIds() {
+    return [...bag().orders.values()].flatMap((o) => (o.reversedPayments ?? []).map((p) => p.squarePaymentId ?? "")).filter(Boolean);
   },
   async reversePayment(id, match, mark) {
     const o = bag().orders.get(id);
@@ -1481,7 +1500,20 @@ const postgresStore: Store = {
   },
   async replaceOrder(o) {
     const pool = await pgPool();
-    await pool.query(`UPDATE workroom_orders SET status = $2, data = $3 WHERE id = $1`, [o.id, o.status, JSON.stringify(o)]);
+    // The money keys come from the row as it stands when this writes, in
+    // the same statement, never from the copy the edit read.
+    const keep = MONEY_KEYS.map((k) => `|| CASE WHEN data ? '${k}' THEN jsonb_build_object('${k}', data->'${k}') ELSE '{}'::jsonb END`).join(" ");
+    const strip = MONEY_KEYS.map((k) => ` - '${k}'`).join("");
+    await pool.query(`UPDATE workroom_orders SET status = $2, data = ($3::jsonb${strip}) ${keep} WHERE id = $1`, [o.id, o.status, JSON.stringify(o)]);
+  },
+  async takenBackSquarePaymentIds() {
+    const pool = await pgPool();
+    const r = await pool.query(
+      `SELECT r->>'squarePaymentId' AS id FROM workroom_orders,
+         jsonb_array_elements(CASE WHEN jsonb_typeof(data->'reversedPayments') = 'array' THEN data->'reversedPayments' ELSE '[]'::jsonb END) r
+       WHERE data ? 'reversedPayments'`,
+    );
+    return r.rows.map((row) => row.id as string | null).filter((x): x is string => !!x);
   },
   async reversePayment(id, match, mark) {
     const pool = await pgPool();

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, payWord, refundedCents, squareMoney, zipFeeCentsToAppend, refundableCents, takeBackablePayments } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, payWord, refundedCents, squareMoney, zipFeeCentsToAppend, refundableCents, takeBackablePayments, creditOn } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate, RemoveDuplicate } from "@/components/workroom/ui";
 import PayControls, { ApplyCredit, ReversedNote, TakeBack, parseDollars } from "@/components/workroom/PayControls";
 
@@ -661,7 +661,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                   {/* Recorded by mistake? One place on the row whatever the
                       order owes, so its answer survives the refresh. */}
                   <ReversedNote reversed={o.reversedPayments ?? []} />
-                  {!paidByHandOnly(o) && <TakeBack orderId={o.id} number={o.number} payments={takeBackablePayments(o)} onDone={() => pull().catch(() => {})} />}
+                  {(!paidByHandOnly(o) || creditOn(o)) && <TakeBack orderId={o.id} number={o.number} payments={takeBackablePayments(o)} onDone={() => pull().catch(() => {})} />}
                 </li>
               );
             })}
