@@ -352,6 +352,19 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
     }
   }
   refundsList.sort((a, b) => a.at - b.at);
+
+  /* PAYMENTS TAKEN BACK as recorded by mistake, on the day they were taken
+     back: not money in or out (the payment was never real, and it has left
+     every figure, on its own day too), but the owner sees each one, who
+     did it, and for how much. */
+  const takenBack: { at: number; paidAt: number; number: string; who: string; how: string; by: string; cents: number }[] = [];
+  for (const o of orders) {
+    for (const x of o.reversedPayments ?? []) {
+      if (!inWin(x.reversed.at, w)) continue;
+      takenBack.push({ at: x.reversed.at, paidAt: x.at, number: o.number, who: whoOf(o), how: x.method === "cash" ? "cash" : payWord(x), by: x.reversed.by, cents: x.totalCents });
+    }
+  }
+  takenBack.sort((a, b) => a.at - b.at);
   const backCents = refundSquare + refundHand;
 
   /* THE MONTH BY DAY: what came in each way, what went back, the net. */
@@ -436,7 +449,7 @@ function compute(orders: Order[], sales: Sale[], w: Window, maps: { bySlug: Map<
     taxPaid, taxWritten,
     billed, accountPaid, owedNow, aging, customers, openAccount: openAccount.length,
     perDay,
-    backCents, journal, refundsList, writtenCents, stillOpenList, owedOut, tomorrow, agingAccounts, byOccasion, bySource,
+    backCents, journal, refundsList, takenBack, writtenCents, stillOpenList, owedOut, tomorrow, agingAccounts, byOccasion, bySource,
     byCategory: [...byCategory.entries()].sort((a, b) => b[1] - a[1]),
     topProducts: [...byProduct.values()].sort((a, b) => b.cents - a.cents).slice(0, 10),
   };
@@ -906,6 +919,14 @@ function SheetView({ view, win, s, day, prev }: { view: View; win: Window; s: Sh
                 </tbody>
               </table>
             </Scroll>
+          </Block>
+        )}
+
+        {s.takenBack.length > 0 && (
+          <Block title={`Payments taken back ${when}`} note="Recorded by mistake and taken back, so they are in none of the figures above, on the day they were recorded either. A cash one was also a cash sale in Square, to be refunded there." wide>
+            <Rows
+              rows={s.takenBack.map((t) => [`${t.number} · ${t.who}`, c$(t.cents), `${t.how}, recorded ${dayShort(t.paidAt)} ${clock(t.paidAt)}, taken back by ${t.by} ${view === "day" ? clock(t.at) : dayShort(t.at)}`] as [string, string, string])}
+            />
           </Block>
         )}
 

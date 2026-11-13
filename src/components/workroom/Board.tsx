@@ -6,8 +6,8 @@ import { useProducts } from "@/components/CatalogContext";
 import { occasions } from "@/lib/occasions";
 import { deliveryFeeFor, deliveryMinimumFor, site } from "@/lib/site";
 import { INITIALS_ERROR, InitialsInput, field, isInitials, labelText, money, phoneKey, radio, textButton, todayISO, MemoryWarning, PinGate, RemoveDuplicate } from "@/components/workroom/ui";
-import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, payWord, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeCentsToAppend } from "@/lib/workroom/derive";
-import PayControls, { ApplyCredit, CashTendered, changeFor } from "@/components/workroom/PayControls";
+import { balanceCents, clock12, collectedCents, grossPaidCents, HISTORY_DAYS, isDeliveryLine, isTaxLine, normalizeVariety, owedNowCents, paidByHandOnly, paidInParts, payWord, printPaperFor, refundableCents, refundedCents, squareMoney, taxFor, waitingToPrint, zipFeeCentsToAppend, takeBackablePayments } from "@/lib/workroom/derive";
+import PayControls, { ApplyCredit, CashTendered, ReversedNote, TakeBack, changeFor } from "@/components/workroom/PayControls";
 import RefundControl from "@/components/workroom/Refund";
 
 /**
@@ -62,6 +62,7 @@ type Order = {
   payment?: { at: number; method: string; via?: string; checkNumber?: string; note?: string; squarePaymentId: string; totalCents: number; feeCents: number; refundedAt?: number } | null;
   topUps?: { at: number; method: string; via?: string; checkNumber?: string; note?: string; squarePaymentId: string; totalCents: number; feeCents: number }[];
   refunds?: { at: number; cents: number; note: string; how?: string; kept?: boolean }[];
+  reversedPayments?: { at: number; method: string; via?: string; checkNumber?: string; squarePaymentId: string; totalCents: number; feeCents: number; reversed: { at: number; by: string; note: string } }[];
   /** The customer's own PO number, and where the bill goes (2026-11-09). */
   poNumber?: string;
   billTo?: BillTo;
@@ -88,7 +89,7 @@ type InitialsExtra = { madeBy?: string; takenBy?: string };
 const canEdit = (o: Order) => o.status !== "canceled";
 /** May be taken off the books as written up twice (Katy, 2026-11-02):
     the shop wrote it and no money is on it. The route holds the same rule. */
-const removable = (o: Order) => o.source === "phone" && !o.payment && !(o.topUps?.length);
+const removable = (o: Order) => o.source === "phone" && !o.payment && !(o.topUps?.length) && !(o.reversedPayments?.length);
 
 function nextMove(o: Order): { to: Order["status"]; label: string } | null {
   switch (o.status) {
@@ -203,6 +204,11 @@ function CardRefund({ o }: { o: Order }) {
   const delivery = o.lines.filter(isDeliveryLine).reduce((sum, l) => sum + Math.round(l.each * l.qty * 100), 0);
   const cashOnly = [o.payment, ...(o.topUps ?? [])].every((p) => !p || p.method === "cash");
   return <RefundControl orderId={o.id} number={o.number} refundableCents={refundableCents(o)} deliveryCents={delivery} square={squareMoney(o)} settled={balanceCents(o) === 0} cashOnly={cashOnly} onDone={refresh} />;
+}
+/** A payment recorded by mistake, taken back from a finished row. */
+function ClosedTakeBack({ o }: { o: Order }) {
+  const { refresh } = useContext(BoardCtx);
+  return <TakeBack orderId={o.id} number={o.number} payments={takeBackablePayments(o)} onDone={refresh} />;
 }
 /** Move an overpaid order's credit onto another order the same customer owes on. */
 function CardCredit({ o }: { o: Order }) {
@@ -844,6 +850,8 @@ function ClosedList({
                   </button>
                 </p>
               )}
+              <ReversedNote reversed={o.reversedPayments ?? []} />
+              {!paidByHandOnly(o) && <ClosedTakeBack o={o} />}
               {o.cardMessage && <p style={{ margin: 0, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{o.cardMessage}&rdquo;</p>}
               {o.notes && <p className="muted" style={{ margin: 0, overflowWrap: "anywhere" }}>{o.notes}</p>}
             </div>
@@ -1774,6 +1782,11 @@ function OrderCard({
       <div style={{ margin: "6px 0 0" }}>
         <CardRefund o={o} />
       </div>
+      {/* Recorded by mistake? Its own place on the card, outside the money
+          corner, so its answer stays on screen while the card changes. The
+          by-hand-only undo above covers an order paid only by hand. */}
+      <ReversedNote reversed={o.reversedPayments ?? []} />
+      {!paidByHandOnly(o) && <ClosedTakeBack o={o} />}
 
       {/* Keyed by status so a half-finished cancel confirm or initials
           prompt resets when the 30s poll brings a new status underneath. */}
@@ -3001,8 +3014,13 @@ function QuickSale({ library, onChanged }: { library: StemPrice[]; onChanged: ()
             <strong>{money(m.total)}</strong>
           </p>
           {m.total > 0 && <CashTendered dueCents={Math.round(m.total * 100)} value={tendered} onChange={setTendered} disabled={busy !== ""} />}
+          {(changeFor(tendered, Math.round(m.total * 100)) ?? 0) < 0 && (
+            <p role="status" style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--rose-ink)" }}>
+              Less than the sale. Take the rest in cash or by card, or change the sale.
+            </p>
+          )}
           <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-            <button type="button" className="btn btn--solid" disabled={busy !== ""} onClick={() => ring("cash")}>
+            <button type="button" className="btn btn--solid" disabled={busy !== "" || (changeFor(tendered, Math.round(m.total * 100)) ?? 0) < 0} onClick={() => ring("cash")}>
               {busy === "cash" ? "Recording…" : `Record ${money(m.total)} cash`}
             </button>
             <button type="button" className="btn" disabled={busy !== ""} onClick={() => ring("card")}>

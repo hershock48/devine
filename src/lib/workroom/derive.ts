@@ -570,3 +570,49 @@ export function lotCosting(opts: {
 export function lastUnitCostMap(events: LotEventLike[]): Map<string, number> {
   return lotCosting({ events, orders: [], sales: [], recipeBySlug: new Map() }).lastUnitCost;
 }
+
+/**
+ * WHICH PAYMENTS MAY BE TAKEN BACK as recorded by mistake (2026-11-13), and
+ * the order without one. Only money the counter only SAID it took: cash
+ * recorded at the board, a check, a by-hand mark. Never a card or a
+ * register ring (that money is real and is refunded in Square), never
+ * credit moved from another order (its other half lives there), and not
+ * on an order that has given anything back (the refunds were measured
+ * against what was paid). The client lists with the first; the store
+ * writes with the second; one rule for both.
+ */
+type TakeBackable = {
+  payment?: { at: number; method: string; via?: string; rung?: boolean; totalCents: number; refundedAt?: number } | null;
+  topUps?: { at: number; method: string; via?: string; rung?: boolean; totalCents: number }[];
+  refunds?: unknown[];
+  voided?: unknown;
+};
+export function takeBackablePayments<O extends TakeBackable>(o: O): NonNullable<O["payment"]>[] {
+  if (o.voided || !o.payment || o.payment.refundedAt || (o.refunds ?? []).length) return [];
+  return [o.payment, ...(o.topUps ?? [])].filter(
+    (p): p is NonNullable<O["payment"]> => !!p && (p.method === "cash" || p.method === "other") && p.via !== "credit" && !p.rung && p.totalCents > 0,
+  );
+}
+export function takeBackPayment<O extends TakeBackable & { reversedPayments?: unknown[] }>(
+  o: O,
+  match: { at: number; method: string; totalCents: number },
+  mark: { at: number; by: string; note: string },
+): O | null {
+  const same = (p: { at: number; method: string; totalCents: number }) => p.at === match.at && p.method === match.method && p.totalCents === match.totalCents;
+  const target = takeBackablePayments(o).find(same);
+  if (!target) return null;
+  const all = [o.payment!, ...(o.topUps ?? [])];
+  const i = all.findIndex(same);
+  const left = all.filter((_, k) => k !== i);
+  const next = { ...o, reversedPayments: [...(o.reversedPayments ?? []), { ...target, reversed: mark }] } as O;
+  // The first payment left becomes the payment, so "paid" still means it.
+  if (left.length) {
+    (next as TakeBackable).payment = left[0];
+    if (left.length > 1) (next as TakeBackable).topUps = left.slice(1);
+    else delete (next as TakeBackable).topUps;
+  } else {
+    delete (next as TakeBackable).payment;
+    delete (next as TakeBackable).topUps;
+  }
+  return next;
+}

@@ -1,5 +1,5 @@
 import "server-only";
-import { balanceCents, refundableCents } from "./derive";
+import { balanceCents, refundableCents, takeBackPayment } from "./derive";
 import { REPORT_PAGE_BYTES, toReportOrder, toReportSale, type ReportOrder, type ReportSale } from "./report-rows";
 import type { Category, Product } from "@/lib/catalog";
 
@@ -89,6 +89,10 @@ export type OrderPayment = {
       another order of the same customer, which is not new money and is
       left out of every money-in figure. */
   via?: "check" | "credit";
+  /** Cash rung on the Square register and matched to the order by the DV
+      number in its note (the webhook): real money in the drawer, never
+      taken back as recorded by mistake. */
+  rung?: boolean;
   checkNumber?: string;
   /** For a credit: where it came from ("Credit from order DV-..."). */
   note?: string;
@@ -107,6 +111,15 @@ export type OrderPayment = {
       section. */
   refundedAt?: number;
 };
+
+/** A PAYMENT TAKEN BACK as recorded by mistake (Katy, 2026-11-13: cash
+    recorded for the whole of an account invoice that nobody paid). It
+    leaves payment and topUps, so every money rule, sheet and guard stops
+    counting it, and is kept here with who took it back and when, so the
+    order still shows what happened. A Square cash sale behind it stays in
+    Square until it is refunded there; the webhook knows its id and does
+    not put it back. */
+export type ReversedPayment = OrderPayment & { reversed: { at: number; by: string; note: string } };
 
 export type BillTo = { street: string; town: string; zip: string };
 
@@ -248,6 +261,8 @@ export type WorkroomOrder = {
       number stays retired. Only an unpaid order the shop wrote up can be
       removed; a web order or one with money on it keeps the cancel path. */
   voided?: VoidMark | null;
+  /** Payments taken back as recorded by mistake (ReversedPayment). */
+  reversedPayments?: ReversedPayment[];
 };
 
 export type StemEvent = {
@@ -652,6 +667,12 @@ type Store = {
       made (2026-10-12). The route decides what may be edited; the store
       just writes what it is handed, id and all. */
   replaceOrder(o: WorkroomOrder): Promise<void>;
+  /** Takes one payment off an order as recorded by mistake (derive.ts
+      takeBackPayment says which may go and builds the new order). Written
+      only if the order is still exactly as it was read, so two screens, or
+      a payment landing in the same moment, cannot be overwritten. The
+      order as written, or null when it changed or the payment may not go. */
+  reversePayment(id: string, match: { at: number; method: string; totalCents: number }, mark: { at: number; by: string; note: string }): Promise<WorkroomOrder | null>;
   setOrderPayment(id: string, p: OrderPayment): Promise<void>;
   /** A further payment on an order already paid once (a balance after an edit). */
   addOrderTopUp(id: string, p: OrderPayment): Promise<void>;
@@ -926,6 +947,14 @@ const memoryStore: Store = {
   async replaceOrder(o) {
     bag().orders.set(o.id, o);
   },
+  async reversePayment(id, match, mark) {
+    const o = bag().orders.get(id);
+    if (!o) return null;
+    const next = takeBackPayment(o, match, mark);
+    if (!next) return null;
+    bag().orders.set(id, next);
+    return next;
+  },
   async claimForPrint(ids, at) {
     const took: string[] = [];
     for (const id of ids) {
@@ -943,7 +972,9 @@ const memoryStore: Store = {
   },
   async addOrderTopUp(id, p) {
     const o = bag().orders.get(id);
-    if (o) o.topUps = [...(o.topUps ?? []), p];
+    if (!o) return;
+    if (!o.payment) o.payment = p;
+    else o.topUps = [...(o.topUps ?? []), p];
   },
   async addOrderRefund(id, r) {
     const o = bag().orders.get(id);
@@ -1452,6 +1483,20 @@ const postgresStore: Store = {
     const pool = await pgPool();
     await pool.query(`UPDATE workroom_orders SET status = $2, data = $3 WHERE id = $1`, [o.id, o.status, JSON.stringify(o)]);
   },
+  async reversePayment(id, match, mark) {
+    const pool = await pgPool();
+    const r = await pool.query(`SELECT data FROM workroom_orders WHERE id = $1`, [id]);
+    const o = r.rows[0]?.data as WorkroomOrder | undefined;
+    if (!o) return null;
+    const next = takeBackPayment(o, match, mark);
+    if (!next) return null;
+    // Compare and swap: written only while the row is the one just read.
+    const w = await pool.query(
+      `UPDATE workroom_orders SET data = $2::jsonb WHERE id = $1 AND data = $3::jsonb RETURNING id`,
+      [id, JSON.stringify(next), JSON.stringify(o)],
+    );
+    return w.rows.length ? next : null;
+  },
   async claimForPrint(ids, at) {
     if (ids.length === 0) return [];
     const pool = await pgPool();
@@ -1475,8 +1520,11 @@ const postgresStore: Store = {
   async addOrderTopUp(id, p) {
     const pool = await pgPool();
     await pool.query(
-      `UPDATE workroom_orders SET data = data || jsonb_build_object('topUps', COALESCE(data->'topUps', '[]'::jsonb) || $2::jsonb) WHERE id = $1`,
-      [id, JSON.stringify([p])],
+      // No first payment (it was taken back in the same moment): this one is it.
+      `UPDATE workroom_orders SET data = CASE WHEN data->'payment' IS NULL OR jsonb_typeof(data->'payment') = 'null'
+         THEN data || jsonb_build_object('payment', $3::jsonb)
+         ELSE data || jsonb_build_object('topUps', COALESCE(data->'topUps', '[]'::jsonb) || $2::jsonb) END WHERE id = $1`,
+      [id, JSON.stringify([p]), JSON.stringify(p)],
     );
   },
   async addOrderRefund(id, r) {

@@ -443,7 +443,7 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as {
-    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; refund?: unknown; how?: unknown; reason?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
+    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; refund?: unknown; reversePayment?: unknown; how?: unknown; reason?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
     void?: unknown; unvoid?: unknown; by?: unknown;
   };
   const id = typeof p.id === "string" ? p.id : "";
@@ -463,6 +463,8 @@ export async function PATCH(req: Request) {
     if (o.voided) return NextResponse.json({ error: "Already removed." }, { status: 409 });
     if (o.source !== "phone") return NextResponse.json({ error: "A website order is the customer's. Cancel it instead." }, { status: 409 });
     if (o.payment || (o.topUps?.length ?? 0) > 0) return NextResponse.json({ error: "Money is on this one. Cancel it instead, and refund it from the card." }, { status: 409 });
+    // A payment was taken back on it: its record stays on the books.
+    if ((o.reversedPayments ?? []).length) return NextResponse.json({ error: "A payment was taken back on this order, so it stays on the books with that record. Cancel it instead if it is not wanted." }, { status: 409 });
     await getStore().patchOrder(id, { voided: { at: Date.now(), by } });
     return NextResponse.json({ ok: true });
   }
@@ -617,6 +619,40 @@ export async function PATCH(req: Request) {
   // UNDO A BY-HAND MARK (Katy, 2026-10-15: two account orders marked "Paid
   // another way" that nobody had paid). Only a mark with no Square money
   // behind it can be taken back; a card or cash payment is real and stays.
+  // A PAYMENT RECORDED BY MISTAKE, TAKEN BACK (Katy, 2026-11-13: "Can you
+  // reverse the cash payment for DV-1026-P649?"). Cash recorded at the
+  // board, a check or a by-hand mark, one at a time, with initials; the
+  // order owes again and keeps the record (derive.ts takeBackPayment). A
+  // card or a register ring is real money, refunded in Square, not here.
+  if (p.reversePayment && typeof p.reversePayment === "object") {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    const m = p.reversePayment as Record<string, unknown>;
+    const match = { at: Number(m.at), method: str(m.method, 12), totalCents: Number(m.totalCents) };
+    if (!Number.isFinite(match.at) || !Number.isInteger(match.totalCents)) return NextResponse.json({ error: "Which payment?" }, { status: 400 });
+    // Checked whole, not clipped first: "KEVIN" is refused, not stored as KEV.
+    const by = str(p.by, 12).toUpperCase();
+    if (!/^[A-Z]{2,3}$/.test(by)) return NextResponse.json({ error: INITIALS_ERROR }, { status: 400 });
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    const all = [o.payment, ...(o.topUps ?? [])].filter(Boolean) as NonNullable<typeof o.payment>[];
+    const target = all.find((q) => q.at === match.at && q.method === match.method && q.totalCents === match.totalCents);
+    if (!target) return NextResponse.json({ error: "That payment is not on this order any more. Reload and look at the card." }, { status: 409 });
+    if (target.method === "card" || target.method === "register") {
+      return NextResponse.json({ error: "That payment went through a card or the register, so the money is real. Refund it from the Square dashboard instead." }, { status: 409 });
+    }
+    if (target.via === "credit") return NextResponse.json({ error: "That was credit moved from another order, so it stays." }, { status: 409 });
+    if (target.rung) return NextResponse.json({ error: "That cash was rung on the Square register, so it is real. Refund it from the Square dashboard instead." }, { status: 409 });
+    // Taking back cash takes a figure off the day it was recorded: the
+    // owner's call, with the owner's PIN.
+    if (target.method === "cash" && !(await isWorkroomOwner())) return NextResponse.json({ error: "Taking back cash needs the owner's PIN. Lock the workroom and open it with the owner's PIN." }, { status: 403 });
+    if (o.payment?.refundedAt || (o.refunds ?? []).length) {
+      return NextResponse.json({ error: "Money was already given back on this order, so its payments stay as they are. Call Glazed Web to straighten it out." }, { status: 409 });
+    }
+    const note = target.method === "cash" ? "Cash recorded by mistake" : target.via === "check" ? "Check recorded by mistake" : "Marked paid by mistake";
+    const next = await getStore().reversePayment(id, match, { at: Date.now(), by, note });
+    if (!next) return NextResponse.json({ error: "That did not change: the order moved on another screen. Reload and look at the card." }, { status: 409 });
+    return NextResponse.json({ ok: true, order: next, squareRefund: target.method === "cash" && !!target.squarePaymentId ? target.totalCents : 0 });
+  }
   if (p.unmarkPaid === true) {
     if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
     const o = await getStore().getOrder(id);

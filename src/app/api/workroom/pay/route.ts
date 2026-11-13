@@ -251,7 +251,10 @@ export async function POST(req: Request) {
       // Cash carries what was collected so far, so a cash top-up after a
       // cash payment is a new key, and a double tap of the same top-up
       // (same state) is still one record.
-      idempotencyKey: `${order.id}:${method === "card" ? attempt || sourceId : `cash:${collectedCents(order)}`}`,
+      // The take-back count is in the cash key: after a payment is taken
+      // back, what was collected is what it was before it, and the same key
+      // would bring back the old (refunded) Square sale instead of a new one.
+      idempotencyKey: `${order.id}:${method === "card" ? attempt || sourceId : `cash:${collectedCents(order)}:${(order.reversedPayments ?? []).length}`}`,
     });
   } catch (err) {
     console.error(`[devine] pay ${order.number} (${method}) failed:`, err);
@@ -472,7 +475,7 @@ async function payBatch(ids: string[], method: "card" | "cash" | "manual" | "che
       method,
       sourceId,
       cardFee: { name: "", cents: 0, appFeeCents: 0 },
-      idempotencyKey: `${ids.slice().sort().join("+")}:${method === "card" ? attempt || sourceId : `cash:${parts.reduce((s, x) => s + collectedCents(x.o), 0)}`}`,
+      idempotencyKey: `${ids.slice().sort().join("+")}:${method === "card" ? attempt || sourceId : `cash:${parts.reduce((s, x) => s + collectedCents(x.o), 0)}:${parts.reduce((s, x) => s + (x.o.reversedPayments ?? []).length, 0)}`}`,
     });
   } catch (err) {
     console.error(`[devine] pay ${label} (${method}) failed:`, err);

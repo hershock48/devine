@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { field, textButton } from "@/components/workroom/ui";
+import { InitialsInput, field, isInitials, textButton } from "@/components/workroom/ui";
 import { loadSquareSdk, type SquareCard } from "@/lib/square/web-sdk";
 import { payWord } from "@/lib/workroom/derive";
 
@@ -303,6 +303,13 @@ export default function PayControls({
     };
   }, [mode]);
 
+  /* LESS CASH GIVEN THAN IS DUE (Katy, 2026-11-13: she typed a smaller
+     figure in Cash given, saw "short", and Record still took the whole
+     balance). What was handed over is what is recorded: a part payment,
+     the rest still due. A walk-in pays in full, so there it is refused. */
+  const tenderedCents = mode === "cash" ? parseDollars(tendered) : null;
+  const shortCash = tenderedCents !== null && tenderedCents > 0 && tenderedCents < charge ? tenderedCents : null;
+
   async function pay(method: "card" | "cash" | "manual" | "check") {
     setBusy(true);
     setError("");
@@ -332,7 +339,7 @@ export default function PayControls({
             attempt: attemptRef.current || undefined,
             // Only when the box is open: a closed box means the whole of
             // what is due, the route's own default.
-            amountCents: method === "check" ? checkCents ?? undefined : part ? charge : undefined,
+            amountCents: method === "check" ? checkCents ?? undefined : method === "cash" && shortCash !== null ? shortCash : part ? charge : undefined,
             checkNumber: method === "check" ? checkNo.trim() : undefined,
           }),
         });
@@ -366,7 +373,9 @@ export default function PayControls({
         // (each order's due filled in order), and the message names each
         // order's share, so a part payment is not marked on orders that
         // got nothing.
-        let left = charge;
+        // What was actually sent: less than the charge when less cash was given.
+        const sent = method === "cash" && shortCash !== null ? shortCash : charge;
+        let left = sent;
         const shares = (batch?.owed ?? []).map((x) => {
           const share = Math.min(left, x.cents);
           left -= share;
@@ -374,13 +383,13 @@ export default function PayControls({
         }).filter((x) => x.share > 0);
         setError(
           forAll
-            ? `CHARGED ${dollars(charge)} on ${shares.length} of ${batch!.count} orders, but the board did not save it. Do NOT charge again. Mark "Paid another way": ${shares.map((x) => `${dollars(x.share)} on ${x.number}`).join(", ")}.`
+            ? `CHARGED ${dollars(sent)} on ${shares.length} of ${batch!.count} orders, but the board did not save it. Do NOT charge again. Mark "Paid another way": ${shares.map((x) => `${dollars(x.share)} on ${x.number}`).join(", ")}.`
             : topUp
-              ? `CHARGED ${dollars(charge)}, but the board did not save it. Do NOT charge again. Square's notice will add it within a minute; if it does not, mark it by hand.`
+              ? `CHARGED ${dollars(sent)}, but the board did not save it. Do NOT charge again. Square's notice will add it within a minute; if it does not, mark it by hand.`
               : "CHARGED, but the board did not save it. Do NOT charge again. Reload in a minute; the payment will appear.",
         );
       }
-      const sum = method === "check" ? checkCents ?? charge : charge;
+      const sum = method === "check" ? checkCents ?? charge : method === "cash" && shortCash !== null ? shortCash : charge;
       // A check is a by-hand mark to the screens above this one.
       onPaid(method === "check" ? "manual" : method, sum, { settled: sum >= amount, boardMissed: !!d.boardMissed, changeCents });
     } catch (err) {
@@ -621,9 +630,16 @@ export default function PayControls({
         <>
           {partBlock}
           <CashTendered dueCents={charge} value={tendered} onChange={setTendered} disabled={busy} />
+          {shortCash !== null && (
+            <p role="status" style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 600, color: "var(--rose-ink)" }}>
+              {partPay
+                ? `Less than is due: ${dollars(shortCash)} is recorded, and ${dollars(amount - shortCash)} stays owed.`
+                : "Less than the sale. Take the rest in cash or by card, or change the sale."}
+            </p>
+          )}
           <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-            <button type="button" className="btn btn--solid" disabled={busy || !!partError} onClick={() => pay("cash")}>
-              {busy ? "Recording…" : `Record ${dollars(charge)} cash`}
+            <button type="button" className="btn btn--solid" disabled={busy || !!partError || (shortCash !== null && !partPay)} onClick={() => pay("cash")}>
+              {busy ? "Recording…" : shortCash !== null ? `Record ${dollars(shortCash)} cash · ${dollars(amount - shortCash)} stays due` : `Record ${dollars(charge)} cash`}
             </button>
             <button type="button" disabled={busy || unsure} onClick={close} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
               Never mind
@@ -728,6 +744,119 @@ export function ApplyCredit({
       <p style={{ margin: 0, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
         <button type="button" className="btn btn--solid" disabled={busy} onClick={apply}>
           {busy ? "Moving…" : `Move ${dollars(move)}`}
+        </button>
+        <button type="button" disabled={busy} onClick={() => setOpen(false)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
+          Never mind
+        </button>
+      </p>
+    </div>
+  );
+}
+
+/* ----------------------- a payment taken back ----------------------- */
+
+export type TakeBackPayment = { at: number; method: string; via?: string; checkNumber?: string; squarePaymentId?: string; totalCents: number };
+export type ReversedLine = TakeBackPayment & { reversed: { at: number; by: string; note: string } };
+
+const whenShort = (ms: number) => new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const kindOf = (p: TakeBackPayment) => (p.method === "cash" ? "cash" : payWord(p));
+
+/** What was taken back on this order, said plainly on the card. */
+export function ReversedNote({ reversed }: { reversed: ReversedLine[] }) {
+  if (!reversed.length) return null;
+  return (
+    <p className="muted" style={{ margin: "6px 0 0", fontSize: 13.5 }}>
+      {reversed.map((r) => `Taken back: ${dollars(r.totalCents)} ${kindOf(r)} recorded ${whenShort(r.at)}, by ${r.reversed.by} ${whenShort(r.reversed.at)} (${r.reversed.note.toLowerCase()})${r.method === "cash" && r.squarePaymentId ? `. It was also recorded in Square as cash: refund ${dollars(r.totalCents)} of that sale there if that is not done yet` : ""}.`).join(" ")}
+    </p>
+  );
+}
+
+/**
+ * RECORDED BY MISTAKE? TAKE IT BACK (Katy, 2026-11-13: cash recorded for
+ * a whole account invoice that nobody paid). Cash, a check or a by-hand
+ * mark, one at a time, with initials. The order owes again, the payment
+ * leaves every figure and stays on the card as taken back, and a cash one
+ * says to refund the matching cash sale in Square so Square's books agree.
+ */
+export function TakeBack({ orderId, number, payments, onDone }: { orderId: string; number: string; payments: TakeBackPayment[]; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState(0);
+  const [by, setBy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState<{ cents: number; square: number } | null>(null);
+  if (done) {
+    return (
+      <p role="status" style={{ margin: "6px 0 0", fontSize: 14, fontWeight: 600 }}>
+        {dollars(done.cents)} taken back. {number} owes it again.
+        {done.square ? ` It was also recorded in Square as cash: refund ${dollars(done.square)} of that sale in the Square dashboard (Transactions, the sale, Issue refund), so Square's books match. No cash moves.` : ""}
+      </p>
+    );
+  }
+  if (!payments.length) return null;
+  if (!open) {
+    return (
+      <p style={{ margin: "4px 0 0" }}>
+        <button type="button" onClick={() => setOpen(true)} style={{ ...textButton, fontSize: 13, color: "var(--muted)" }}>
+          Recorded a payment by mistake? Take it back
+        </button>
+      </p>
+    );
+  }
+  const p = payments[Math.min(pick, payments.length - 1)];
+  async function go() {
+    if (!isInitials(by)) return setError("Your initials, two or three letters, so it has a name on it.");
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/workroom/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: orderId, reversePayment: { at: p.at, method: p.method, totalCents: p.totalCents }, by: by.trim().toUpperCase() }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string; squareRefund?: number } | null;
+      if (!r.ok || !d?.ok) setError(d?.error || "That did not change.");
+      else {
+        setDone({ cents: p.totalCents, square: Number(d.squareRefund) || 0 });
+        onDone();
+      }
+    } catch {
+      setError("The connection dropped. Reload and look at the card before trying again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="panel" style={{ margin: "8px 0 0", padding: 12, display: "grid", gap: 10 }}>
+      <strong style={{ fontSize: 14.5 }}>Take back a payment on {number}</strong>
+      {payments.length > 1 ? (
+        <fieldset style={{ border: 0, padding: 0, margin: 0, display: "grid", gap: 6, fontSize: 14.5 }}>
+          <legend style={{ padding: 0, marginBottom: 4, fontWeight: 600 }}>Which one</legend>
+          {payments.map((q, i) => (
+            <label key={`${q.at}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="radio" name={`take-back-${orderId}`} checked={pick === i} disabled={busy} onChange={() => setPick(i)} />
+              {dollars(q.totalCents)} {kindOf(q)}, recorded {whenShort(q.at)}
+            </label>
+          ))}
+        </fieldset>
+      ) : (
+        <span style={{ fontSize: 14.5 }}>
+          {dollars(p.totalCents)} {kindOf(p)}, recorded {whenShort(p.at)}
+        </span>
+      )}
+      <span className="muted" style={{ fontSize: 13.5 }}>
+        For a payment that never happened. The order owes {dollars(p.totalCents)} again, the payment leaves every figure, and the card keeps a note of it with your initials.
+        {p.method === "cash" && p.squarePaymentId ? ` It was also recorded in Square as cash: after this, refund ${dollars(p.totalCents)} of that sale in the Square dashboard so Square's books match. No cash moves. Taking back cash needs the owner's PIN.` : ""}
+      </span>
+      {error && (
+        <span role="alert" style={{ fontWeight: 600, color: "var(--rose-ink)", fontSize: 14 }}>
+          {error}
+        </span>
+      )}
+      <p style={{ margin: 0, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <InitialsInput value={by} onChange={setBy} />
+        <button type="button" className="btn btn--solid" disabled={busy} onClick={go}>
+          {busy ? "Taking it back…" : `Take back ${dollars(p.totalCents)}`}
         </button>
         <button type="button" disabled={busy} onClick={() => setOpen(false)} style={{ ...textButton, fontSize: 13.5, color: "var(--muted)" }}>
           Never mind

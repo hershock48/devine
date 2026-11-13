@@ -58,6 +58,9 @@ export type ReportOrder = {
   thirdParty?: boolean;
   quick?: boolean;
   poNumber?: string;
+  /** Payments taken back as recorded by mistake: not money, listed so the
+      day they were taken back shows who did it. */
+  reversedPayments?: (ReportPayment & { reversed: { at: number; by: string; note: string } })[];
 };
 /** A ring on the register that belongs to no board order: a walk-in. */
 export type ReportSale = { id: string; source: string; totalCents: number; paidAt: string; createdAt: number };
@@ -105,6 +108,7 @@ export function toReportOrder(o: WorkroomOrder): ReportOrder {
     ...(o.thirdParty ? { thirdParty: true } : {}),
     ...(o.quick ? { quick: true } : {}),
     ...(o.poNumber ? { poNumber: o.poNumber } : {}),
+    ...(o.reversedPayments?.length ? { reversedPayments: o.reversedPayments } : {}),
   };
 }
 

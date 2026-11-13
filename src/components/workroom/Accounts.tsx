@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { site } from "@/lib/site";
-import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, payWord, refundedCents, squareMoney, zipFeeCentsToAppend, refundableCents } from "@/lib/workroom/derive";
+import { balanceCents, collectedCents, grossPaidCents, isDeliveryLine, isTaxLine, owedNowCents, paidByHandOnly, paidInParts, payWord, refundedCents, squareMoney, zipFeeCentsToAppend, refundableCents, takeBackablePayments } from "@/lib/workroom/derive";
 import { field, money, phoneKey, textButton, MemoryWarning, PinGate, RemoveDuplicate } from "@/components/workroom/ui";
-import PayControls, { ApplyCredit, parseDollars } from "@/components/workroom/PayControls";
+import PayControls, { ApplyCredit, ReversedNote, TakeBack, parseDollars } from "@/components/workroom/PayControls";
 
 /**
  * HOUSE ACCOUNTS (Katy, 2026-10-14, and the proposal's "who owes what"):
@@ -27,7 +27,7 @@ import PayControls, { ApplyCredit, parseDollars } from "@/components/workroom/Pa
  * give the account a phone number, which the form keeps on every order.
  */
 
-type Payment = { at: number; method: string; totalCents: number; feeCents: number; refundedAt?: number; via?: string; checkNumber?: string; note?: string };
+type Payment = { at: number; method: string; squarePaymentId?: string; totalCents: number; feeCents: number; refundedAt?: number; via?: string; checkNumber?: string; note?: string };
 type Line = { slug: string | null; name: string; qty: number; each: number };
 type Order = {
   id: string;
@@ -49,6 +49,7 @@ type Order = {
   payment?: Payment | null;
   topUps?: Payment[];
   refunds?: { at: number; cents: number; note: string; how?: string; kept?: boolean }[];
+  reversedPayments?: (Payment & { reversed: { at: number; by: string; note: string } })[];
   account?: boolean;
   taxExempt?: boolean;
   taxId?: string;
@@ -629,7 +630,7 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                   {/* Written up twice (Katy, 2026-11-02): off the books from
                       here. Shop-written and unpaid only; the rest is the
                       cancel path on the board. */}
-                  {o.source === "phone" && !o.payment && !(o.topUps?.length) && (
+                  {o.source === "phone" && !o.payment && !(o.topUps?.length) && !(o.reversedPayments?.length) && (
                     <p style={{ margin: "6px 0 0", fontSize: 14 }}>
                       <RemoveDuplicate number={o.number} onRemove={(by) => removeDuplicate(o, by)} />
                     </p>
@@ -657,6 +658,10 @@ export default function Accounts({ initialAuthed }: { initialAuthed: boolean }) 
                       }}
                     />
                   )}
+                  {/* Recorded by mistake? One place on the row whatever the
+                      order owes, so its answer survives the refresh. */}
+                  <ReversedNote reversed={o.reversedPayments ?? []} />
+                  {!paidByHandOnly(o) && <TakeBack orderId={o.id} number={o.number} payments={takeBackablePayments(o)} onDone={() => pull().catch(() => {})} />}
                 </li>
               );
             })}
