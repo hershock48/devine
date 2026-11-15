@@ -1,3 +1,5 @@
+import { resolveSquare, squareApp } from "@/lib/square/oauth";
+import { square, squareConfig, SquareError } from "@/lib/square/client";
 import { NextResponse } from "next/server";
 import { deliveryFeeFor, site } from "@/lib/site";
 import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
@@ -39,6 +41,35 @@ export async function GET(req: Request) {
   // contacts spans the whole history, so "her third order this year" still
   // counts after the first two age off the 60-day board.
   return NextResponse.json({ orders, contacts, backend: store.backend });
+}
+
+/** "board" when the cash sale is one this workroom created in Square (its
+    order carries this order's id, or a group's "batch:" id), "register" when
+    Square's record says otherwise, "unknown" when Square could not be asked,
+    "missing" when Square has no such sale in the account connected now.
+    "board" only when this deployment has no Square at all (no app, no env
+    token: a local copy, a test). A deployment WITH Square whose grant is
+    dead or unreadable answers "unknown": failing open there would let a
+    register ring through on the one day the check cannot run. */
+async function whoMadeCash(paymentId: string, orderId: string): Promise<"board" | "register" | "unknown" | "missing"> {
+  const cfg = await resolveSquare().catch(() => null);
+  if (!cfg) return squareApp() || squareConfig() ? "unknown" : "board";
+  const ask = async (): Promise<"board" | "register"> => {
+    const got = await square<{ payment?: { order_id?: string } }>(cfg, "GET", `/v2/payments/${encodeURIComponent(paymentId)}`);
+    const squareOrder = got.payment?.order_id;
+    if (!squareOrder) return "register";
+    const { order } = await square<{ order?: { reference_id?: string } }>(cfg, "GET", `/v2/orders/${encodeURIComponent(squareOrder)}`);
+    const ref = order?.reference_id ?? "";
+    return ref === orderId || ref.startsWith("batch:") ? "board" : "register";
+  };
+  try {
+    // Square hanging must not hold the screen until the function dies.
+    return await Promise.race([ask(), new Promise<never>((_, no) => setTimeout(() => no(new Error("Square took longer than 8s")), 8000))]);
+  } catch (err) {
+    console.error(`[devine] take-back: Square could not be asked about ${paymentId}`, err);
+    if (err instanceof SquareError && (err.status === 404 || err.status === 403)) return "missing";
+    return "unknown";
+  }
 }
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -443,7 +474,7 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   if (!(await isWorkroomAuthed())) return NextResponse.json({ error: "Locked." }, { status: 401 });
   const p = (await req.json().catch(() => ({}))) as {
-    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; refund?: unknown; how?: unknown; reason?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
+    id?: unknown; status?: unknown; markRefunded?: unknown; unmarkPaid?: unknown; refunded?: unknown; refund?: unknown; reversePayment?: unknown; how?: unknown; reason?: unknown; deliveryFee?: unknown; uncancel?: unknown; madeBy?: unknown; takenBy?: unknown; account?: unknown;
     void?: unknown; unvoid?: unknown; by?: unknown;
   };
   const id = typeof p.id === "string" ? p.id : "";
@@ -463,6 +494,8 @@ export async function PATCH(req: Request) {
     if (o.voided) return NextResponse.json({ error: "Already removed." }, { status: 409 });
     if (o.source !== "phone") return NextResponse.json({ error: "A website order is the customer's. Cancel it instead." }, { status: 409 });
     if (o.payment || (o.topUps?.length ?? 0) > 0) return NextResponse.json({ error: "Money is on this one. Cancel it instead, and refund it from the card." }, { status: 409 });
+    // A payment was taken back on it: its record stays on the books.
+    if ((o.reversedPayments ?? []).length) return NextResponse.json({ error: "A payment was taken back on this order, so it stays on the books with that record. Cancel it instead if it is not wanted." }, { status: 409 });
     await getStore().patchOrder(id, { voided: { at: Date.now(), by } });
     return NextResponse.json({ ok: true });
   }
@@ -613,6 +646,52 @@ export async function PATCH(req: Request) {
     // as for the whole.
     if (o.email) await sendRefundEmail(o, cents, { how });
     return NextResponse.json({ ok: true });
+  }
+  // A PAYMENT RECORDED BY MISTAKE, TAKEN BACK (Katy, 2026-11-13: "Can you
+  // reverse the cash payment for DV-1026-P649?"). Cash recorded at the
+  // board, a check or a by-hand mark, one at a time, with initials; the
+  // order owes again and keeps the record (derive.ts takeBackPayment). A
+  // card or a register ring is real money, refunded in Square, not here.
+  if (p.reversePayment && typeof p.reversePayment === "object") {
+    if (!id) return NextResponse.json({ error: "Malformed." }, { status: 400 });
+    const m = p.reversePayment as Record<string, unknown>;
+    const match = { at: Number(m.at), method: str(m.method, 12), totalCents: Number(m.totalCents) };
+    if (!Number.isFinite(match.at) || !Number.isInteger(match.totalCents)) return NextResponse.json({ error: "Which payment?" }, { status: 400 });
+    // Checked whole, not clipped first: "KEVIN" is refused, not stored as KEV.
+    const by = str(p.by, 12).toUpperCase();
+    if (!/^[A-Z]{2,3}$/.test(by)) return NextResponse.json({ error: INITIALS_ERROR }, { status: 400 });
+    const o = await getStore().getOrder(id);
+    if (!o) return NextResponse.json({ error: "No such order." }, { status: 404 });
+    if (o.status === "canceled") return NextResponse.json({ error: "That order is canceled, so its money goes back as a refund: Refunded in Square, or Mark refunded." }, { status: 409 });
+    const all = [o.payment, ...(o.topUps ?? [])].filter(Boolean) as NonNullable<typeof o.payment>[];
+    const target = all.find((q) => q.at === match.at && q.method === match.method && q.totalCents === match.totalCents);
+    if (!target) return NextResponse.json({ error: "That payment is not on this order any more. Reload and look at the card." }, { status: 409 });
+    if (target.method === "card" || target.method === "register") {
+      return NextResponse.json({ error: "That payment went through a card or the register, so the money is real. Refund it from the Square dashboard instead." }, { status: 409 });
+    }
+    if (target.via === "credit") return NextResponse.json({ error: "That was credit moved from another order, so it stays." }, { status: 409 });
+    if (target.rung) return NextResponse.json({ error: "That cash was rung on the Square register, so it is real. Refund it from the Square dashboard instead." }, { status: 409 });
+    // Taking back cash takes a figure off the day it was recorded: the
+    // owner's call, with the owner's PIN.
+    if (target.method === "cash" && !(await isWorkroomOwner())) return NextResponse.json({ error: "Taking back cash needs the owner's PIN. Lock the workroom and open it with the owner's PIN." }, { status: 403 });
+    // WHO MADE THE CASH SALE, asked of Square itself: cash recorded at the
+    // board is a Square order this workroom created, carrying the order's id
+    // (or a group's "batch:" id); cash rung on the register is not. Cash
+    // recorded before register rings were marked (target.rung) carries no
+    // mark, so Square's own record decides. Asked whenever Square is set up.
+    if (target.method === "cash" && target.squarePaymentId) {
+      const made = await whoMadeCash(target.squarePaymentId, o.id);
+      if (made === "register") return NextResponse.json({ error: "Square says that cash was rung on the register, so it is real. Refund it from the Square dashboard instead." }, { status: 409 });
+      if (made === "unknown") return NextResponse.json({ error: "Square could not be asked about that sale just now, so nothing changed. Try again in a minute; if it keeps saying this, check Square is connected on the Dashboard." }, { status: 503 });
+      if (made === "missing") return NextResponse.json({ error: "Square has no record of that sale in the account connected now, so nothing changed. Call Glazed Web to straighten it out." }, { status: 409 });
+    }
+    if (o.payment?.refundedAt || (o.refunds ?? []).length) {
+      return NextResponse.json({ error: "Money was already given back on this order, so its payments stay as they are. Call Glazed Web to straighten it out." }, { status: 409 });
+    }
+    const note = target.method === "cash" ? "Cash recorded by mistake" : target.via === "check" ? "Check recorded by mistake" : "Marked paid by mistake";
+    const next = await getStore().reversePayment(id, match, { at: Date.now(), by, note });
+    if (!next) return NextResponse.json({ error: "That did not change: the order moved on another screen. Reload and look at the card." }, { status: 409 });
+    return NextResponse.json({ ok: true, order: next, squareRefund: target.method === "cash" && !!target.squarePaymentId ? target.totalCents : 0 });
   }
   // UNDO A BY-HAND MARK (Katy, 2026-10-15: two account orders marked "Paid
   // another way" that nobody had paid). Only a mark with no Square money

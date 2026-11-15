@@ -26,7 +26,9 @@ import { getStore, type PageMark } from "@/lib/workroom/store";
  * into the ones it was handed.
  *
  * GROSS, NOT NET. A payment's total_money is what the customer handed over;
- * refunds are not netted out here, same as the stored webhook rows. If she
+ * refunds are not netted out here, same as the stored webhook rows. The one
+ * exception is a payment taken back as recorded by mistake: it never was
+ * money, so it is left out entirely (see the end of GET). If she
  * ever asks why this disagrees with Square's "net sales", that is the answer.
  */
 export const runtime = "nodejs";
@@ -42,7 +44,7 @@ type WindowSummary = {
   buckets: number[];
 };
 
-type PaymentRow = { ms: number; cents: number; cash: boolean };
+type PaymentRow = { id: string; ms: number; cents: number; cash: boolean };
 
 type ListPaymentsResponse = {
   payments?: {
@@ -79,7 +81,7 @@ async function fromSquare(cfg: SquareConfig, beginMs: number, endMs: number): Pr
       if (p.status !== "COMPLETED") continue;
       const ms = Date.parse(p.created_at ?? "");
       if (!Number.isFinite(ms)) continue;
-      rows.push({ ms, cents: p.total_money?.amount ?? 0, cash: p.source_type === "CASH" });
+      rows.push({ id: p.id ?? "", ms, cents: p.total_money?.amount ?? 0, cash: p.source_type === "CASH" });
     }
     cursor = page.cursor;
     pages += 1;
@@ -106,7 +108,7 @@ async function fromStored(beginMs: number, endMs: number): Promise<{ rows: Payme
       // paidAt is Square's own stamp; a row that somehow lacks one falls
       // back to when the webhook landed, which is seconds later in practice.
       const ms = saleInstantMs(s.paidAt, s.createdAt);
-      if (ms >= beginMs && ms < endMs) rows.push({ ms, cents: s.totalCents, cash: s.source === "CASH" });
+      if (ms >= beginMs && ms < endMs) rows.push({ id: s.id, ms, cents: s.totalCents, cash: s.source === "CASH" });
     }
     seen += page.rows.length;
     if (!page.next) return { rows, truncated: false };
@@ -205,10 +207,17 @@ export async function GET(req: Request) {
     prev = p.rows;
   }
 
+  // A payment taken back as recorded by mistake (orders route,
+  // reversePayment) was never money: it leaves the takings whichever
+  // ledger answered, and whether or not its Square sale has been refunded
+  // yet, so this screen agrees with Reports.
+  const takenBack = new Set(await getStore().takenBackSquarePaymentIds().catch(() => [] as string[]));
+  const kept = (rows: PaymentRow[]) => (takenBack.size ? rows.filter((r) => !takenBack.has(r.id)) : rows);
+
   return NextResponse.json({
     source,
     truncated,
-    current: summarize(cur, edges),
-    previous: summarize(prev, []),
+    current: summarize(kept(cur), edges),
+    previous: summarize(kept(prev), []),
   });
 }

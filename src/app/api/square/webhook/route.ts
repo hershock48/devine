@@ -205,13 +205,23 @@ export async function POST(req: Request) {
           at: Date.now(),
           method: (payment.source_type === "CASH" ? "cash" : viaReference ? "card" : "register") as "cash" | "card" | "register",
           squarePaymentId: payment.id,
+          // Cash rung on the register, matched only by the DV number in its
+          // note: real money, never taken back as recorded by mistake.
+          ...(payment.source_type === "CASH" && !viaReference ? { rung: true } : {}),
           totalCents: payment.total_money?.amount ?? 0,
           feeCents: 0,
           // The ticket as rung, so a later trim (a fee off) is owed back
           // while a tip or a rounded-up ring is not (derive.ts balanceCents).
           ...(order ? { ticketCents: Math.round(order.subtotal * 100) } : {}),
         };
-        if (order && !order.payment && order.status !== "hold") {
+        // TAKEN BACK as recorded by mistake (derive.ts takeBackPayment):
+        // the shop said this payment was not real. Square writes again
+        // about a payment it already sent (a refund in the dashboard is a
+        // payment.updated), and it must not come back onto the order.
+        const takenBack = !!order?.reversedPayments?.some((x) => x.squarePaymentId === payment.id);
+        if (takenBack) {
+          // nothing to do
+        } else if (order && !order.payment && order.status !== "hold") {
           await getStore().setOrderPayment(workroomOrderId, record);
         } else if (order && order.payment && order.status !== "hold") {
           const known = order.payment.squarePaymentId === payment.id || (order.topUps ?? []).some((t) => t.squarePaymentId === payment.id);
