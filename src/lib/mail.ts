@@ -1,6 +1,6 @@
 import "server-only";
 
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 
 /**
  * THE SHOP'S MAILBOX, once. Every email the site sends (tickets, receipts,
@@ -10,7 +10,7 @@ import nodemailer from "nodemailer";
  * (ORDER_TO, her inbox). Null when mail is not set up, which each caller
  * says in its own words rather than failing the thing it was doing.
  */
-export function shopMail(): { transport: nodemailer.Transporter; from: string; replyTo: string | undefined } | null {
+export function shopMail(): { transport: Transporter; from: string; replyTo: string | undefined } | null {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;

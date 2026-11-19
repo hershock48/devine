@@ -733,11 +733,11 @@ type Store = {
       the order was marked by hand with no Square id: real money is never
       erased here. True when something was cleared. */
   clearHandPayments(id: string): Promise<boolean>;
-  /** THE LAUNCH RESET (Kevin, 2026-10-13): every order written before the
-      moment given, gone. For the test orders before go-live; nothing else
-      (sales heard from the register, her lists, quotes, stems) is touched.
-      Returns how many went. */
-  deleteOrdersBefore(ts: number): Promise<number>;
+  /* NOTHING IN THIS STORE DELETES AN ORDER, on purpose. The launch reset
+     (2026-10-13, every order gone at the word CLEAR, for the test orders
+     before go-live) was taken out on 2026-11-19: the shop is live, and it
+     was the one control that could erase every real order. An order
+     written up twice is hidden, not deleted (voided, above). */
   addStemEvent(e: StemEvent): Promise<void>;
   listStemEvents(days: number): Promise<StemEvent[]>;
   /** Mis-keyed counts happen at 7am. A delete, not an edit: retyping five
@@ -1122,16 +1122,6 @@ const memoryStore: Store = {
   },
   async deleteQuote(id) {
     bag().quotes.delete(id);
-  },
-  async deleteOrdersBefore(ts) {
-    let n = 0;
-    for (const [id, o] of bag().orders) {
-      if (o.createdAt < ts) {
-        bag().orders.delete(id);
-        n += 1;
-      }
-    }
-    return n;
   },
   async upsertSquareSale(s) {
     bag().squareSales.set(s.id, s);
@@ -1798,11 +1788,6 @@ const postgresStore: Store = {
   async deleteQuote(id) {
     const pool = await pgPool();
     await pool.query(`DELETE FROM workroom_quotes WHERE id = $1`, [id]);
-  },
-  async deleteOrdersBefore(ts) {
-    const pool = await pgPool();
-    const r = await pool.query(`DELETE FROM workroom_orders WHERE created_at < $1 RETURNING id`, [ts]);
-    return r.rows.length;
   },
   async upsertSquareSale(s) {
     const pool = await pgPool();
