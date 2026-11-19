@@ -17,7 +17,14 @@ const mailTo = `${site.mailing.name}, ${site.mailing.street}, ${site.mailing.cit
  * reply to. Best-effort like the receipts: unconfigured mail is an error
  * the tab shows, never a silent nothing.
  */
-export type StatementRow = { date: string; number: string; items: string; owed: string };
+/** `number` is the shop's own order number and `po` the customer's purchase
+    order number. Both are named on every statement and invoice (Katy,
+    2026-11-19: "I need the PO and our DeVine's order number to be on all
+    statements. That way when the customer gets the statement they can
+    match it up on their end. This is a big deal with FireKeepers."). They
+    were there before, but unlabeled, with the PO at the tail of the item
+    text; now every row names each of them. */
+export type StatementRow = { date: string; number: string; po?: string; items: string; owed: string };
 
 export async function sendStatement(s: {
   to: string;
@@ -39,32 +46,47 @@ export async function sendStatement(s: {
   // "October 21, 2026", as the receipts say it, when the row's date is ISO.
   const day = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : d);
   const asOf = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  // The table's date, short, so four columns fit a phone.
+  const dayShort = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : d);
+  const po = (r: StatementRow) => (r.po ?? "").trim();
   const text = [
     `${site.name}`,
-    invoice ? `Invoice for ${who}: order ${s.rows[0].number}` : `Statement for ${who}`,
+    invoice ? `Invoice for ${who}: order no. ${s.rows[0].number}${po(s.rows[0]) ? `, PO no. ${po(s.rows[0])}` : ""}` : `Statement for ${who}`,
     `As of ${asOf}`,
     "",
-    ...s.rows.map((r) => `${day(r.date)}  ${r.number}  ${r.items}  ${r.owed}`),
+    ...s.rows.map((r) => `${day(r.date)}  Order no. ${r.number}${po(r) ? `  PO no. ${po(r)}` : ""}  ${r.items}  ${r.owed}`),
     "",
     `Balance due: ${s.balance}`,
     "",
     `Checks can be mailed to ${mailTo}.`,
     `Questions: ${site.phone}. Thank you.`,
   ].join("\n");
-  const table = `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${s.rows
-    .map(
-      (r) =>
-        `<tr><td style="padding:8px 0;border-bottom:1px solid #e2dacc;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;white-space:nowrap;vertical-align:top;">${esc(day(r.date))}</td>` +
-        `<td style="padding:8px 12px;border-bottom:1px solid #e2dacc;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;vertical-align:top;">${esc(r.number)}<br><span style="color:#6b6058;">${esc(r.items)}</span></td>` +
-        `<td align="right" style="padding:8px 0;border-bottom:1px solid #e2dacc;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;white-space:nowrap;vertical-align:top;">${esc(r.owed)}</td></tr>`,
-    )
-    .join("")}<tr><td colspan="2" style="padding:12px 0 0;font:700 15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;">Balance due</td><td align="right" style="padding:12px 0 0;font:700 15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;">${esc(s.balance)}</td></tr></table>`;
+  // Each row says both numbers by name, one under the other: "Order no."
+  // is ours, "PO no." is the customer's own. Stacked, not side by side,
+  // because a fourth column does not fit a phone and a long PO broke
+  // across three lines there (rendered and looked at, 2026-11-19).
+  const cell = `border-bottom:1px solid #e2dacc;font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;vertical-align:top;`;
+  const head = `border-bottom:2px solid #211b15;font:700 11.5px/1.3 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#6b6058;text-transform:uppercase;letter-spacing:0.06em;text-align:left;vertical-align:bottom;`;
+  const table =
+    `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">` +
+    `<tr><th scope="col" style="padding:0 0 6px;${head}">Date</th><th scope="col" style="padding:0 12px 6px;${head}">Order</th><th scope="col" align="right" style="padding:0 0 6px;${head}text-align:right;">Owed</th></tr>` +
+    s.rows
+      .map(
+        (r) =>
+          `<tr><td style="padding:8px 0;white-space:nowrap;${cell}">${esc(dayShort(r.date))}</td>` +
+          `<td style="padding:8px 12px;word-break:break-word;${cell}">Order no. <strong style="white-space:nowrap;">${esc(r.number)}</strong>` +
+          (po(r) ? `<br>PO no. <strong>${esc(po(r))}</strong>` : "") +
+          `<br><span style="color:#6b6058;">${esc(r.items)}</span></td>` +
+          `<td align="right" style="padding:8px 0;white-space:nowrap;${cell}">${esc(r.owed)}</td></tr>`,
+      )
+      .join("") +
+    `<tr><td colspan="2" style="padding:12px 0 0;font:700 15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;">Balance due</td><td align="right" style="padding:12px 0 0;font:700 15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#211b15;white-space:nowrap;">${esc(s.balance)}</td></tr></table>`;
   try {
     await mail.transport.sendMail({
       from: mail.from,
       to: s.to,
       replyTo: mail.replyTo,
-      subject: invoice ? `Invoice from ${site.shortName}: order ${s.rows[0].number}, ${s.balance} due` : `Statement from ${site.shortName}: ${s.balance} due`,
+      subject: invoice ? `Invoice from ${site.shortName}: order ${s.rows[0].number}${po(s.rows[0]) ? `, PO ${po(s.rows[0])}` : ""}, ${s.balance} due` : `Statement from ${site.shortName}: ${s.balance} due`,
       text,
       html: shell({
         title: `${invoice ? "Invoice" : "Statement"} from ${site.shortName}`,

@@ -147,7 +147,7 @@ function statementText(a: Account): string {
   const rows = open.map((o) => {
     const items = itemsOf(o).map((l) => `${l.qty} x ${l.name}`).join(", ");
     const to = o.recipient && o.recipient !== o.name ? `  for ${o.recipient}` : "";
-    return `${o.date}  ${o.number}${o.poNumber ? `  PO ${o.poNumber}` : ""}  ${items}${to}  ${money(owedOn(o) / 100)}`;
+    return `${o.date}  Order no. ${o.number}${o.poNumber ? `  PO no. ${o.poNumber}` : ""}  ${items}${to}  ${money(owedOn(o) / 100)}`;
   });
   return [
     `${site.name}`,
@@ -162,11 +162,15 @@ function statementText(a: Account): string {
   ].join("\n");
 }
 
-/** One statement row for one order; the same text the statement lists. */
+/** One statement row for one order; the same text the statement lists.
+    Our order number and the customer's PO number each travel in a field
+    of their own, so every form of the statement can name them (Katy,
+    2026-11-19). */
 const rowOf = (o: Order) => ({
   date: o.date,
   number: o.number,
-  items: itemsOf(o).map((l) => `${l.qty} x ${l.name}`).join(", ") + (o.recipient && o.recipient !== o.name ? ` (for ${o.recipient})` : "") + (o.poNumber ? ` · PO ${o.poNumber}` : ""),
+  po: o.poNumber ?? "",
+  items: itemsOf(o).map((l) => `${l.qty} x ${l.name}`).join(", ") + (o.recipient && o.recipient !== o.name ? ` (for ${o.recipient})` : ""),
   owed: money(owedOn(o) / 100),
 });
 
@@ -188,10 +192,10 @@ function invoiceText(a: Account, o: Order): string {
   const r = rowOf(o);
   return [
     `${site.name}`,
-    `Invoice for ${[a.business, a.name, a.company].filter(Boolean).join(", ")}: order ${o.number}`,
+    `Invoice for ${[a.business, a.name, a.company].filter(Boolean).join(", ")}: order no. ${o.number}${r.po ? `, PO no. ${r.po}` : ""}`,
     `As of ${when(Date.now())}`,
     "",
-    `${r.date}  ${r.number}  ${r.items}  ${r.owed}`,
+    `${r.date}  Order no. ${r.number}${r.po ? `  PO no. ${r.po}` : ""}  ${r.items}  ${r.owed}`,
     "",
     `Balance due: ${r.owed}`,
     "",

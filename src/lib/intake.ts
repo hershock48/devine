@@ -351,40 +351,49 @@ export type SendResult = "sent" | "unconfigured" | "send-failed";
  * DELIVERY order is marked done on the board, the customer hears so by
  * email. Best-effort and awaited (the serverless freeze rule); a missing
  * address or unconfigured mail is a log line, never a failed status move.
+ * Answers whether it went, so the board can say so. The customer's own PO
+ * number rides along when the order has one (Katy, 2026-11-19): a payables
+ * desk matches on it.
  */
 export async function sendDeliveredEmail(o: {
   number: string;
   name: string;
   email: string;
   recipient: string;
-}): Promise<void> {
+  poNumber?: string;
+}): Promise<boolean> {
   const mail = shopMail();
   if (!mail || !o.email) {
     console.log(`[devine] delivered note for ${o.number} not sent (no ${o.email ? "SMTP" : "email on the order"}).`);
-    return;
+    return false;
   }
   const transport = mail.transport;
-  await transport
+  const po = (o.poNumber ?? "").trim();
+  return transport
     .sendMail({
       from: mail.from,
       to: o.email,
       replyTo: mail.replyTo,
       subject: `Delivered: your ${site.shortName} order ${o.number}`,
       text: [
-        `Your order ${o.number} has been delivered${o.recipient && o.recipient !== o.name ? ` to ${o.recipient}` : ""}.`,
+        `Your order ${o.number}${po ? ` (PO ${po})` : ""} has been delivered${o.recipient && o.recipient !== o.name ? ` to ${o.recipient}` : ""}.`,
         "",
         `Thank you for ordering from ${site.name}. If anything about the delivery needs a word, call the shop at ${site.phone}.`,
       ].join("\n"),
       html: shell({
         title: `Delivered: your ${site.shortName} order ${o.number}`,
         heading: "Delivered.",
-        intro: `Your order ${esc(o.number)} has been delivered${o.recipient && o.recipient !== o.name ? ` to <strong>${esc(o.recipient)}</strong>` : ""}. Thank you for ordering from ${esc(site.name)}.`,
+        intro: `Your order ${esc(o.number)}${po ? ` (PO ${esc(po)})` : ""} has been delivered${o.recipient && o.recipient !== o.name ? ` to <strong>${esc(o.recipient)}</strong>` : ""}. Thank you for ordering from ${esc(site.name)}.`,
         sections: [],
         outro: `If anything about the delivery needs a word, call the shop at ${phoneLink()}.`,
       }),
       attachments: [logoAttachment()],
     })
-    .catch((err) => console.error(`[devine] delivered note for ${o.number} not sent:`, err));
+    .then(() => true)
+    .catch((err) => {
+      console.error(`[devine] delivered note for ${o.number} not sent:`, err);
+      return false;
+    });
 }
 
 /**

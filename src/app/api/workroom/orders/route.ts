@@ -72,6 +72,31 @@ async function whoMadeCash(paymentId: string, orderId: string): Promise<"board" 
   }
 }
 
+/**
+ * THE EMAIL ON FILE FOR AN ORDER'S ACCOUNT (Katy, 2026-11-19): the newest
+ * address typed on any of that account's orders, which is the one the
+ * Accounts tab shows and sends statements to (Accounts.tsx groupAccounts:
+ * a business is one account whoever calls; a person is their phone, else
+ * their name). An account order written up without an email of its own
+ * sends its delivered note here.
+ */
+async function accountEmailFor(o: WorkroomOrder): Promise<string> {
+  const digits = (v: string) => v.replace(/[^0-9]/g, "").slice(-10);
+  const biz = (o.business ?? "").trim().toLowerCase();
+  const ph = digits(o.phone);
+  const name = o.name.trim().toLowerCase();
+  const sameAccount = (c: { business?: string; phone: string; name: string }) => {
+    const cb = (c.business ?? "").trim().toLowerCase();
+    if (biz) return cb === biz;
+    if (cb) return false;
+    if (ph.length >= 7) return digits(c.phone) === ph;
+    return !!name && digits(c.phone).length < 7 && c.name.trim().toLowerCase() === name;
+  };
+  // Newest first, as the store lists them.
+  const hit = (await getStore().listOrderContacts()).find((c) => c.account && (c.email ?? "").includes("@") && sameAccount(c));
+  return hit?.email.trim() ?? "";
+}
+
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 
@@ -754,10 +779,21 @@ export async function PATCH(req: Request) {
   // The delivered note (Kevin, 2026-09-04): a DELIVERY order marked done
   // tells its customer so by email. A real transition into done, not a
   // repeat tap; best-effort after the status is safely stored.
-  const deliveredNote =
-    status === "done" && before.fulfillment === "delivery" && before.status !== "done" && before.email
-      ? { number: before.number, name: before.name, email: before.email, recipient: before.recipient }
-      : null;
+  // ON ACCOUNT TOO (Katy, 2026-11-19). The note always went to the email
+  // typed on the order, and an account order is often written up without
+  // one, because the account's address is already on file from an earlier
+  // order. So an account order with no email of its own sends its note to
+  // the email on file for the account, the one statements go to.
+  const delivering = status === "done" && before.fulfillment === "delivery" && before.status !== "done";
+  let noteTo = delivering ? before.email.trim() : "";
+  let noteVia: "order" | "account" = "order";
+  if (delivering && !noteTo && before.account) {
+    noteTo = await accountEmailFor(before).catch((err) => {
+      console.error(`[devine] delivered note for ${before.number}: the account's email could not be read`, err);
+      return "";
+    });
+    noteVia = "account";
+  }
   // Released from hold by the Ready-to-make button: the receipt a new phone
   // order would have had goes now, same as a release through the form.
   const released = before.status === "hold" && status === "confirmed" && !!before.email;
@@ -774,7 +810,17 @@ export async function PATCH(req: Request) {
   } else {
     await getStore().setOrderStatus(id, status);
   }
-  if (deliveredNote) await sendDeliveredEmail(deliveredNote);
+  // What became of the note is kept on the order and answered here, so
+  // the board says it out loud: silence is how a missing email went
+  // unnoticed.
+  let delivered: { to: string; via: "order" | "account"; tried?: string } | undefined;
+  if (delivering) {
+    const went = noteTo ? await sendDeliveredEmail({ number: before.number, name: before.name, email: noteTo, recipient: before.recipient, poNumber: before.poNumber }) : false;
+    delivered = { to: went ? noteTo : "", via: noteVia, ...(noteTo && !went ? { tried: noteTo } : {}) };
+    await getStore()
+      .patchOrder(id, { deliveredNote: { at: Date.now(), ...delivered } })
+      .catch((err) => console.error(`[devine] delivered note for ${before.number}: the record was not written`, err));
+  }
   if (released) await sendWorkroomReceipt(before);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, ...(delivered ? { delivered } : {}) });
 }

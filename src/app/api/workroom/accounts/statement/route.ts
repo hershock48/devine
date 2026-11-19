@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   const rows: StatementRow[] = Array.isArray(p.rows)
     ? p.rows.slice(0, 200).map((r) => {
         const x = (r ?? {}) as Record<string, unknown>;
-        return { date: str(x.date, 20), number: str(x.number, 24), items: str(x.items, 400), owed: str(x.owed, 20) };
+        return { date: str(x.date, 20), number: str(x.number, 24), po: str(x.po, 40), items: str(x.items, 400), owed: str(x.owed, 20) };
       })
     : [];
   if (rows.length === 0) return NextResponse.json({ error: "Nothing is owed on that account." }, { status: 400 });

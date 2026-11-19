@@ -96,7 +96,7 @@ export default async function InvoicePage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="invoice-sheet" style={{ maxWidth: 760, background: "#fff", color: "#111", padding: "clamp(14px, 4vw, 32px)", border: "1px solid var(--line)", overflowWrap: "anywhere" }}>
-      <style>{`@media print { .invoice-sheet { border: 0 !important; padding: 0 !important; max-width: none !important; } .no-print { display: none !important; } body { background: #fff !important; } }`}</style>
+      <style>{`@media print { .invoice-sheet { border: 0 !important; padding: 0 !important; max-width: none !important; } .no-print { display: none !important; } .statement-rows { overflow: visible !important; } body { background: #fff !important; } }`}</style>
       <p className="no-print" style={{ margin: "0 0 18px", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
         <PrintButton label={statement ? "Print this statement" : "Print this invoice"} />
         <a href="/workroom/accounts">Back to Accounts</a>
@@ -121,7 +121,7 @@ export default async function InvoicePage({ searchParams }: { searchParams: Prom
           <p style={{ margin: "6px 0 0", fontSize: 14, lineHeight: 1.5 }}>
             {!statement && (
               <>
-                Invoice no. <strong>{orders[0].number}</strong>
+                Invoice and order no. <strong>{orders[0].number}</strong>
                 <br />
               </>
             )}
@@ -129,7 +129,7 @@ export default async function InvoicePage({ searchParams }: { searchParams: Prom
             {!statement && orders[0].poNumber ? (
               <>
                 <br />
-                PO number: <strong>{orders[0].poNumber}</strong>
+                PO no. <strong>{orders[0].poNumber}</strong>
               </>
             ) : null}
           </p>
@@ -192,12 +192,16 @@ export default async function InvoicePage({ searchParams }: { searchParams: Prom
       </section>
 
       {statement ? (
+        /* Seven columns do not fit a narrow phone, so there the rows scroll
+           inside their own box and the page itself stays put (width check,
+           2026-11-19). On paper the box is not a box at all. */
+        <div className="statement-rows" role="region" aria-label="Orders on this statement" tabIndex={0} style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 14 }}>
           <thead>
             <tr>
               <th style={th}>Date</th>
-              <th style={th}>Order</th>
-              <th style={th}>PO</th>
+              <th style={th}>Order no.</th>
+              <th style={th}>PO no.</th>
               <th style={th}>For</th>
               <th style={{ ...th, ...num }}>Total</th>
               <th style={{ ...th, ...num }}>Paid</th>
@@ -209,7 +213,7 @@ export default async function InvoicePage({ searchParams }: { searchParams: Prom
               <tr key={o.id}>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>{o.date}</td>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>{o.number}</td>
-                <td style={td}>{o.poNumber || ""}</td>
+                <td style={{ ...td, fontWeight: 600 }}>{o.poNumber || ""}</td>
                 <td style={td}>
                   {o.lines.filter((l) => !isDeliveryLine(l) && !isTaxLine(l)).map((l) => `${l.qty} x ${l.name}`).join(", ")}
                   {o.recipient && o.recipient !== o.name ? ` (for ${o.recipient})` : ""}
@@ -224,6 +228,7 @@ export default async function InvoicePage({ searchParams }: { searchParams: Prom
             ))}
           </tbody>
         </table>
+        </div>
       ) : (
         orders.map((o) => (
           <table key={o.id} style={{ borderCollapse: "collapse", width: "100%", fontSize: 14.5 }}>

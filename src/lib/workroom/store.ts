@@ -239,6 +239,16 @@ export type WorkroomOrder = {
       account and tax"). Printed on the ticket, the invoice and the
       statement, because their payables desk matches on it. */
   poNumber?: string;
+  /** THE DELIVERED NOTE, as it went (Katy, 2026-11-19: "make sure that
+      once an order is on account, when it is delivered it sends an email
+      to the sender"). Written when a delivery order is marked done: when,
+      and the address the note went to. An empty `to` means none went, so
+      the finished row can say so instead of staying quiet: with `tried`,
+      there was an address and the send failed; without it, there was no
+      email on the order or on its account. `via` is "account" when the
+      order had no email of its own and the note went to the email on file
+      for its account. */
+  deliveredNote?: { at: number; to: string; via?: "order" | "account"; tried?: string };
   /** WHERE THE BILL GOES (Katy, 2026-11-09: "need to add billing address
       for customer"), when it is not where the flowers go. Printed on the
       invoice; a returning customer's next write-up starts with it. */
@@ -661,7 +671,7 @@ type Store = {
       came from). The jsonb-blob decision pays off here: a new field is a
       key, not a migration. Keeps the status column in step when status is
       among the fields. */
-  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "takenBy" | "canceledFrom" | "account" | "voided">>): Promise<void>;
+  patchOrder(id: string, patch: Partial<Pick<WorkroomOrder, "status" | "madeBy" | "takenBy" | "canceledFrom" | "account" | "voided" | "deliveredNote">>): Promise<void>;
   /** THE PRINT CLAIM: stamp printedAt on those of these orders not yet
       stamped, and say which ones were taken. The one write that decides
       who prints: two phones, or a phone and the helper, asking for the

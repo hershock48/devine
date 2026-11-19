@@ -65,6 +65,8 @@ type Order = {
   reversedPayments?: { at: number; method: string; via?: string; checkNumber?: string; squarePaymentId: string; totalCents: number; feeCents: number; reversed: { at: number; by: string; note: string } }[];
   /** The customer's own PO number, and where the bill goes (2026-11-09). */
   poNumber?: string;
+  /** What became of the delivered note (2026-11-19); empty `to`: none went. */
+  deliveredNote?: { at: number; to: string; via?: "order" | "account"; tried?: string };
   billTo?: BillTo;
   batchId?: string;
   canceledFrom?: string;
@@ -339,11 +341,25 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   }, [authed, pull]);
 
   async function move(id: string, status: Order["status"], extra?: InitialsExtra) {
-    await fetch("/api/workroom/orders", {
+    const r = await fetch("/api/workroom/orders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, status, ...(extra?.madeBy ? { madeBy: extra.madeBy } : {}), ...(extra?.takenBy ? { takenBy: extra.takenBy } : {}) }),
     });
+    // A delivery marked done says what became of its note (Katy,
+    // 2026-11-19): sent and to whom, or that there was no email to send to.
+    const d = (await r.json().catch(() => null)) as { delivered?: { to: string; via?: "order" | "account"; tried?: string } } | null;
+    if (r.ok && d?.delivered) {
+      const o = orders.find((x) => x.id === id);
+      const n = o?.number ?? "That order";
+      setNotice(
+        d.delivered.to
+          ? `${n} is delivered. A note went to ${d.delivered.to}${d.delivered.via === "account" ? ", the account's email on file" : ""}.`
+          : d.delivered.tried
+            ? `${n} is delivered. The note to ${d.delivered.tried} did not send: the shop's mailbox refused it.`
+            : `${n} is delivered. No note went: there is no email on the order${o?.account ? " or on its account" : ""}.`,
+      );
+    }
     pull().catch(() => {});
   }
 
@@ -396,6 +412,9 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
     if (!r.ok || !d?.ok) throw new Error(d?.error || "That did not remove.");
     setNotice("Off the books as written up twice. The owner's dashboard lists it and can put it back.");
+    // Out of the search's history copy too, or a search would go on
+    // showing the order that was just removed.
+    setDeep((d) => (d ? d.filter((o) => o.id !== id) : d));
     await pull();
   }
 
@@ -460,7 +479,20 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     const q = find.trim().toLowerCase();
     // Search runs over the whole fetched history; the live board stays on
     // its own 60-day pull so a search can never change what the board shows.
-    const base = q && deep ? deep : orders;
+    // THE LIVE PULL WINS (found 2026-11-19, checking the delivered note:
+    // Delivered tapped on a card found by search still read "en route").
+    // The history is fetched once per visit, so on its own it goes stale:
+    // a card acted on kept showing what it was, and an order written up
+    // after the first search of the day was not found at all. The live
+    // list holds every open order and the recent closed ones and is
+    // re-read after every action, so its copy of an order is the one
+    // shown; the history only adds the older orders the live list has
+    // aged off.
+    let base = orders;
+    if (q && deep) {
+      const live = new Set(orders.map((o) => o.id));
+      base = [...orders, ...deep.filter((o) => !live.has(o.id))];
+    }
     // Punctuation never decides a match: dv0901, 0901-4226, and 09014226
     // all find DV-0901-4226 (Kevin's catch: the first version demanded the
     // dashes typed exactly). Numbers compare stripped to letters+digits;
@@ -799,6 +831,15 @@ function ClosedList({
                 {o.takenBy ? ` · taken by ${o.takenBy}` : ""}
                 {o.madeBy ? ` · made by ${o.madeBy}` : ""}
               </p>
+              {o.deliveredNote && o.status === "done" && (
+                <p className="muted" style={{ margin: 0 }}>
+                  {o.deliveredNote.to
+                    ? `Delivered note emailed to ${o.deliveredNote.to}${o.deliveredNote.via === "account" ? " (the account's email on file)" : ""}, ${new Date(o.deliveredNote.at).toLocaleString("en-US", { timeZone: site.timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.`
+                    : o.deliveredNote.tried
+                      ? `The delivered note to ${o.deliveredNote.tried} did not send: the shop's mailbox refused it.`
+                      : `No delivered note went: there was no email on this order${o.account ? " or on its account" : ""}.`}
+                </p>
+              )}
               {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
               {onRemove && removable(o) && (
                 <p style={{ margin: "8px 0 0" }}>
