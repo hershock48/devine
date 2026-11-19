@@ -3,7 +3,7 @@ import { square, squareConfig, SquareError } from "@/lib/square/client";
 import { NextResponse } from "next/server";
 import { deliveryFeeFor, site } from "@/lib/site";
 import { isWorkroomAuthed, isWorkroomOwner } from "@/lib/workroom/auth";
-import { getStore, newId, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
+import { getStore, newId, type DeliveredWhy, type OrderStatus, type WorkroomLine, type WorkroomOrder } from "@/lib/workroom/store";
 import { duplicateMessage, looksLikeDuplicate, sameDelivery } from "@/lib/workroom/duplicate";
 import { getCatalog } from "@/lib/catalog-live";
 import { balanceCents, deliveryLineName, isDeliveryLine, isTaxLine, normalizeVariety, squareMoney, withTaxLine, refundableCents } from "@/lib/workroom/derive";
@@ -76,24 +76,27 @@ async function whoMadeCash(paymentId: string, orderId: string): Promise<"board" 
  * THE EMAIL ON FILE FOR AN ORDER'S ACCOUNT (Katy, 2026-11-19): the newest
  * address typed on any of that account's orders, which is the one the
  * Accounts tab shows and sends statements to (Accounts.tsx groupAccounts:
- * a business is one account whoever calls; a person is their phone, else
- * their name). An account order written up without an email of its own
- * sends its delivered note here.
+ * a business is one account whoever calls; a person is their phone). An
+ * account order written up without an email of its own sends its
+ * delivered note here.
  */
 async function accountEmailFor(o: WorkroomOrder): Promise<string> {
   const digits = (v: string) => v.replace(/[^0-9]/g, "").slice(-10);
   const biz = (o.business ?? "").trim().toLowerCase();
   const ph = digits(o.phone);
-  const name = o.name.trim().toLowerCase();
-  const sameAccount = (c: { business?: string; phone: string; name: string }) => {
+  const sameAccount = (c: { business?: string; phone: string }) => {
     const cb = (c.business ?? "").trim().toLowerCase();
     if (biz) return cb === biz;
-    if (cb) return false;
-    if (ph.length >= 7) return digits(c.phone) === ph;
-    return !!name && digits(c.phone).length < 7 && c.name.trim().toLowerCase() === name;
+    // A person's account is their phone. A name alone is NOT enough to
+    // send one customer's delivery news to an address: two people can
+    // share a name, and then the note would reach a stranger.
+    return !cb && ph.length >= 7 && digits(c.phone) === ph;
   };
-  // Newest first, as the store lists them.
-  const hit = (await getStore().listOrderContacts()).find((c) => c.account && (c.email ?? "").includes("@") && sameAccount(c));
+  // The newest by date, sorted here: the two stores do not list contacts
+  // in the same order.
+  const hit = (await getStore().listOrderContacts())
+    .filter((c) => c.account && (c.email ?? "").includes("@") && sameAccount(c))
+    .sort((x, y) => y.createdAt - x.createdAt)[0];
   return hit?.email.trim() ?? "";
 }
 
@@ -784,16 +787,10 @@ export async function PATCH(req: Request) {
   // one, because the account's address is already on file from an earlier
   // order. So an account order with no email of its own sends its note to
   // the email on file for the account, the one statements go to.
-  const delivering = status === "done" && before.fulfillment === "delivery" && before.status !== "done";
-  let noteTo = delivering ? before.email.trim() : "";
-  let noteVia: "order" | "account" = "order";
-  if (delivering && !noteTo && before.account) {
-    noteTo = await accountEmailFor(before).catch((err) => {
-      console.error(`[devine] delivered note for ${before.number}: the account's email could not be read`, err);
-      return "";
-    });
-    noteVia = "account";
-  }
+  // ONE NOTE PER DELIVERY. The move into done is claimed in one statement
+  // (store claimDone), so of two taps on Delivered, or two screens, only
+  // the one that made the move sends the note.
+  const delivering = status === "done" && before.fulfillment === "delivery" && before.status !== "done" && (await getStore().claimDone(id));
   // Released from hold by the Ready-to-make button: the receipt a new phone
   // order would have had goes now, same as a release through the form.
   const released = before.status === "hold" && status === "confirmed" && !!before.email;
@@ -805,18 +802,41 @@ export async function PATCH(req: Request) {
       status,
       ...(before.status !== "canceled" ? { canceledFrom: before.status } : {}),
     });
-  } else if (madeBy !== undefined) {
-    await getStore().patchOrder(id, { status, madeBy });
+  } else if (madeBy !== undefined || takenBy !== undefined) {
+    // Both sets of initials: the card's "fix" sends its status along, and
+    // taken-by used to be dropped here (found 2026-11-19).
+    await getStore().patchOrder(id, { status, ...(madeBy !== undefined ? { madeBy } : {}), ...(takenBy !== undefined ? { takenBy } : {}) });
   } else {
     await getStore().setOrderStatus(id, status);
   }
   // What became of the note is kept on the order and answered here, so
   // the board says it out loud: silence is how a missing email went
   // unnoticed.
-  let delivered: { to: string; via: "order" | "account"; tried?: string } | undefined;
+  let delivered: { to: string; via: "order" | "account"; tried?: string; why?: DeliveredWhy } | undefined;
   if (delivering) {
-    const went = noteTo ? await sendDeliveredEmail({ number: before.number, name: before.name, email: noteTo, recipient: before.recipient, poNumber: before.poNumber }) : false;
-    delivered = { to: went ? noteTo : "", via: noteVia, ...(noteTo && !went ? { tried: noteTo } : {}) };
+    // Only a real address counts as the order's own: the field is free
+    // text, and "none" or a phone number typed there must not stand in
+    // the way of the account's address.
+    const own = (before.email ?? "").trim();
+    let noteTo = own.includes("@") ? own : "";
+    let noteVia: "order" | "account" = "order";
+    let why: DeliveredWhy | undefined;
+    if (!noteTo && before.account) {
+      noteVia = "account";
+      try {
+        noteTo = await accountEmailFor(before);
+      } catch (err) {
+        console.error(`[devine] delivered note for ${before.number}: the account's email could not be read`, err);
+        why = "lookup";
+      }
+    }
+    let went = false;
+    if (noteTo) {
+      const sent = await sendDeliveredEmail({ number: before.number, name: before.name, email: noteTo, recipient: before.recipient, poNumber: before.poNumber });
+      went = sent === "sent";
+      if (!went) why = sent === "unconfigured" ? "mail-off" : "refused";
+    } else if (!why) why = "none";
+    delivered = { to: went ? noteTo : "", via: noteVia, ...(noteTo && !went ? { tried: noteTo } : {}), ...(why ? { why } : {}) };
     await getStore()
       .patchOrder(id, { deliveredNote: { at: Date.now(), ...delivered } })
       .catch((err) => console.error(`[devine] delivered note for ${before.number}: the record was not written`, err));

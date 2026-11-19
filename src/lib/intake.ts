@@ -361,11 +361,11 @@ export async function sendDeliveredEmail(o: {
   email: string;
   recipient: string;
   poNumber?: string;
-}): Promise<boolean> {
+}): Promise<SendResult> {
   const mail = shopMail();
   if (!mail || !o.email) {
     console.log(`[devine] delivered note for ${o.number} not sent (no ${o.email ? "SMTP" : "email on the order"}).`);
-    return false;
+    return "unconfigured";
   }
   const transport = mail.transport;
   const po = (o.poNumber ?? "").trim();
@@ -389,10 +389,10 @@ export async function sendDeliveredEmail(o: {
       }),
       attachments: [logoAttachment()],
     })
-    .then(() => true)
-    .catch((err) => {
+    .then((): SendResult => "sent")
+    .catch((err): SendResult => {
       console.error(`[devine] delivered note for ${o.number} not sent:`, err);
-      return false;
+      return "send-failed";
     });
 }
 

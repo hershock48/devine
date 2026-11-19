@@ -46,9 +46,11 @@ export async function sendStatement(s: {
   // "October 21, 2026", as the receipts say it, when the row's date is ISO.
   const day = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : d);
   const asOf = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-  // The table's date, short, so four columns fit a phone.
+  // The table's date, short, so the three columns fit a phone.
   const dayShort = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : d);
-  const po = (r: StatementRow) => (r.po ?? "").trim();
+  // Typed by hand at the counter and posted back by the browser: kept to
+  // one line, since it also rides in the invoice's subject.
+  const po = (r: StatementRow) => (r.po ?? "").replace(/\s+/g, " ").trim();
   const text = [
     `${site.name}`,
     invoice ? `Invoice for ${who}: order no. ${s.rows[0].number}${po(s.rows[0]) ? `, PO no. ${po(s.rows[0])}` : ""}` : `Statement for ${who}`,

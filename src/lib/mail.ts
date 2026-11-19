@@ -17,7 +17,10 @@ export function shopMail(): { transport: nodemailer.Transporter; from: string; r
   if (!host || !user || !pass) return null;
   const port = Number(process.env.SMTP_PORT || 465);
   return {
-    transport: nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } }),
+    // Bounded (2026-11-19): nodemailer's own limits are two minutes to
+    // connect and ten on the socket, and every send here is awaited by a
+    // request someone is watching (a Delivered tap, a statement).
+    transport: nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass }, connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 20_000 }),
     from: process.env.ORDER_FROM || user,
     replyTo: process.env.ORDER_TO || undefined,
   };

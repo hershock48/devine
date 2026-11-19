@@ -66,7 +66,7 @@ type Order = {
   /** The customer's own PO number, and where the bill goes (2026-11-09). */
   poNumber?: string;
   /** What became of the delivered note (2026-11-19); empty `to`: none went. */
-  deliveredNote?: { at: number; to: string; via?: "order" | "account"; tried?: string };
+  deliveredNote?: DeliveredNote;
   billTo?: BillTo;
   batchId?: string;
   canceledFrom?: string;
@@ -207,6 +207,35 @@ function CardRefund({ o }: { o: Order }) {
   const cashOnly = [o.payment, ...(o.topUps ?? [])].every((p) => !p || p.method === "cash");
   return <RefundControl orderId={o.id} number={o.number} refundableCents={refundableCents(o)} deliveryCents={delivery} square={squareMoney(o)} settled={balanceCents(o) === 0} cashOnly={cashOnly} onDone={refresh} />;
 }
+/** WHAT BECAME OF A DELIVERED NOTE, in words (Katy, 2026-11-19). One
+    wording for the line at the top of the board and the line on the card,
+    and each way of not going said as what it was: no address, the
+    account's address unreadable, the shop's email not set up, or the
+    mailbox refusing. */
+type DeliveredNote = { at?: number; to: string; via?: "order" | "account"; tried?: string; why?: "none" | "lookup" | "mail-off" | "refused" };
+function deliveredWord(n: DeliveredNote, account: boolean, onCard: boolean): string {
+  const note = onCard ? "delivered note" : "note";
+  if (n.to) {
+    return onCard
+      ? `Delivered note emailed to ${n.to}${n.via === "account" ? " (the account's email on file)" : ""}${n.at ? `, ${new Date(n.at).toLocaleString("en-US", { timeZone: site.timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}.`
+      : `A note went to ${n.to}${n.via === "account" ? ", the account's email on file" : ""}.`;
+  }
+  if (n.why === "lookup") return `No ${note} went: the account's email could not be read just then.`;
+  if (n.tried) return `The ${note} to ${n.tried} did not send: ${n.why === "mail-off" ? "the shop's email is not set up on the server" : "the shop's mailbox refused it"}.`;
+  return onCard ? `No delivered note went: there was no email on this order${account ? " or on its account" : ""}.` : `No note went: there is no email on the order${account ? " or on its account" : ""}.`;
+}
+/** The card's own record of it, on a delivered order wherever it sits:
+    the finished list, or Out the door, not paid. A note that did not go
+    is said in the warning color, not tucked away in grey. */
+function DeliveredLine({ o }: { o: Order }) {
+  if (!o.deliveredNote || o.status !== "done") return null;
+  const went = !!o.deliveredNote.to;
+  return (
+    <p className={went ? "muted" : undefined} style={{ margin: 0, fontSize: 14, ...(went ? {} : { color: "var(--rose-ink)", fontWeight: 600 }) }}>
+      {deliveredWord(o.deliveredNote, !!o.account, true)}
+    </p>
+  );
+}
 /** A payment recorded by mistake, taken back from a finished row. */
 function ClosedTakeBack({ o }: { o: Order }) {
   const { refresh } = useContext(BoardCtx);
@@ -236,7 +265,15 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       (the card's link): the form opens with them filled in. */
   const [addTo, setAddTo] = useState<Order | null>(null);
   /** One line after a write-up lands: what went on, by number. */
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeText] = useState("");
+  /** A notice that reports something that did NOT happen (a delivered
+      note that did not go) is shown in the warning color. Every other
+      notice sets this back. */
+  const [noticeWarn, setNoticeWarn] = useState(false);
+  const setNotice = (text: string, warn = false) => {
+    setNoticeText(text);
+    setNoticeWarn(warn);
+  };
   /** The Quick sale panel (Kevin, 2026-10-14), beside the write-up. */
   const [quick, setQuick] = useState(false);
   /** The stem library, for the write-up and the quick sale alike, read
@@ -318,7 +355,13 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     if (changeCents) setNotice(`Change ${money(changeCents / 100)} back to the customer.`);
     return pull();
   };
-  const pull = useCallback(async () => {
+  /** Counts the pulls that follow an action (every pull but the 30-second
+      poll). The search's history copy is read again when this moves; see
+      the effect below. */
+  const [deepAsk, setDeepAsk] = useState(0);
+  const deepFor = useRef(-1);
+  const pull = useCallback(async (how?: { poll?: boolean }) => {
+    if (how?.poll !== true) setDeepAsk((n) => n + 1);
     const r = await fetch("/api/workroom/orders", { cache: "no-store" });
     if (r.status === 401) {
       setAuthed(false);
@@ -335,8 +378,8 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   // the console of a page whose normal state is locked). 30s, florist pace.
   useEffect(() => {
     if (!authed) return;
-    pull().catch(() => {});
-    const t = setInterval(() => pull().catch(() => {}), 30_000);
+    pull({ poll: true }).catch(() => {});
+    const t = setInterval(() => pull({ poll: true }).catch(() => {}), 30_000);
     return () => clearInterval(t);
   }, [authed, pull]);
 
@@ -348,17 +391,10 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
     });
     // A delivery marked done says what became of its note (Katy,
     // 2026-11-19): sent and to whom, or that there was no email to send to.
-    const d = (await r.json().catch(() => null)) as { delivered?: { to: string; via?: "order" | "account"; tried?: string } } | null;
+    const d = (await r.json().catch(() => null)) as { delivered?: DeliveredNote } | null;
     if (r.ok && d?.delivered) {
-      const o = orders.find((x) => x.id === id);
-      const n = o?.number ?? "That order";
-      setNotice(
-        d.delivered.to
-          ? `${n} is delivered. A note went to ${d.delivered.to}${d.delivered.via === "account" ? ", the account's email on file" : ""}.`
-          : d.delivered.tried
-            ? `${n} is delivered. The note to ${d.delivered.tried} did not send: the shop's mailbox refused it.`
-            : `${n} is delivered. No note went: there is no email on the order${o?.account ? " or on its account" : ""}.`,
-      );
+      const o = orders.find((x) => x.id === id) ?? deep?.find((x) => x.id === id);
+      setNotice(`${o?.number ?? "That order"} is delivered. ${deliveredWord(d.delivered, !!o?.account, false)}`, !d.delivered.to);
     }
     pull().catch(() => {});
   }
@@ -459,15 +495,25 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
   }
 
   // Widen to the full history the moment a search starts, once per visit.
+  // AND AGAIN AFTER EVERY ACTION (review, 2026-11-19). The live list wins
+  // for the orders it holds, but an old order closed by the action itself
+  // (a wedding booked months ahead, delivered and paid) drops off the live
+  // list at once, and the history copy would go on showing it as it was.
+  // So an action, not the poll, asks for the history again while a search
+  // is on; the copy on screen stays until the new one lands.
   useEffect(() => {
-    if (!find.trim() || deep !== null) return;
+    if (!find.trim() || (deep !== null && deepFor.current === deepAsk)) return;
+    const ask = deepAsk;
     fetch(`/api/workroom/orders?days=${HISTORY_DAYS}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d?.orders) setDeep(d.orders);
+        if (d?.orders) {
+          deepFor.current = ask;
+          setDeep(d.orders);
+        }
       })
       .catch(() => {});
-  }, [find, deep]);
+  }, [find, deep, deepAsk]);
 
   const searching = find.trim().length > 0;
   const today = todayISO();
@@ -657,7 +703,7 @@ export default function Board({ initialAuthed }: { initialAuthed: boolean }) {
       </p>
 
       {notice && (
-        <p role="status" style={{ margin: "-14px 0 22px", fontSize: 15, fontWeight: 600, color: "var(--green)" }}>
+        <p role="status" style={{ margin: "-14px 0 22px", fontSize: 15, fontWeight: 600, color: noticeWarn ? "var(--rose-ink)" : "var(--green)" }}>
           {notice}
         </p>
       )}
@@ -831,15 +877,7 @@ function ClosedList({
                 {o.takenBy ? ` · taken by ${o.takenBy}` : ""}
                 {o.madeBy ? ` · made by ${o.madeBy}` : ""}
               </p>
-              {o.deliveredNote && o.status === "done" && (
-                <p className="muted" style={{ margin: 0 }}>
-                  {o.deliveredNote.to
-                    ? `Delivered note emailed to ${o.deliveredNote.to}${o.deliveredNote.via === "account" ? " (the account's email on file)" : ""}, ${new Date(o.deliveredNote.at).toLocaleString("en-US", { timeZone: site.timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.`
-                    : o.deliveredNote.tried
-                      ? `The delivered note to ${o.deliveredNote.tried} did not send: the shop's mailbox refused it.`
-                      : `No delivered note went: there was no email on this order${o.account ? " or on its account" : ""}.`}
-                </p>
-              )}
+              <DeliveredLine o={o} />
               {o.status === "canceled" && onUncancel && <Uncancel o={o} onUncancel={onUncancel} />}
               {onRemove && removable(o) && (
                 <p style={{ margin: "8px 0 0" }}>
@@ -1827,6 +1865,7 @@ function OrderCard({
           corner, so its answer stays on screen while the card changes. The
           by-hand-only undo above covers an order paid only by hand. */}
       <ReversedNote reversed={o.reversedPayments ?? []} />
+      <DeliveredLine o={o} />
       {(!paidByHandOnly(o) || creditOn(o)) && <ClosedTakeBack o={o} />}
 
       {/* Keyed by status so a half-finished cancel confirm or initials

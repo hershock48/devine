@@ -40,6 +40,11 @@ import type { Category, Product } from "@/lib/catalog";
 /** "hold" (Katy, 2026-10-12): written up but parked. Everything typed,
     nothing promised: not on the make list, not chargeable, editable, until
     someone finishes it and releases it to confirmed. */
+/** Why a delivered note did not go: no address anywhere; the account's
+    address could not be read; the shop's email is not set up; the mailbox
+    refused the send. Each is said in its own words on the board. */
+export type DeliveredWhy = "none" | "lookup" | "mail-off" | "refused";
+
 export type OrderStatus = "hold" | "new" | "confirmed" | "made" | "out" | "done" | "canceled";
 
 export type WorkroomLine = {
@@ -248,7 +253,7 @@ export type WorkroomOrder = {
       email on the order or on its account. `via` is "account" when the
       order had no email of its own and the note went to the email on file
       for its account. */
-  deliveredNote?: { at: number; to: string; via?: "order" | "account"; tried?: string };
+  deliveredNote?: { at: number; to: string; via?: "order" | "account"; tried?: string; why?: DeliveredWhy };
   /** WHERE THE BILL GOES (Katy, 2026-11-09: "need to add billing address
       for customer"), when it is not where the flowers go. Printed on the
       invoice; a returning customer's next write-up starts with it. */
@@ -667,6 +672,12 @@ type Store = {
       first, for the owner's dashboard. listOrders never returns these. */
   listVoidedOrders(limit: number): Promise<WorkroomOrder[]>;
   setOrderStatus(id: string, status: OrderStatus): Promise<void>;
+  /** THE MOVE INTO "done", MADE ONCE: true only for the call that made it
+      (the row was not done until this statement ran). Two taps on
+      Delivered, or two screens in the same second, get one true between
+      them, so the delivered note is sent once and not twice (2026-11-19;
+      the board's button does not lock while a tap is on its way). */
+  claimDone(id: string): Promise<boolean>;
   /** A small merge of named fields (status, who made it, where a cancel
       came from). The jsonb-blob decision pays off here: a new field is a
       key, not a migration. Keeps the status column in step when status is
@@ -959,6 +970,12 @@ const memoryStore: Store = {
   async setOrderStatus(id, status) {
     const o = bag().orders.get(id);
     if (o) o.status = status;
+  },
+  async claimDone(id) {
+    const o = bag().orders.get(id);
+    if (!o || o.status === "done") return false;
+    o.status = "done";
+    return true;
   },
   async patchOrder(id, patch) {
     const o = bag().orders.get(id);
@@ -1499,6 +1516,17 @@ const postgresStore: Store = {
       `UPDATE workroom_orders SET status = $2, data = data || jsonb_build_object('status', $2::text) WHERE id = $1`,
       [id, status],
     );
+  },
+  async claimDone(id) {
+    const pool = await pgPool();
+    // One statement: the row is moved only if it is not done already, and
+    // RETURNING says whether this caller was the one who moved it.
+    const r = await pool.query(
+      `UPDATE workroom_orders SET status = 'done', data = data || jsonb_build_object('status', 'done'::text)
+       WHERE id = $1 AND status <> 'done' RETURNING id`,
+      [id],
+    );
+    return r.rows.length > 0;
   },
   async patchOrder(id, patch) {
     const pool = await pgPool();
