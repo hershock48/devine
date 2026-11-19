@@ -253,6 +253,20 @@ export const waitingToPrint = (
   now = Date.now(),
 ): boolean => o.source === "web" && !o.printedAt && o.status !== "canceled" && o.createdAt >= now - PRINT_WINDOW_MS;
 
+/**
+ * The customer-identity key: last ten digits of whatever was typed. The
+ * board's "returning customer" badge and the dashboard's Returning tile both
+ * match on this, and they must keep agreeing or the two screens count
+ * different customers. One copy, here, for that reason (ui.tsx hands it on
+ * to the screens; the store reads it for the earlier sightings).
+ */
+export const phoneKey = (s: string) => {
+  const d = s.replace(/\D/g, "");
+  return d.length >= 7 ? d.slice(-10) : "";
+};
+/** The same idea for an email: trimmed and lowercased. */
+export const emailKey = (s: string) => s.trim().toLowerCase();
+
 export function normalizeVariety(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }

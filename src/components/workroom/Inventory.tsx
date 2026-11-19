@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useProducts } from "@/components/CatalogContext";
-import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, VarietyGate } from "@/components/workroom/ui";
-import { HISTORY_DAYS, consumption, isoDate, lotCosting, normalizeVariety, recipeUnitCost, saleInstantMs } from "@/lib/workroom/derive";
+import { field, labelText, money, textButton, todayISO, MemoryWarning, PinGate, ShortLedger, VarietyGate } from "@/components/workroom/ui";
+import { consumption, isoDate, lotCosting, normalizeVariety, recipeUnitCost, saleInstantMs } from "@/lib/workroom/derive";
+import { FULL_READ_EVERY_MS, Locked, readList, readNewest, readSmall, shortLists, type Held } from "@/lib/workroom/ledger-read";
+import type { LedgerOrder, LedgerSale } from "@/lib/workroom/report-rows";
 
 /**
  * INVENTORY: the flower ledger, whole. Stems & shrink and Inventory were
@@ -56,20 +58,16 @@ type StemEvent = {
   createdAt: number;
 };
 type Recipe = { slug: string; parts: { variety: string; stems: number }[] };
-type Order = {
-  id: string;
-  status: string;
-  date: string;
-  lines: { slug: string | null; name: string; qty: number; each: number }[];
-  subtotal: number;
-};
-type Sale = {
-  id: string;
-  paidAt: string;
-  createdAt: number;
-  workroomOrderId?: string;
-  lines: { slug: string | null; qty: number; totalCents: number }[];
-};
+/* The rows this screen walks, as the ledger route sends them
+   (report-rows.ts): every order not canceled, as its status, date and
+   lines; and every register ring that belongs to no board order, with its
+   lines. Both whole: on hand is every buy less everything ever made from
+   it, so a made order missing from the list is stems still counted in the
+   cooler. */
+type Order = LedgerOrder;
+/** workroomOrderId stays in the type for the guards below; the route only
+    sends rings that have none. */
+type Sale = LedgerSale & { workroomOrderId?: string };
 type Variety = {
   name: string;
   kind: "flower" | "green";
@@ -113,26 +111,66 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
   const [sales, setSales] = useState<Sale[]>([]);
   const [varieties, setVarieties] = useState<Variety[]>([]);
   const [backend, setBackend] = useState<string | null>(null);
+  /** False until the first whole read lands. */
+  const [loaded, setLoaded] = useState(false);
+  /** Which lists the route stopped short on (its own flag), in words. */
+  const [short, setShort] = useState("");
+  /** The lists as last read, newest first, and when they were last read
+      whole; a save lays the newest page over them (ledger-read.ts). */
+  const held = useRef<{ orders: Held<Order>; sales: Held<Sale>; events: Held<StemEvent> } | null>(null);
+  const lastWhole = useRef(0);
+  const pulling = useRef(false);
+  const again = useRef(false);
   const [coolerDays, setCoolerDays] = useState(14);
   /** A recipe slug asked for from the missing-recipe list; the form loads it. */
   const [pickSlug, setPickSlug] = useState("");
 
   const pull = useCallback(async () => {
-    // The full shared history: costing must use the same denominator as the
-    // dashboard or the same toss prices differently on two tabs.
-    const r = await fetch(`/api/workroom/stems?days=${HISTORY_DAYS}`, { cache: "no-store" });
-    if (r.status === 401) {
-      setAuthed(false);
+    // One read at a time. A save that lands while a read is in flight asks
+    // for one more when it ends, so what was just typed is never missed.
+    if (pulling.current) {
+      again.current = true;
       return;
     }
-    const d = await r.json();
-    setEvents(d.events ?? []);
-    setRecipes(d.recipes ?? []);
-    setOrders(d.orders ?? []);
-    setSales(d.squareSales ?? []);
-    setVarieties(d.varieties ?? []);
-    setBackend(d.backend ?? "memory");
-    setAuthed(true);
+    pulling.current = true;
+    try {
+      do {
+        again.current = false;
+        const h = held.current;
+        // The full shared history, whole: costing must use the same
+        // denominator as the dashboard or the same toss prices differently
+        // on two tabs. Whole when the screen opens and again after ten
+        // minutes; a save in between reads the newest page of each list
+        // (the buy or toss just typed is on it) and lays it over the rest.
+        const whole = !h || Date.now() - lastWhole.current >= FULL_READ_EVERY_MS;
+        const began = Date.now();
+        const [o, s, e, book] = await Promise.all([
+          whole ? readList<Order>("ledger-orders") : readNewest("ledger-orders", h.orders),
+          whole ? readList<Sale>("ledger-sales") : readNewest("ledger-sales", h.sales),
+          whole ? readList<StemEvent>("events") : readNewest("events", h.events),
+          readSmall<{ recipes?: Recipe[]; varieties?: Variety[]; backend?: string }>("book"),
+        ]);
+        held.current = { orders: o, sales: s, events: e };
+        if (whole) lastWhole.current = began;
+        // The pages come newest first; orders and events are walked oldest
+        // first here, as they always were.
+        setOrders([...o.rows].reverse());
+        setSales(s.rows);
+        setEvents([...e.rows].reverse());
+        setRecipes(book.recipes ?? []);
+        setVarieties(book.varieties ?? []);
+        setShort(shortLists([{ name: "orders", truncated: o.truncated }, { name: "register rings", truncated: s.truncated }, { name: "stem entries", truncated: e.truncated }]));
+        setBackend(book.backend ?? o.backend ?? "memory");
+        setLoaded(true);
+        setAuthed(true);
+      } while (again.current);
+    } catch (err) {
+      if (err instanceof Locked) setAuthed(false);
+      // Anything else is a failed read: what is on the screen stays, and
+      // the next save or visit reads again.
+    } finally {
+      pulling.current = false;
+    }
   }, []);
 
   useEffect(() => {
@@ -300,6 +338,12 @@ export default function Inventory({ initialAuthed }: { initialAuthed: boolean })
       <h1>Inventory</h1>
 
       <MemoryWarning backend={backend} />
+      <ShortLedger lists={short} then="Stems on hand may read high, and stem costs may be off." />
+      {!loaded && (
+        <p role="status" className="muted" style={{ margin: "0 0 12px" }}>
+          Reading the stem log, the orders and the register rings. The cooler fills in when all three are in.
+        </p>
+      )}
 
       {/* No lede, on purpose (Kevin, 2026-09-01): workroom screens do not
           introduce themselves. The blocks below, in order, are the

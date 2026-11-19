@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { isoDate, normalizeVariety } from "@/lib/workroom/derive";
+import { REPORT_MAX_ROWS } from "@/lib/workroom/report-rows";
 // The taker's-initials rule lives in lib/workroom/initials.ts (the route
 // reads it too); the input that applies it lives below.
 import { cleanInitials, INITIALS_ERROR, isInitials } from "@/lib/workroom/initials";
@@ -67,12 +68,11 @@ export function InitialsInput({
  * The customer-identity key: last ten digits of whatever was typed. The
  * board's "returning customer" badge and the dashboard's Returning tile both
  * match on this, and they must keep agreeing or the two screens count
- * different customers. One copy, here, for that reason.
+ * different customers. One copy for that reason. It lives in derive.ts
+ * now (the store reads it too, for the dashboard's earlier sightings);
+ * the screens keep importing it from here.
  */
-export const phoneKey = (s: string) => {
-  const d = s.replace(/\D/g, "");
-  return d.length >= 7 ? d.slice(-10) : "";
-};
+export { phoneKey } from "@/lib/workroom/derive";
 
 /**
  * A radio a thumb can hit. The browser default is 13x13px, which is fine for
@@ -127,6 +127,21 @@ export function todayISO(): string {
  * for the half second before its first fetch answered (Kevin saw it,
  * 2026-09-01). Unknown renders nothing, not a warning.
  */
+/**
+ * THE SHORT-READ LINE. The ledger route (api/workroom/reports) stops at a
+ * ceiling of rows a list and says so; a screen that adds a ledger up shows
+ * this when it did, so a figure that may be short is never shown as whole.
+ * `lists` is ledger-read.ts shortLists: empty when everything was read.
+ */
+export function ShortLedger({ lists, then }: { lists: string; then: string }) {
+  if (!lists) return null;
+  return (
+    <p role="status" style={{ margin: "0 0 12px", fontWeight: 600, color: "var(--rose-ink)" }}>
+      This screen read the newest {REPORT_MAX_ROWS.toLocaleString("en-US")} {lists}, and there are more than that on file now. {then} Tell Glazed Web.
+    </p>
+  );
+}
+
 export function MemoryWarning({ backend }: { backend: string | null }) {
   if (backend !== "memory") return null;
   return (

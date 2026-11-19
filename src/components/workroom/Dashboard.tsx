@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MemoryWarning, PinGate, field, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
-import { balanceCents, consumption, HISTORY_DAYS, isDeliveryLine, isoDate, isTaxLine, lotCosting, mondayOf, netOfTax, owedNowCents, saleInstantMs, type SoldCost } from "@/lib/workroom/derive";
+import { MemoryWarning, PinGate, ShortLedger, field, money, phoneKey, textButton, todayISO } from "@/components/workroom/ui";
+import { balanceCents, consumption, emailKey, HISTORY_DAYS, isDeliveryLine, isoDate, isTaxLine, lotCosting, mondayOf, netOfTax, owedNowCents, saleInstantMs, type SoldCost } from "@/lib/workroom/derive";
+import { FULL_READ_EVERY_MS, Locked, readList, readNewest, readSmall, shortLists, type Held } from "@/lib/workroom/ledger-read";
+import type { EarlierSightings, LedgerSale, ReportOrder, ReportPayment } from "@/lib/workroom/report-rows";
 
 /**
  * THE DASHBOARD. Grown out of the "This week" screen after Kevin's second
@@ -30,6 +32,18 @@ import { balanceCents, consumption, HISTORY_DAYS, isDeliveryLine, isoDate, isTax
  * ledgers someone typed or Square reported. Where a number cannot be known
  * it is counted and named, never guessed.
  *
+ * THE LEDGERS COME WHOLE (2026-11-11). Orders, item-rung register rings
+ * and stem events are read from api/workroom/reports, a page at a time,
+ * every row on file. This screen used to read the board's lists, which
+ * stop at a fixed count and drop the oldest past it: at volume the year
+ * view, the ordered and by-hand money, the returning count and the stem
+ * costing all read low, with nothing here to say so. The whole read
+ * happens when the screen opens and every ten minutes after; the
+ * 90-second refresh in between asks for the newest page only and lays it
+ * over what is held (ledger-read.ts), so today stays current without
+ * sending a year of orders every minute and a half. If the route ever
+ * stops short it says so, and the line under the heading says so in turn.
+ *
  * MONEY DOUBLE-COUNT GUARD, still: board orders paid by card or cash ARE
  * Square payments, so Taken sums the register once and adds only hand-marked
  * payments, which never reached Square.
@@ -47,29 +61,15 @@ import { balanceCents, consumption, HISTORY_DAYS, isDeliveryLine, isoDate, isTax
 
 type StemEvent = { id: string; kind: "purchase" | "shrink"; date: string; variety: string; stems: number; cost: number; reason: string; createdAt: number };
 type Recipe = { slug: string; parts: { variety: string; stems: number }[] };
-type OrderPayment = { at: number; method: string; via?: string; totalCents: number; feeCents: number };
-type OrderLine = { slug: string | null; name: string; qty: number; each: number };
-type Order = {
-  id: string;
-  source: "web" | "phone";
-  status: string;
-  fulfillment: "delivery" | "pickup";
-  zip: string;
-  date: string;
-  occasion: string;
-  phone: string;
-  email: string;
-  lines: OrderLine[];
-  subtotal: number;
-  createdAt: number;
-  payment?: OrderPayment | null;
-  topUps?: OrderPayment[];
-  refunds?: { at: number; cents: number; how?: "square" | "hand" }[];
-  account?: boolean;
-};
-type SaleLine = { slug: string | null; name: string; qty: number; eachCents: number; totalCents: number };
-type Sale = { id: string; paidAt: string; source: string; totalCents: number; createdAt: number; workroomOrderId?: string; lines: SaleLine[] };
-type Contact = { name: string; phone: string; email: string; createdAt: number };
+/* The rows this screen adds up, as the ledger route sends them
+   (report-rows.ts): an order with its money and its lines, and a register
+   ring that belongs to no board order, with its lines. */
+type OrderPayment = ReportPayment;
+type Order = ReportOrder;
+/** workroomOrderId stays in the type for the guards below; the route only
+    sends rings that have none (a linked ring is its order's money, and
+    its stems are counted through the order). */
+type Sale = LedgerSale & { workroomOrderId?: string };
 
 type Summary = {
   source: "square" | "stored";
@@ -682,8 +682,21 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  /** First sightings from before the ledger's first day (the route's
+      `earlier`), for the Returning tile. */
+  const [earlier, setEarlier] = useState<EarlierSightings>({ phones: {}, emails: {} });
   const [backend, setBackend] = useState<string | null>(null);
+  /** False until the first whole read lands: the tiles below would
+      otherwise show a year of zeros as if they were the figures. */
+  const [loaded, setLoaded] = useState(false);
+  /** Which lists the route stopped short on (its own flag), in words. */
+  const [short, setShort] = useState("");
+  /** The lists as last read, newest first, for the newest-page refresh to
+      lay itself over; and when they were last read whole. */
+  const held = useRef<{ orders: Held<Order>; sales: Held<Sale>; events: Held<StemEvent> } | null>(null);
+  const lastWhole = useRef(0);
+  const lastPull = useRef(0);
+  const pulling = useRef(false);
   const [range, setRange] = useState<Range>("week");
   const [back, setBack] = useState(0);
   /** WEBSITE OR PHONE (Katy, 2026-10-06: "sort out via website vs other
@@ -719,26 +732,47 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
   const win = useMemo(() => makeWindow(range, back, anchorISO), [range, back, anchorISO]);
 
   const pull = useCallback(async () => {
-    const [s, o] = await Promise.all([
-      fetch(`/api/workroom/stems?days=${HISTORY_DAYS}`, { cache: "no-store" }),
-      fetch(`/api/workroom/orders?days=${HISTORY_DAYS}`, { cache: "no-store" }),
-    ]);
-    if (s.status === 401 || o.status === 401) {
-      setAuthed(false);
-      return;
+    // One read at a time: a refresh that lands on a whole read still in
+    // flight waits for the next tick instead of racing it.
+    if (pulling.current) return;
+    pulling.current = true;
+    try {
+      const h = held.current;
+      // Whole when nothing is held yet, and again every ten minutes; the
+      // newest page laid over what is held in between.
+      const whole = !h || Date.now() - lastWhole.current >= FULL_READ_EVERY_MS;
+      const began = Date.now();
+      const [o, s, e, book, seen] = await Promise.all([
+        whole ? readList<Order>("orders") : readNewest("orders", h.orders),
+        whole ? readList<Sale>("ledger-sales") : readNewest("ledger-sales", h.sales),
+        whole ? readList<StemEvent>("events") : readNewest("events", h.events),
+        readSmall<{ recipes?: Recipe[]; backend?: string }>("book"),
+        whole ? readSmall<EarlierSightings>("earlier") : null,
+      ]);
+      // All three lists, and only then the screen: figures added up from
+      // half a ledger would be wrong figures shown as right ones.
+      held.current = { orders: o, sales: s, events: e };
+      if (whole) lastWhole.current = began;
+      lastPull.current = Date.now();
+      // The pages come newest first; the arithmetic below was written for
+      // orders and events oldest first, and is handed them that way.
+      setOrders([...o.rows].reverse());
+      setSales(s.rows);
+      setEvents([...e.rows].reverse());
+      setRecipes(book.recipes ?? []);
+      if (seen) setEarlier({ phones: seen.phones ?? {}, emails: seen.emails ?? {} });
+      setShort(shortLists([{ name: "orders", truncated: o.truncated }, { name: "register rings", truncated: s.truncated }, { name: "stem entries", truncated: e.truncated }]));
+      setBackend(book.backend ?? o.backend ?? "memory");
+      setLoaded(true);
+      setAuthed(true);
+    } catch (err) {
+      if (err instanceof Locked) setAuthed(false);
+      // Anything else is a transient failure mid-poll, which must not wipe
+      // loaded ledgers to zeros: keep what we have and let the next poll
+      // try again.
+    } finally {
+      pulling.current = false;
     }
-    // A transient 500 mid-poll must not wipe loaded ledgers to zeros: keep
-    // what we have and let the next poll try again.
-    if (!s.ok || !o.ok) return;
-    const sd = await s.json();
-    const od = await o.json();
-    setEvents(sd.events ?? []);
-    setRecipes(sd.recipes ?? []);
-    setSales(sd.squareSales ?? []);
-    setOrders(od.orders ?? []);
-    setContacts(od.contacts ?? []);
-    setBackend(sd.backend ?? "memory");
-    setAuthed(true);
   }, []);
 
   // Refetch keeps the frame: the old numbers hold, dimmed, while the new
@@ -802,6 +836,9 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
   useEffect(() => {
     if (!authed || !owner || back !== 0) return;
     const t = setInterval(() => {
+      // A tab nobody is looking at reads nothing; coming back to it reads
+      // at once (the effect below).
+      if (document.visibilityState !== "visible") return;
       pull().catch(() => {});
       const today = todayISO();
       if (today !== anchorISO) setAnchorISO(today);
@@ -809,6 +846,18 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
     }, 90_000);
     return () => clearInterval(t);
   }, [authed, owner, back, range, anchorISO, win, pull, pullSummary]);
+
+  // Coming back to the tab reads again when the figures are more than a
+  // minute old, so a screen left behind another window is current the
+  // moment it is looked at.
+  useEffect(() => {
+    if (!authed || !owner) return;
+    const onBack = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastPull.current > 60_000) pull().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onBack);
+    return () => document.removeEventListener("visibilitychange", onBack);
+  }, [authed, owner, pull]);
 
   /* ---------------- the florist-side arithmetic ---------------- */
 
@@ -828,12 +877,16 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
 
     // Earliest sighting per phone and per email, built once: the returning
     // check was O(orders x contacts) with regex normalization in the inner
-    // loop, and contacts grow with every order forever.
-    const firstByPhone = new Map<string, number>();
-    const firstByEmail = new Map<string, number>();
-    for (const c of contacts) {
-      const pk = phoneKey(c.phone);
-      const ek = c.email.trim().toLowerCase();
+    // loop. Two sources, together the shop's whole history: the sightings
+    // from before the ledger's first day (the route's `earlier`), and the
+    // orders loaded here. A customer is who the board's contact list
+    // names: not a canceled order, not a quick sale's "Walk-in".
+    const firstByPhone = new Map<string, number>(Object.entries(earlier.phones));
+    const firstByEmail = new Map<string, number>(Object.entries(earlier.emails));
+    for (const c of orders) {
+      if (c.status === "canceled" || c.quick) continue;
+      const pk = phoneKey(c.phone ?? "");
+      const ek = emailKey(c.email ?? "");
       if (pk && (firstByPhone.get(pk) ?? Infinity) > c.createdAt) firstByPhone.set(pk, c.createdAt);
       if (ek && (firstByEmail.get(ek) ?? Infinity) > c.createdAt) firstByEmail.set(ek, c.createdAt);
     }
@@ -875,8 +928,8 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
       const delivery = ordersIn.filter((o) => o.fulfillment === "delivery").length;
       let returning = 0;
       for (const o of ordersIn) {
-        const pk = phoneKey(o.phone);
-        const ek = o.email.trim().toLowerCase();
+        const pk = phoneKey(o.phone ?? "");
+        const ek = emailKey(o.email ?? "");
         const seen = Math.min(pk ? firstByPhone.get(pk) ?? Infinity : Infinity, ek ? firstByEmail.get(ek) ?? Infinity : Infinity);
         if (seen < o.createdAt) returning += 1;
       }
@@ -1021,7 +1074,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
     const onAccountCents = onAccount.reduce((sum, o) => sum + owedNowCents(o), 0);
 
     return { now, prev, owedCount: owed.length, owedCents, onAccountCount: onAccount.length, onAccountCents };
-  }, [events, recipes, orders, sales, contacts, win, sourceFilter]);
+  }, [events, recipes, orders, sales, earlier, win, sourceFilter]);
 
   if (!authed) {
     return (
@@ -1115,6 +1168,12 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
           the scale a layout concern. */}
       <h1>Dashboard</h1>
       <MemoryWarning backend={backend} />
+      <ShortLedger lists={short} then="Figures for the oldest months may be short, and stem costs may be off." />
+      {!loaded && (
+        <p role="status" className="muted" style={{ margin: "0 0 12px" }}>
+          Reading the orders, the register rings and the stem log. The figures below fill in when all three are in.
+        </p>
+      )}
 
       {/* One range control governs everything below it. */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", margin: "0 0 4px" }}>
@@ -1273,7 +1332,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
         )}
         {summaryMatches && summary?.data.truncated && (
           <p style={note}>
-            Square returned more payments than this screen reads in one pass; the register figures above are missing the overflow.
+            {summary?.data.source === "square" ? "Square returned" : "The stored register rings hold"} more payments than this screen reads in one pass; the register figures above are missing the overflow.
           </p>
         )}
       </div>
@@ -1430,7 +1489,7 @@ export default function Dashboard({ initialAuthed, initialOwner }: { initialAuth
         </p>
       )}
 
-      {quiet && (
+      {quiet && loaded && (
         <p className="lede" style={{ marginTop: 28 }}>
           A quiet {range === "day" ? "day" : range === "week" ? "week" : range}: no orders, no money, no stems logged. Numbers
           appear the moment the other screens have something to add up.
